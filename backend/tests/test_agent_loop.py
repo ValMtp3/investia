@@ -59,6 +59,38 @@ def quote_tool_call(symbol="AAPL"):
     return [ToolCall(id="call_1", name="get_quote", arguments={"symbol": symbol})]
 
 
+# Réponses finales conformes aux garde-fous (2.1) : 4 sections + disclaimer + sourcé.
+FINAL_WITH_PRICE = """## Thèse
+Le prix de AAPL est 344.63 $ (source : finnhub).
+
+## Risques
+volatilité.
+
+## Confiance
+80
+
+## Sources
+- finnhub
+
+Simulation — pas un conseil en investissement.
+"""
+
+FINAL_NO_NUMBER = """## Thèse
+La source est indisponible pour l'instant.
+
+## Risques
+aucun.
+
+## Confiance
+50
+
+## Sources
+- aucune
+
+Simulation — pas un conseil en investissement.
+"""
+
+
 async def test_full_scenario_tool_then_final_answer():
     quote = MarketData(
         value=344.63,
@@ -69,7 +101,7 @@ async def test_full_scenario_tool_then_final_answer():
     llm = FakeLlm(
         [
             make_response(tool_calls=quote_tool_call()),
-            make_response(content="Le prix de AAPL est 344.63 $ (source : finnhub)."),
+            make_response(content=FINAL_WITH_PRICE),
         ]
     )
     tools = build_tools(FakeMarket(quote=quote))
@@ -103,7 +135,7 @@ async def test_tool_error_is_sent_back_to_model_not_swallowed():
     llm = FakeLlm(
         [
             make_response(tool_calls=quote_tool_call()),
-            make_response(content="la source est indisponible"),
+            make_response(content=FINAL_NO_NUMBER),
         ]
     )
     tools = build_tools(FakeMarket(error=MarketDataError("finnhub", "HTTP 500")))
@@ -118,7 +150,7 @@ async def test_invalid_tool_args_are_reported_to_model():
     llm = FakeLlm(
         [
             make_response(tool_calls=quote_tool_call(symbol="   ")),
-            make_response(content="symbole invalide"),
+            make_response(content=FINAL_NO_NUMBER),
         ]
     )
     tools = build_tools(FakeMarket())
@@ -131,7 +163,7 @@ async def test_unknown_tool_is_reported():
     llm = FakeLlm(
         [
             make_response(tool_calls=[ToolCall(id="c1", name="bidule", arguments={})]),
-            make_response(content="outil inconnu"),
+            make_response(content=FINAL_NO_NUMBER),
         ]
     )
     tools = build_tools(FakeMarket())

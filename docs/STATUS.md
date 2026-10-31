@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 2 — Garde-fous + traces** (validation format/chiffres/langage en code, enregistrement des runs en base, OTel GenAI). Spec à écrire avant le code.
+**Prochaine étape : 2.2 — Traces en base** (tables runs/run_steps, enregistrement de chaque exécution, rejouable). Spec à écrire avant le code.
+
+Avancement étape 2 : **2.1 ✅ garde-fous en code** (`guardrails/checks.py` : format 4 sections, chiffres sourcés ±0,5 % hors confiance, langage interdit, disclaimer simulation ; intégrés à la boucle avec max 2 corrections puis refus) — 103 tests, 90 % couv. D43 : OpenRouter pour GPT+Jev, Mistral direct (via LiteLLM).
 
 **Étape 1 — Boucle + outils : TERMINÉE le 31/10/2026.** 1.1 ✅ connecteurs + cache (Finnhub US, Yahoo quote Europe, EODHD historique Europe, CoinGecko, Frankfurter) · 1.2 ✅ outils agent (quote/history/indicators Polars/news) · 1.3 ✅ client LiteLLM + routeur + budget · 1.4 ✅ boucle agent CLI (`uv run python -m investia.cli "question"`) · 1.5 ✅ Jev via LiteLLM confirmé (Q10/D37, `/v1/systemone`, client `llm/jev.py`). 89+ tests, ~89 % couv. Live CLI/LLM en attente des vraies clés (`OPENAI_API_KEY`, `MISTRAL_API_KEY`, `TYPESAFE_API_KEY` dans `.env` — fictives pour l'instant).
 

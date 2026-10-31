@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from pydantic import ValidationError
 
+from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
 from investia.tools.base import BaseTool, ToolError
@@ -35,15 +36,24 @@ class ToolCallLog:
 
 
 @dataclass(frozen=True)
+class GuardrailDecision:
+    check: str
+    ok: bool
+    detail: str
+
+
+@dataclass(frozen=True)
 class AgentResult:
     answer: str
     turns: int
     tool_calls: list[ToolCallLog] = field(default_factory=list)
     total_cost_cents: float = 0.0
     model: str = ""
+    guardrails: list[GuardrailDecision] = field(default_factory=list)
 
 
 DEFAULT_MAX_TURNS = 8
+DEFAULT_MAX_CORRECTIONS = 2
 
 
 async def run_agent(
@@ -52,8 +62,9 @@ async def run_agent(
     tools: dict[str, BaseTool],
     max_turns: int = DEFAULT_MAX_TURNS,
     model_key: str | None = None,
+    max_corrections: int = DEFAULT_MAX_CORRECTIONS,
 ) -> AgentResult:
-    """Exécute la boucle d'agent sur une question. Arrêt propre si max tours atteint."""
+    """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
 
     model_key = model_key or choose(question)
@@ -63,48 +74,88 @@ async def run_agent(
         {"role": "user", "content": question},
     ]
     log: list[ToolCallLog] = []
+    guardrails: list[GuardrailDecision] = []
     total_cost = 0.0
+    corrections = 0
 
     for turn in range(1, max_turns + 1):
         response = await llm.chat(model_key, messages, tools=tool_specs)
         total_cost += response.cost_cents
-        if not response.tool_calls:
+        if response.tool_calls:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": response.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments),
+                            },
+                        }
+                        for call in response.tool_calls
+                    ],
+                }
+            )
+            for call in response.tool_calls:
+                result_text = await _execute_tool(tools, call.name, call.arguments)
+                log.append(
+                    ToolCallLog(
+                        tool=call.name,
+                        arguments=call.arguments,
+                        ok=not result_text.startswith("erreur"),
+                    )
+                )
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": result_text}
+                )
+            continue
+
+        # Réponse finale : les garde-fous vérifient en code avant validation.
+        tool_outputs = [m["content"] for m in messages if m.get("role") == "tool"]
+        checks = run_all_checks(response.content, tool_outputs)
+        guardrails.extend(
+            GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
+            for name, result in checks
+        )
+        failed = [(name, result.detail) for name, result in checks if not result.ok]
+        if not failed:
             return AgentResult(
                 answer=response.content,
                 turns=turn,
                 tool_calls=log,
                 total_cost_cents=total_cost,
                 model=response.model,
+                guardrails=guardrails,
             )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": response.content,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.name,
-                            "arguments": json.dumps(call.arguments),
-                        },
-                    }
-                    for call in response.tool_calls
-                ],
-            }
-        )
-        for call in response.tool_calls:
-            result_text = await _execute_tool(tools, call.name, call.arguments)
-            log.append(
-                ToolCallLog(
-                    tool=call.name,
-                    arguments=call.arguments,
-                    ok=not result_text.startswith("erreur"),
-                )
-            )
+        if corrections < max_corrections:
+            corrections += 1
             messages.append(
-                {"role": "tool", "tool_call_id": call.id, "content": result_text}
+                {
+                    "role": "user",
+                    "content": (
+                        "Garde-fou : ta réponse est bloquée ("
+                        + "; ".join(f"{name}: {detail}" for name, detail in failed)
+                        + "). Corrige-la et réponds à nouveau en respectant le format."
+                    ),
+                }
             )
+            continue
+        return AgentResult(
+            answer=(
+                "[réponse bloquée par les garde-fous après "
+                f"{max_corrections} corrections : "
+                + "; ".join(f"{name}: {detail}" for name, detail in failed)
+                + "]"
+            ),
+            turns=turn,
+            tool_calls=log,
+            total_cost_cents=total_cost,
+            model=response.model,
+            guardrails=guardrails,
+        )
 
     return AgentResult(
         answer=(
@@ -115,6 +166,7 @@ async def run_agent(
         tool_calls=log,
         total_cost_cents=total_cost,
         model=model_key,
+        guardrails=guardrails,
     )
 
 
