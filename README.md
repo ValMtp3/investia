@@ -1,5 +1,7 @@
 # Investia — conseiller en investissement (portefeuille simulé)
 
+[![CI](https://github.com/ValMtp3/investia/actions/workflows/ci.yml/badge.svg)](https://github.com/ValMtp3/investia/actions/workflows/ci.yml)
+
 > Ancien nom du projet : « Harness IA ». Le projet vit dans `dev_project/Investia`, en ligne sur `investia.valentin-fiess.fr`.
 
 Projet d'**apprentissage** : construire à la main un *harness* d'agent IA, en prenant le conseil en investissement comme terrain d'entraînement.

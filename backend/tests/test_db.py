@@ -51,8 +51,10 @@ async def test_check_db_true_and_select_1_with_real_postgres(
 
 async def test_app_starts_and_ready_503_when_db_down(monkeypatch, reset_db_globals):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@127.0.0.1:59999/nope")
+    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:59998/0")
     for var, value in BASE_ENV.items():
-        monkeypatch.setenv(var, value)
+        if var not in ("DATABASE_URL", "REDIS_URL"):
+            monkeypatch.setenv(var, value)
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
