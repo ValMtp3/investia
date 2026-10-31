@@ -31,7 +31,7 @@ Un agent (harness écrit à la main, modèles Jev + GPT-6 Luna + Mistral Large 4
 | Temps réel | **SSE** (le serveur pousse) + AG-UI pour le chat agent |
 | Portefeuille | 10 000 € fictifs, capital **ajustable en mode admin** |
 | Budget LLM | 10-20 €/mois max (prompt caching + semantic cache + Jev) |
-| CI/CD | GitHub Actions (uv + ruff + pytest) sur dépôt GitHub privé |
+| CI/CD | GitHub Actions (uv + ruff + pytest) sur dépôt GitHub **public** |
 | Comparaison | Étape 6 : LangGraph vs Pydantic AI vs OpenAI Agents SDK |
 | Utilisateur | Toi seul |
 

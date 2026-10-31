@@ -6,7 +6,7 @@
 
 **Étape 0 — Fondations** (pas encore commencée). Plan détaillé : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md` (relu et corrigé le 31/10/2026).
 
-Prochaine action prévue (décision D31) : commit des docs sur `main`, puis branche `feat/etape-0-fondations` sur le dépôt GitHub privé `investia`.
+Prochaine action prévue (décision D31) : commit des docs sur `main`, puis branche `feat/etape-0-fondations` sur le dépôt GitHub public `investia`.
 
 ## Bloqueurs / à vérifier maintenant
 

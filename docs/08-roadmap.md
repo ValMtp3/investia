@@ -4,7 +4,7 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 
 | Étape | Contenu | Terminé quand |
 |---|---|---|
-| **0 — Fondations** | Dépôt GitHub privé, CI/CD (GitHub Actions : uv + ruff + pytest + coverage), structure du repo, Docker Compose local, PostgreSQL + Redis, squelette API FastAPI async, gestion des clés | `cd deploy && docker compose --env-file ../.env up` démarre tout, `/health` et `/ready` répondent 200, la CI est verte sur un premier push |
+| **0 — Fondations** | Dépôt GitHub public, CI/CD (GitHub Actions : uv + ruff + pytest + coverage), structure du repo, Docker Compose local, PostgreSQL + Redis, squelette API FastAPI async, gestion des clés | `cd deploy && docker compose --env-file ../.env up` démarre tout, `/health` et `/ready` répondent 200, la CI est verte sur un premier push |
 | **1 — Boucle + outils** | Boucle d'agent, outils prix / historique / indicateurs / actualités, connecteurs de données, cache Redis, routeur Jev (petit : GPT-6 Luna, gros : Mistral Large 4) | En ligne de commande, l'agent répond à une question avec des chiffres issus d'outils |
 | **2 — Garde-fous + traces** | Validation de format, des chiffres, du langage ; enregistrement des exécutions en base | Une réponse avec chiffre inventé est bloquée ; toute exécution est rejouable |
 | **3 — Evals + mémoire** | Jeu d'evals, commande unique, scores en base ; mémoire courte et longue | Les scores s'enregistrent, une régression se voit en chiffres |

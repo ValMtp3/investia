@@ -127,7 +127,7 @@ Tu veux tester ce qui est moderne en 2026 autour des agents et harness IA, pas u
 | **Nginx Proxy Manager** | Déjà sur le VPS : gère 80/443, HTTPS, certificats pour `investia.valentin-fiess.fr`. On y ajoute des proxy hosts + forward-auth Authelia. Pas de Caddy en frontal |
 | Docker Compose (3 fichiers : base + override local + prod) | `docker compose up` identique en local et en ligne ; aucun port publié en prod (réseau Docker interne seul) |
 | **Authelia 4.39** | Auth OIDC légère (~50 Mo), forward-auth (`/api/authz/auth-request`) derrière NPM |
-| **GitHub** (privé) + **GitHub Actions** | Dépôt + CI (uv, ruff, pytest, coverage) |
+| **GitHub** (public) + **GitHub Actions** | Dépôt + CI (uv, ruff, pytest, coverage) |
 | **Uptime Kuma** | Monitoring simple « le service répond-il ? » (si pas déjà un outil de monitoring sur le VPS) |
 | Sauvegardes PostgreSQL + test de restauration | Régulier |
 

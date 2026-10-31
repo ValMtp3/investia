@@ -28,7 +28,7 @@
 | D20 | SQLAlchemy 2.0 **async** + Alembic | Cohérent avec FastAPI async |
 | D21 | VPS : **OVH VPS-1 2026** (4 vCores, 8 Go RAM, 75 Go disque), **partagé** avec d'autres services existants (dont NPM) | Notre stack ajoute ~2-3 Go ; la marge restante dépend des autres services déjà dessus. Stack la plus légère possible (Authelia, pas Authentik) |
 | D22 | Budget LLM : **10-20 €/mois max**, optimisation maximale | Prompt caching, semantic cache, Jev pour les décisions, gros modèle rarement appelé, Batch API |
-| D23 | Dépôt Git sur **GitHub** (privé) | Standard, CI gratuite |
+| D23 | Dépôt Git sur **GitHub** (public, voir D42) | Standard, CI gratuite |
 | D24 | Approche **moderne 2026** : MCP (spec 2026-07-28), A2A, AG-UI, OTel GenAI, pgvector | Voir `11-stack-moderne-2026.md` pour le détail |
 | D25 | Nom de domaine : **`investia.valentin-fiess.fr`** | Sous-domaine dédié, HTTPS géré par le NPM existant |
 | D26 | Modèles : Jev (décisions) + **GPT-6 Luna** petit ($0.10/$0.50 par M tokens) + **Mistral Large 4** gros ($1.36/$4.18, cached $0.14) | Multi-provider : OpenAI pour le petit, Mistral (fournisseur français/européen) pour le gros. Appels via gateway ou SDK directs |
@@ -37,7 +37,7 @@
 | D29 | **LiteLLM** comme gateway multi-provider (OpenAI + Mistral + Jev derrière une seule API, cost tracking, budgets) | Un seul point d'appel pour tous les modèles, suivi des coûts centralisé. Version Docker épinglée (incident supply chain mars 2026) |
 | D30 | **Polars** + **DuckDB** pour le calcul financier | Polars (Rust) remplace pandas pour les séries de prix ; DuckDB = SQL analytique embarqué pour les backtests sur l'historique Stooq |
 | D31 | Commit des docs sur `main` avant de créer la branche `feat/etape-0-fondations` | Avoir une base propre pour les PR futures |
-| D32 | Repo GitHub privé nommé **`investia`** | Court, correspond au nom du projet |
+| D32 | Repo GitHub public nommé **`investia`** | Court, correspond au nom du projet. Public depuis le début (D42) |
 | D33 | Image Redis : **`redis:8`** (pas redis-stack-server) | La recherche vectorielle est dans PostgreSQL (pgvector), pas besoin côté Redis |
 | D34 | Découper les étapes 1 et 4 de la roadmap en sous-étapes maintenant | Trop grosses pour un seul plan, on planifie avant de commencer |
 | D35 | Règles du portefeuille simulé : **prix du dernier tick connu + frais proportionnels (0,1 %)** | Ordre hors marché exécuté au dernier prix connu. Simple et reproductible |
@@ -47,6 +47,7 @@
 | D39 | Authelia servi sur un **chemin `/auth`** de `investia.valentin-fiess.fr` (pas de sous-domaine dédié) | Tout regroupé sous un seul domaine, géré par NPM |
 | D40 | Sauvegardes PostgreSQL : **`pg_dump` quotidien vers stockage objet (S3/Backblaze B2)** | Backup automatisé hors du VPS, rotation à définir à l'étape 4 bis |
 | D41 | **Harness cœur (étapes 1-3) écrit 100 % à la main** — pas de LangChain, OpenAI Agents SDK, Pydantic AI, LangGraph. Ces frameworks seront testés à l'étape 6 pour comparaison (D17). `pydantic` (validation de données, config FastAPI) reste utilisé, ce n'est pas `pydantic-ai` | Apprendre les fondamentaux (boucle, outils, garde-fous) en construisant soi-même, puis mesurer avec des evals ce que les frameworks apportent de plus ou de moins. Comme apprendre la cuisine à la main avant d'acheter un robot |
+| D42 | Repo GitHub **`investia` public** (correction : D23/D32 disaient « privé ») | Projet d'apprentissage : le code est fait pour être lu et partagé. ⚠️ Conséquence : **aucun secret jamais commité** — `.env` gitignoré, `.env.example` sans valeurs, test `test_secrets_hygiene.py` en CI pour bloquer toute fuite |
 
 ## Propositions à valider (rien n'est décidé)
 
@@ -68,7 +69,7 @@
 | Q3 | Capital fictif de départ et devise | Étape 4 | ✅ Résolu : 10 000 € EUR, ajustable en mode admin (D27) |
 | Q4 | Plafond de budget mensuel OpenAI ? | Étape 1 | ✅ Résolu : 10-20 €/mois max (D22) |
 | Q5 | Liste initiale des actifs suivis ? | Étape 1 | ✅ Résolu : **pas de liste initiale**, tu ajoutes les actifs un par un dans le dashboard |
-| Q6 | Dépôt Git : quel hébergeur, quand l'initialiser ? | Étape 0 | ✅ Résolu : GitHub privé, étape 0 (D23) |
+| Q6 | Dépôt Git : quel hébergeur, quand l'initialiser ? | Étape 0 | ✅ Résolu : GitHub public, étape 0 (D23, D42) |
 | Q7 | Mémoire longue : pgvector dans PostgreSQL | Étape 3 | ✅ Résolu : pgvector retenu (pgvector 0.8.6 tient ~10k souvenirs sans dégradation à notre échelle) |
 | Q8 | Source actions/ETF exacte | Étape 1 | ✅ Résolu : Finnhub (prix+news) + Stooq (historique), vérifié le 30/10/2026 (D28) |
 | Q9 | Actions/ETF européens : le gratuit de Finnhub couvre-t-il l'Europe en temps réel ? Comment convertir USD → EUR pour un portefeuille en EUR (Frankfurter = taux journaliers seulement) ? | Étape 1 (données), étape 4 (portefeuille) | 🔄 **À vérifier maintenant** (D36) : tester la couverture Europe de Finnhub avant l'étape 1 |
@@ -89,4 +90,4 @@
 - 2026-10-30 (mise à jour 4) : **stack backend (P1) et frontend (P2) validées**. Polars + DuckDB ajoutés pour le calcul financier (D30). Toutes les décisions structurantes sont prises ; prêt pour l'étape 0.
 - 2026-10-31 (relecture) : plan de l'étape 0 corrigé (commande compose depuis `deploy/`, `/health` + `/ready`, Alembic seul, une image par service, tests dans `backend/tests/`, ordre de la Task 6). Docs mises à jour (LiteLLM, Authelia = forward-auth et non OIDC, doublons du glossaire). Nouvelles questions ouvertes Q9 à Q15.
 - 2026-10-31 (clôture des questions) : toutes les questions ouvertes Q9-Q15 ont reçu une réponse (D31-D40). P5 et P6 validées (D38). Prochaines étapes : vérifier la couverture Europe de Finnhub (D36), puis découper les étapes 1 et 4 en sous-étapes (D34), puis lancer l'étape 0 (commit docs sur `main` puis branche `feat/etape-0-fondations`, repo GitHub `investia`).
-- 2026-10-31 (ajout) : décision D41 — le harness cœur (étapes 1-3) est écrit à la main, sans framework d'agents (LangChain, OpenAI Agents SDK, Pydantic AI). Les frameworks seront comparés à l'étape 6 (D17). Règles de commit (co-auteur unique : Mistral Vibe) et « ne pas réinventer la roue » ajoutées à `AGENTS.md`.
+- 2026-10-31 (ajout) : décision D41 — le harness cœur (étapes 1-3) est écrit à la main, sans framework d'agents (LangChain, OpenAI Agents SDK, Pydantic AI). Les frameworks seront comparés à l'étape 6 (D17). Règles de commit (co-auteur unique : Mistral Vibe) et « ne pas réinventer la roue » ajoutées à `AGENTS.md`. D42 : le repo `investia` est **public** (correction de D23/D32) — aucun secret commité, test d'hygiène des secrets en CI.
