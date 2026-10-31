@@ -9,7 +9,7 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1 — Boucle + outils.** Avant de la lancer : D36 (tester la couverture Europe de Finnhub en gratuit) et D34 (découper les étapes 1 et 4 en sous-étapes).
+**Prochaine étape : 1.1 — Connecteurs données + cache** (découpage D34 fait). Avant de la lancer : D36 (tester la couverture Europe de Finnhub en gratuit — attend la clé API dans `.env`).
 
 Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (brew, port 6380) pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
 
@@ -17,8 +17,8 @@ Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (br
 
 | # | Quoi | Pourquoi | Statut |
 |---|---|---|---|
-| D36 | Couverture Europe de Finnhub en gratuit (temps réel ou US seulement ?) | Décide si on a du temps réel européen avant l'étape 1 | 🔄 à tester |
-| D34 | Découper les étapes 1 et 4 de la roadmap en sous-étapes | Trop grosses pour un seul plan | 🔄 à faire avant l'étape 1 |
+| D36 | Couverture Europe de Finnhub en gratuit (temps réel ou US seulement ?) | Décide si on a du temps réel européen avant l'étape 1 | 🔄 en attente : clé API Finnhub à créer sur finnhub.io et à mettre dans `.env` |
+| D34 | Découper les étapes 1 et 4 de la roadmap en sous-étapes | Trop grosses pour un seul plan | ✅ fait le 31/10/2026 : étapes 1.1-1.5 et 4.1-4.5 dans `08-roadmap.md` |
 
 ## Zone de suppression (ne pas recréer)
 
