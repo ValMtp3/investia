@@ -14,6 +14,7 @@ from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
 from investia.tools.base import BaseTool, ToolError
+from investia.tracing.store import TraceStoreProtocol
 
 
 class LlmChat(Protocol):
@@ -63,11 +64,14 @@ async def run_agent(
     max_turns: int = DEFAULT_MAX_TURNS,
     model_key: str | None = None,
     max_corrections: int = DEFAULT_MAX_CORRECTIONS,
+    trace_store: TraceStoreProtocol | None = None,
 ) -> AgentResult:
     """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
 
     model_key = model_key or choose(question)
+    store = trace_store
+    run_id = await store.start_run(question) if store is not None else None
     tool_specs = [tool.to_openai_tool() for tool in tools.values()]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -81,6 +85,19 @@ async def run_agent(
     for turn in range(1, max_turns + 1):
         response = await llm.chat(model_key, messages, tools=tool_specs)
         total_cost += response.cost_cents
+        if store is not None and run_id is not None:
+            await store.log_step(
+                run_id,
+                turn,
+                "llm_call",
+                {
+                    "model": response.model,
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "cost_cents": response.cost_cents,
+                    "tool_calls": [call.name for call in response.tool_calls],
+                },
+            )
         if response.tool_calls:
             messages.append(
                 {
@@ -101,13 +118,24 @@ async def run_agent(
             )
             for call in response.tool_calls:
                 result_text = await _execute_tool(tools, call.name, call.arguments)
-                log.append(
-                    ToolCallLog(
-                        tool=call.name,
-                        arguments=call.arguments,
-                        ok=not result_text.startswith("erreur"),
-                    )
+                entry = ToolCallLog(
+                    tool=call.name,
+                    arguments=call.arguments,
+                    ok=not result_text.startswith("erreur"),
                 )
+                log.append(entry)
+                if store is not None and run_id is not None:
+                    await store.log_step(
+                        run_id,
+                        turn,
+                        "tool_call",
+                        {
+                            "name": call.name,
+                            "arguments": call.arguments,
+                            "ok": entry.ok,
+                            "result": result_text,
+                        },
+                    )
                 messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": result_text}
                 )
@@ -120,9 +148,17 @@ async def run_agent(
             GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
             for name, result in checks
         )
+        if store is not None and run_id is not None:
+            for name, result in checks:
+                await store.log_step(
+                    run_id,
+                    turn,
+                    "guardrail",
+                    {"check": name, "ok": result.ok, "detail": result.detail},
+                )
         failed = [(name, result.detail) for name, result in checks if not result.ok]
         if not failed:
-            return AgentResult(
+            result = AgentResult(
                 answer=response.content,
                 turns=turn,
                 tool_calls=log,
@@ -130,6 +166,16 @@ async def run_agent(
                 model=response.model,
                 guardrails=guardrails,
             )
+            if store is not None and run_id is not None:
+                await store.finish_run(
+                    run_id,
+                    answer=result.answer,
+                    model=result.model,
+                    turns=result.turns,
+                    cost_cents=result.total_cost_cents,
+                    status="ok",
+                )
+            return result
         if corrections < max_corrections:
             corrections += 1
             messages.append(
@@ -143,31 +189,53 @@ async def run_agent(
                 }
             )
             continue
-        return AgentResult(
-            answer=(
-                "[réponse bloquée par les garde-fous après "
-                f"{max_corrections} corrections : "
-                + "; ".join(f"{name}: {detail}" for name, detail in failed)
-                + "]"
-            ),
+        blocked_answer = (
+            "[réponse bloquée par les garde-fous après "
+            f"{max_corrections} corrections : "
+            + "; ".join(f"{name}: {detail}" for name, detail in failed)
+            + "]"
+        )
+        result = AgentResult(
+            answer=blocked_answer,
             turns=turn,
             tool_calls=log,
             total_cost_cents=total_cost,
             model=response.model,
             guardrails=guardrails,
         )
+        if store is not None and run_id is not None:
+            await store.finish_run(
+                run_id,
+                answer=result.answer,
+                model=result.model,
+                turns=result.turns,
+                cost_cents=result.total_cost_cents,
+                status="blocked",
+            )
+        return result
 
-    return AgentResult(
-        answer=(
-            f"[arrêt après {max_turns} tours — budget de tours atteint] "
-            "La question semble demander trop d'étapes."
-        ),
+    max_turns_answer = (
+        f"[arrêt après {max_turns} tours — budget de tours atteint] "
+        "La question semble demander trop d'étapes."
+    )
+    result = AgentResult(
+        answer=max_turns_answer,
         turns=max_turns,
         tool_calls=log,
         total_cost_cents=total_cost,
         model=model_key,
         guardrails=guardrails,
     )
+    if store is not None and run_id is not None:
+        await store.finish_run(
+            run_id,
+            answer=result.answer,
+            model=result.model,
+            turns=result.turns,
+            cost_cents=result.total_cost_cents,
+            status="max_turns",
+        )
+    return result
 
 
 async def _execute_tool(

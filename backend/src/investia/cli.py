@@ -6,11 +6,13 @@ import sys
 
 from investia.agent import run_agent
 from investia.config import get_settings
+from investia.db import get_session
 from investia.llm import build_llm_client
 from investia.llm.errors import LlmError
 from investia.market import build_market_service
 from investia.market.base import MarketDataError
 from investia.tools import build_tools
+from investia.tracing import DbTraceStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,7 +35,13 @@ def main(argv: list[str] | None = None) -> int:
     llm = build_llm_client(settings)
     try:
         result = asyncio.run(
-            run_agent(args.question, llm, tools, max_turns=args.max_turns)
+            run_agent(
+                args.question,
+                llm,
+                tools,
+                max_turns=args.max_turns,
+                trace_store=DbTraceStore(get_session()),
+            )
         )
     except (LlmError, MarketDataError) as error:
         print(f"erreur: {error}", file=sys.stderr)
