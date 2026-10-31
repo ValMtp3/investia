@@ -9,7 +9,7 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1.2 — Outils de l'agent** (`get_quote`, `get_history`, `get_indicators`, `get_news`). Spec à écrire avant le code.
+**Étape 1.2 en cours — Outils de l'agent** (`get_quote`, `get_history`, `get_indicators`, `get_news`). Spec validée : `docs/specs/1-2-outils-agent.md`. EODHD ajouté au cumul Europe (P8) : clé sandbox à créer sur eodhd.com → `EODHD_API_KEY` dans `.env`.
 
 Avancement étape 1 : **1.1 terminée le 31/10/2026** — connecteurs Finnhub (US temps réel) / Yahoo (Europe) / CoinGecko (crypto) / Frankfurter (taux), cache Redis TTL, routeur par symbole, 53 tests verts (91 % couverture) + test live Finnhub réel. D36 ✅ (Finnhub gratuit = US only, Europe via Yahoo, P8).
 
