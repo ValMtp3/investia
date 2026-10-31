@@ -59,6 +59,7 @@
 | P4 | Gateway multi-provider **LiteLLM** | Étape 1 | ✅ Résolu : LiteLLM retenu (D29) |
 | P5 | Traces : OpenTelemetry GenAI en base PostgreSQL d'abord, Langfuse self-hosted plus tard si besoin | Étape 2-3 | ✅ **Validé le 31/10/2026** (D38) |
 | P6 | Evals : DeepEval (pytest) + Promptfoo (red teaming) | Étape 3 | ✅ **Validé le 31/10/2026** (D38) |
+| P7 | **Go ou Rust en comparatif à l'étape 6** : réécrire un composant (collecteur de prix ou moteur de backtest) et mesurer la différence vs Python avec les evals. **Pas dans le cœur du harness** (qui reste 100 % Python, D41) | Étape 6 | ❓ Proposition — à valider le moment venu |
 
 ## Questions ouvertes
 
