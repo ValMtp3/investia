@@ -9,9 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1.3 — Client LiteLLM + routeur + budget par exécution.** Spec à écrire avant le code.
+**Prochaine étape : 1.4 — Boucle d'agent en CLI** (`uv run python -m investia.cli "question"`). Spec à écrire avant le code.
 
-Avancement étape 1 : 1.1 ✅ connecteurs + cache (Finnhub US, Yahoo Europe quote, EODHD Europe historique, CoinGecko, Frankfurter) · **1.2 ✅ outils agent** (`get_quote`, `get_history`, `get_indicators` Polars SMA20/50 + vol annualisée, `get_news`) — 73 tests, 92 % couv. EODHD branché (clé sandbox eodhd.com → `EODHD_API_KEY` dans `.env`, P8).
+Avancement étape 1 : 1.1 ✅ connecteurs + cache · 1.2 ✅ outils agent · **1.3 ✅ client LiteLLM** (retry, coût depuis `models.toml`, budget par exécution en centimes, routeur petit/gros en dur) — 82 tests, 93,5 % couv. EODHD live testé (SAP.XETRA, AIR.PA). ⚠️ Clés Finnhub/EODHD vues en clair dans le chat de session : à révoquer si le chat est sauvegardé. Clés manquantes pour le live LLM : `OPENAI_API_KEY`, `MISTRAL_API_KEY` dans `.env`.
 
 Avancement étape 1 : **1.1 terminée le 31/10/2026** — connecteurs Finnhub (US temps réel) / Yahoo (Europe) / CoinGecko (crypto) / Frankfurter (taux), cache Redis TTL, routeur par symbole, 53 tests verts (91 % couverture) + test live Finnhub réel. D36 ✅ (Finnhub gratuit = US only, Europe via Yahoo, P8).
 

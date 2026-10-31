@@ -1,0 +1,10 @@
+# Noms des modèles et prix (par million de tokens) — jamais dans le code (doc 03).
+# Prix indicatifs oct. 2026 (D26), à vérifier avant chaque étape.
+
+[models]
+small = "gpt-6-luna"
+large = "mistral-large-4"
+
+[prices_per_million_tokens]
+gpt-6-luna = { input = 0.10, output = 0.50 }
+mistral-large-4 = { input = 1.36, output = 4.18 }
