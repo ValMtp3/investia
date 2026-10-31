@@ -17,7 +17,7 @@ Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (br
 
 | # | Quoi | Pourquoi | Statut |
 |---|---|---|---|
-| D36 | Couverture Europe de Finnhub en gratuit (temps réel ou US seulement ?) | Décide si on a du temps réel européen avant l'étape 1 | 🔄 en attente : clé API Finnhub à créer sur finnhub.io et à mettre dans `.env` |
+| D36 | Couverture Europe de Finnhub en gratuit (temps réel ou US seulement ?) | Décide si on a du temps réel européen avant l'étape 1 | ✅ testé le 31/10/2026 : **gratuit = US uniquement** (quote+news US, search global). Europe = payant. Historique/prix Europe via Yahoo Finance (gratuit, testé OK), conversion via Frankfurter. Voir Q9/P8 dans `09-decisions.md` |
 | D34 | Découper les étapes 1 et 4 de la roadmap en sous-étapes | Trop grosses pour un seul plan | ✅ fait le 31/10/2026 : étapes 1.1-1.5 et 4.1-4.5 dans `08-roadmap.md` |
 
 ## Zone de suppression (ne pas recréer)

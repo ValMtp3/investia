@@ -60,6 +60,7 @@
 | P5 | Traces : OpenTelemetry GenAI en base PostgreSQL d'abord, Langfuse self-hosted plus tard si besoin | Étape 2-3 | ✅ **Validé le 31/10/2026** (D38) |
 | P6 | Evals : DeepEval (pytest) + Promptfoo (red teaming) | Étape 3 | ✅ **Validé le 31/10/2026** (D38) |
 | P7 | **Go ou Rust en comparatif à l'étape 6** : réécrire un composant (collecteur de prix ou moteur de backtest) et mesurer la différence vs Python avec les evals. **Pas dans le cœur du harness** (qui reste 100 % Python, D41) | Étape 6 | ❓ Proposition — à valider le moment venu |
+| P8 | **Sources Europe** : Finnhub (US temps réel + news US) + **Yahoo Finance chart** pour l'Europe (prix delayed + historique, sans clé, devise native) + Frankfurter/ECB pour USD→EUR + CoinGecko Demo/Binance pour la crypto. Stooq laissé de côté (challenge PoW JS) sauf si on résout le PoW | Étape 1.1 | ❓ À valider avant de coder les connecteurs |
 
 ## Questions ouvertes
 
@@ -73,7 +74,7 @@
 | Q6 | Dépôt Git : quel hébergeur, quand l'initialiser ? | Étape 0 | ✅ Résolu : GitHub public, étape 0 (D23, D42) |
 | Q7 | Mémoire longue : pgvector dans PostgreSQL | Étape 3 | ✅ Résolu : pgvector retenu (pgvector 0.8.6 tient ~10k souvenirs sans dégradation à notre échelle) |
 | Q8 | Source actions/ETF exacte | Étape 1 | ✅ Résolu : Finnhub (prix+news) + Stooq (historique), vérifié le 30/10/2026 (D28) |
-| Q9 | Actions/ETF européens : le gratuit de Finnhub couvre-t-il l'Europe en temps réel ? Comment convertir USD → EUR pour un portefeuille en EUR (Frankfurter = taux journaliers seulement) ? | Étape 1 (données), étape 4 (portefeuille) | 🔄 **À vérifier maintenant** (D36) : tester la couverture Europe de Finnhub avant l'étape 1 |
+| Q9 | Actions/ETF européens : le gratuit de Finnhub couvre-t-il l'Europe en temps réel ? Comment convertir USD → EUR pour un portefeuille en EUR (Frankfurter = taux journaliers seulement) ? | Étape 1 (données), étape 4 (portefeuille) | ✅ Résolu le 31/10/2026 (D36, tests live) : **Finnhub gratuit = temps réel US uniquement** (quote+news US OK, search global OK ; Europe = payant « no access »). Europe : prix/historique via **Yahoo Finance chart** (sans clé, historique OK, prix en EUR natif ou delayed intraday), conversion USD→EUR via **Frankfurter/ECB** (taux journaliers). Stooq est protégé par un challenge JS (PoW) depuis 2026 — inaccessible en simple HTTP. Voir P8 |
 | Q10 | Jev passe-t-il derrière LiteLLM ? Son API renvoie des probabilités (`/api/alpha/decisions`), pas du chat | Étape 1 | ✅ Résolu : derrière LiteLLM si compatible, sinon appel direct (D37) |
 | Q11 | Plan B si l'API Jev est indisponible (service sorti en sept. 2026, endpoint « alpha ») : règles en dur pour le routage, ou variante LLM-as-Jev ? | Étape 1-2 | ✅ Résolu avec Q10 : dépend de la compatibilité LiteLLM (D37) |
 | Q12 | Règles du portefeuille simulé : prix d'exécution d'un ordre, frais, fractions d'action, ordres hors marché ouvert, indice de référence | Étape 4 | ✅ Résolu : prix du dernier tick + frais proportionnels 0,1 % (D35) |
