@@ -9,9 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1.5 — test de Jev en direct** (API TypeSafe/OpenRouter, compatibilité LiteLLM, Q10/D37). Spec à écrire avant le code.
+**Prochaine étape : 2 — Garde-fous + traces** (validation format/chiffres/langage en code, enregistrement des runs en base, OTel GenAI). Spec à écrire avant le code.
 
-Avancement étape 1 : 1.1 ✅ · 1.2 ✅ · 1.3 ✅ · **1.4 ✅ boucle d'agent en CLI** (`uv run python -m investia.cli "question"` : max 8 tours, function calling sur les 4 outils, erreurs renvoyées au modèle, budget par run, tracé console) — 89 tests, 89 % couv. Critère étape 1 rempli côté code (le live CLI attend les vraies clés LLM).
+**Étape 1 — Boucle + outils : TERMINÉE le 31/10/2026.** 1.1 ✅ connecteurs + cache (Finnhub US, Yahoo quote Europe, EODHD historique Europe, CoinGecko, Frankfurter) · 1.2 ✅ outils agent (quote/history/indicators Polars/news) · 1.3 ✅ client LiteLLM + routeur + budget · 1.4 ✅ boucle agent CLI (`uv run python -m investia.cli "question"`) · 1.5 ✅ Jev via LiteLLM confirmé (Q10/D37, `/v1/systemone`, client `llm/jev.py`). 89+ tests, ~89 % couv. Live CLI/LLM en attente des vraies clés (`OPENAI_API_KEY`, `MISTRAL_API_KEY`, `TYPESAFE_API_KEY` dans `.env` — fictives pour l'instant).
 
 Avancement étape 1 : 1.1 ✅ connecteurs + cache · 1.2 ✅ outils agent · **1.3 ✅ client LiteLLM** (retry, coût depuis `models.toml`, budget par exécution en centimes, routeur petit/gros en dur) — 82 tests, 93,5 % couv. EODHD live testé (SAP.XETRA, AIR.PA). ⚠️ Clés Finnhub/EODHD vues en clair dans le chat de session : à révoquer si le chat est sauvegardé. Clés manquantes pour le live LLM : `OPENAI_API_KEY`, `MISTRAL_API_KEY` dans `.env`.
 

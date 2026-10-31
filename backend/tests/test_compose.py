@@ -51,9 +51,9 @@ def test_litellm_image_is_pinned_to_a_version_not_latest():
     assert re.match(r"^ghcr\.io/berriai/litellm:v\d+\.\d+\.\d+", image), image
 
 
-def test_litellm_config_declares_the_two_models():
+def test_litellm_config_declares_chat_models_and_jev():
     config = yaml.safe_load(
         (DEPLOY_DIR / "litellm" / "config.yaml").read_text(encoding="utf-8")
     )
     models = {m["model_name"] for m in config["model_list"]}
-    assert {"gpt-6-luna", "mistral-large-4"} <= models
+    assert {"gpt-6-luna", "mistral-large-4", "jev"} <= models

@@ -3,14 +3,18 @@
 from investia.config import Settings
 from investia.llm.client import LlmClient, LlmResponse
 from investia.llm.errors import LlmError
+from investia.llm.jev import JevAnswer, JevClient
 from investia.llm.models import ModelsConfig, load_models_config
 from investia.llm.router import choose
 
 __all__ = [
+    "JevAnswer",
+    "JevClient",
     "LlmClient",
     "LlmError",
     "LlmResponse",
     "ModelsConfig",
+    "build_jev_client",
     "build_llm_client",
     "choose",
     "load_models_config",
@@ -27,4 +31,11 @@ def build_llm_client(
         master_key=settings.litellm_master_key,
         models=load_models_config(),
         budget_cents=budget_cents,
+    )
+
+
+def build_jev_client(settings: Settings) -> JevClient:
+    return JevClient(
+        base_url=settings.litellm_base_url,
+        master_key=settings.litellm_master_key,
     )
