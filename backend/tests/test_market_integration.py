@@ -10,6 +10,7 @@ from investia.market import build_market_service
 pytestmark = pytest.mark.integration
 
 HAS_FINNHUB = bool(os.environ.get("FINNHUB_API_KEY"))
+HAS_EODHD = bool(os.environ.get("EODHD_API_KEY"))
 HAS_REDIS = bool(os.environ.get("TEST_REDIS_URL"))
 
 
@@ -51,5 +52,24 @@ async def test_real_quotes_us_and_europe_with_cache(monkeypatch):
     fx = await service.get_quote("USD")
     assert fx.source == "frankfurter"
     assert 0 < fx.value < 2
+
+    redis_module._redis = None
+
+
+@pytest.mark.skipif(not HAS_EODHD, reason="EODHD_API_KEY manquante")
+@pytest.mark.skipif(not HAS_REDIS, reason="TEST_REDIS_URL non défini")
+async def test_real_history_europe_via_eodhd(monkeypatch):
+    monkeypatch.setenv("REDIS_URL", os.environ["TEST_REDIS_URL"])
+    monkeypatch.setenv("EODHD_API_KEY", os.environ["EODHD_API_KEY"])
+    import investia.cache as redis_module
+
+    redis_module._redis = None
+
+    settings = Settings(_env_file=None)
+    service = build_market_service(settings)
+    history = await service.get_history("SAP.DE", days=10)
+    assert len(history) > 0
+    assert all(h.source == "eodhd" for h in history)
+    assert all(h.currency == "EUR" for h in history)
 
     redis_module._redis = None
