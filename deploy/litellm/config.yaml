@@ -1,0 +1,15 @@
+# Config LiteLLM — modèles gpt-6-luna (petit) et mistral-large-4 (gros), clés via env.
+# Jev n'est PAS déclaré ici : son API renvoie des probabilités, pas du chat (testé à l'étape 1).
+model_list:
+  - model_name: gpt-6-luna
+    litellm_params:
+      model: openai/gpt-6-luna
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: mistral-large-4
+    litellm_params:
+      model: mistral/mistral-large-4
+      api_key: os.environ/MISTRAL_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/LITELLM_DATABASE_URL

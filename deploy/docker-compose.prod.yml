@@ -1,0 +1,11 @@
+# Prod (VPS) — aucun port publié : tout passe par le réseau Docker interne,
+# exposé uniquement via le Nginx Proxy Manager existant.
+services:
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
+  backend:
+    restart: unless-stopped
+  litellm:
+    restart: unless-stopped
