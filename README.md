@@ -12,6 +12,30 @@ Projet d'**apprentissage** : construire à la main un *harness* d'agent IA, en p
 
 Un agent (harness écrit à la main, modèles Jev + GPT-6 Luna + Mistral Large 4) qui lit des données de marché quasi temps réel (actions, ETF, crypto), propose des analyses sourcées, gère un portefeuille simulé de 10 000 €, et dont chaque étape est tracée, validée et évaluée. Le tout visible dans des dashboards.
 
+## Structure du repo
+
+```
+Investia/
+├── backend/          # API FastAPI async (Python 3.12+, uv, Ruff, ty, pytest)
+│   ├── src/investia/ # code source
+│   └── tests/        # tous les tests (y compris ceux qui vérifient deploy/ et .github/)
+├── deploy/           # docker-compose.yml + override local + prod, init Postgres, config LiteLLM
+├── dashboard/        # frontend React 19 (étape 4)
+├── evals/            # jeu d'evals (étape 3)
+├── docs/             # documentation (voir « Où lire quoi » ci-dessous)
+└── .github/workflows/# CI (uv + ruff + ty + pytest + coverage)
+```
+
+## Commandes rapides
+
+```bash
+cd backend && uv run pytest        # lancer les tests
+uv run ruff check .                # lint
+uv run ruff format .               # formatage
+uv run ty check                    # vérification des types
+cd deploy && docker compose --env-file ../.env up -d   # stack locale complète
+```
+
 ## Les décisions déjà prises
 
 | Sujet | Choix |

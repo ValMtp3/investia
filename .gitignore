@@ -1,1 +1,20 @@
+# Secrets — jamais commités (repo public, D42)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+*.egg-info/
+
+# macOS
 .DS_Store
