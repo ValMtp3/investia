@@ -46,6 +46,7 @@
 | D38 | Traces : **OTel GenAI en PostgreSQL** d'abord ; Evals : **DeepEval (pytest) + Promptfoo** (red teaming) | P5 + P6 validées. Langfuse self-hosted plus tard si besoin |
 | D39 | Authelia servi sur un **chemin `/auth`** de `investia.valentin-fiess.fr` (pas de sous-domaine dédié) | Tout regroupé sous un seul domaine, géré par NPM |
 | D40 | Sauvegardes PostgreSQL : **`pg_dump` quotidien vers stockage objet (S3/Backblaze B2)** | Backup automatisé hors du VPS, rotation à définir à l'étape 4 bis |
+| D41 | **Harness cœur (étapes 1-3) écrit 100 % à la main** — pas de LangChain, OpenAI Agents SDK, Pydantic AI, LangGraph. Ces frameworks seront testés à l'étape 6 pour comparaison (D17). `pydantic` (validation de données, config FastAPI) reste utilisé, ce n'est pas `pydantic-ai` | Apprendre les fondamentaux (boucle, outils, garde-fous) en construisant soi-même, puis mesurer avec des evals ce que les frameworks apportent de plus ou de moins. Comme apprendre la cuisine à la main avant d'acheter un robot |
 
 ## Propositions à valider (rien n'est décidé)
 
@@ -88,3 +89,4 @@
 - 2026-10-30 (mise à jour 4) : **stack backend (P1) et frontend (P2) validées**. Polars + DuckDB ajoutés pour le calcul financier (D30). Toutes les décisions structurantes sont prises ; prêt pour l'étape 0.
 - 2026-10-31 (relecture) : plan de l'étape 0 corrigé (commande compose depuis `deploy/`, `/health` + `/ready`, Alembic seul, une image par service, tests dans `backend/tests/`, ordre de la Task 6). Docs mises à jour (LiteLLM, Authelia = forward-auth et non OIDC, doublons du glossaire). Nouvelles questions ouvertes Q9 à Q15.
 - 2026-10-31 (clôture des questions) : toutes les questions ouvertes Q9-Q15 ont reçu une réponse (D31-D40). P5 et P6 validées (D38). Prochaines étapes : vérifier la couverture Europe de Finnhub (D36), puis découper les étapes 1 et 4 en sous-étapes (D34), puis lancer l'étape 0 (commit docs sur `main` puis branche `feat/etape-0-fondations`, repo GitHub `investia`).
+- 2026-10-31 (ajout) : décision D41 — le harness cœur (étapes 1-3) est écrit à la main, sans framework d'agents (LangChain, OpenAI Agents SDK, Pydantic AI). Les frameworks seront comparés à l'étape 6 (D17). Règles de commit (co-auteur unique : Mistral Vibe) et « ne pas réinventer la roue » ajoutées à `AGENTS.md`.
