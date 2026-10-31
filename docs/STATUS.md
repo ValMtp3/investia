@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1.1 — Connecteurs données + cache** (découpage D34 fait). Avant de la lancer : D36 (tester la couverture Europe de Finnhub en gratuit — attend la clé API dans `.env`).
+**Prochaine étape : 1.2 — Outils de l'agent** (`get_quote`, `get_history`, `get_indicators`, `get_news`). Spec à écrire avant le code.
+
+Avancement étape 1 : **1.1 terminée le 31/10/2026** — connecteurs Finnhub (US temps réel) / Yahoo (Europe) / CoinGecko (crypto) / Frankfurter (taux), cache Redis TTL, routeur par symbole, 53 tests verts (91 % couverture) + test live Finnhub réel. D36 ✅ (Finnhub gratuit = US only, Europe via Yahoo, P8).
 
 Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (brew, port 6380) pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
 
