@@ -60,7 +60,7 @@
 | P5 | Traces : OpenTelemetry GenAI en base PostgreSQL d'abord, Langfuse self-hosted plus tard si besoin | Étape 2-3 | ✅ **Validé le 31/10/2026** (D38) |
 | P6 | Evals : DeepEval (pytest) + Promptfoo (red teaming) | Étape 3 | ✅ **Validé le 31/10/2026** (D38) |
 | P7 | **Go ou Rust en comparatif à l'étape 6** : réécrire un composant (collecteur de prix ou moteur de backtest) et mesurer la différence vs Python avec les evals. **Pas dans le cœur du harness** (qui reste 100 % Python, D41) | Étape 6 | ❓ Proposition — à valider le moment venu |
-| P8 | **Sources Europe** : Finnhub (US temps réel + news US) + **Yahoo Finance chart** pour l'Europe (prix delayed + historique, sans clé, devise native) + Frankfurter/ECB pour USD→EUR + CoinGecko Demo/Binance pour la crypto. Stooq laissé de côté (challenge PoW JS) sauf si on résout le PoW | Étape 1.1 | ❓ À valider avant de coder les connecteurs |
+| P8 | **Sources Europe** : Finnhub (US temps réel + news US) + **Yahoo Finance chart** pour l'Europe (prix delayed + historique, sans clé, devise native — testé OK le 31/10) + Frankfurter/ECB pour USD→EUR + CoinGecko Demo/Binance pour la crypto. ⚠️ Yahoo = API non officielle (ToS gris) : isolée derrière un connecteur dédié pour pouvoir swapper. Stooq testé : PoW résoluble en Python mais « Access denied » persistant (anti-bot durci) → écarté pour l'instant. Massive Basic (EOD) en secours historique | Étape 1.1 | ✅ **Validé le 31/10/2026** avec le risque Yahoo documenté |
 
 ## Questions ouvertes
 
