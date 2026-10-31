@@ -1,20 +1,20 @@
-# Config LiteLLM — modèles gpt-6-luna (petit) et mistral-large-4 (gros), clés via env.
-# Jev n'est PAS déclaré ici : son API renvoie des probabilités, pas du chat (testé à l'étape 1).
+# Config LiteLLM — D43 : OpenRouter pour GPT-6 Luna + Jev, Mistral en direct pour Mistral Large 4.
+# Tout passe quand même par le gateway LiteLLM (un seul point d'appel côté backend).
 model_list:
   - model_name: gpt-6-luna
     litellm_params:
-      model: openai/gpt-6-luna
-      api_key: os.environ/OPENAI_API_KEY
+      model: openrouter/openai/gpt-6-luna
+      api_key: os.environ/OPENROUTER_API_KEY
   - model_name: mistral-large-4
     litellm_params:
       model: mistral/mistral-large-4
+      api_base: https://api.mistral.ai/v1
       api_key: os.environ/MISTRAL_API_KEY
-  # Decision model (Q10/D37) : servi par LiteLLM sur /v1/decisions et /v1/systemone
+  # Decision model (Q10/D37) : servi par LiteLLM sur /v1/decisions et /v1/systemone, via OpenRouter
   - model_name: jev
     litellm_params:
-      model: typesafe/jev-latest
-      api_base: https://api.typesafe.ai
-      api_key: os.environ/TYPESAFE_API_KEY
+      model: openrouter/typesafe/jev-latest
+      api_key: os.environ/OPENROUTER_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

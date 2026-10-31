@@ -55,5 +55,15 @@ def test_litellm_config_declares_chat_models_and_jev():
     config = yaml.safe_load(
         (DEPLOY_DIR / "litellm" / "config.yaml").read_text(encoding="utf-8")
     )
-    models = {m["model_name"] for m in config["model_list"]}
-    assert {"gpt-6-luna", "mistral-large-4", "jev"} <= models
+    models = {m["model_name"]: m["litellm_params"]["model"] for m in config["model_list"]}
+    assert {"gpt-6-luna", "mistral-large-4", "jev"} <= set(models)
+
+
+def test_litellm_providers_are_openrouter_for_gpt_jev_and_mistral_direct():
+    config = yaml.safe_load(
+        (DEPLOY_DIR / "litellm" / "config.yaml").read_text(encoding="utf-8")
+    )
+    models = {m["model_name"]: m["litellm_params"]["model"] for m in config["model_list"]}
+    assert models["gpt-6-luna"].startswith("openrouter/"), models["gpt-6-luna"]
+    assert models["jev"].startswith("openrouter/"), models["jev"]
+    assert models["mistral-large-4"] == "mistral/mistral-large-4"
