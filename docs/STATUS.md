@@ -4,9 +4,11 @@
 
 ## Étape en cours
 
-**Étape 0 — Fondations** (pas encore commencée). Plan détaillé : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md` (relu et corrigé le 31/10/2026).
+**Étape 0 — Fondations** (en cours, branche `feat/etape-0-fondations`). Plan détaillé : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md`.
 
-Prochaine action prévue (décision D31) : commit des docs sur `main`, puis branche `feat/etape-0-fondations` sur le dépôt GitHub public `investia`.
+Avancement (31/10/2026) : Tasks 1 à 5 terminées et commitées — structure + toolchain (T1), FastAPI + config + `/health` (T2), PostgreSQL async + Alembic + `/ready` (T3), Redis async (T4), Docker Compose complet (T5, vérifié en local via OrbStack : `compose up` → 4 conteneurs healthy, `/health` 200, `/ready` 200 db+redis up, 0 port publié en config prod). **Reste : Task 6 (CI GitHub Actions + premier push).**
+
+Environnement de test local : PostgreSQL 17.11 (brew, port 5433) et Redis 8.10 (brew, port 6380) lancés en local pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
 
 ## Bloqueurs / à vérifier maintenant
 

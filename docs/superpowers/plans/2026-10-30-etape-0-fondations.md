@@ -147,7 +147,7 @@ P1 a validé la stack, pas chaque paquet. Ces paquets sont **à valider avec l'u
 
 - [ ] **Step 1: Test en échec** — `test_compose.py` : parser les 3 fichiers YAML ; assert services `postgres`, `redis`, `backend`, `litellm` présents ; assert **aucun `ports:` dans `docker-compose.yml` ni `docker-compose.prod.yml`** ; assert dans l'override que chaque port est lié à `127.0.0.1` ; assert image litellm épinglée (pas `latest`) ; assert que `pgvector/pgvector` est l'image de `postgres`.
 - [ ] **Step 2: Run → FAIL**.
-- [ ] **Step 3: Implémenter** les 3 compose + `Dockerfile` (python:3.12-slim, uv installé, `uv sync --frozen`, utilisateur non-root, commande `uvicorn investia.main:app`) + `.dockerignore` + script SQL + `litellm/config.yaml` minimal.
+- [ ] **Step 3: Implémenter** les 3 compose + `Dockerfile` (python:3.12-slim, uv installé, `uv sync --frozen`, utilisateur non-root, commande `uvicorn investia.main:app`) + `.dockerignore` + script SQL + `litellm/config.yaml` minimal. ✅ Image LiteLLM épinglée à **`ghcr.io/berriai/litellm:v1.106.5`** (vérifié le 31/10/2026 : le tag existe sur ghcr.io ; il n'y a pas de suffixe `-stable` sur ghcr).
 - [ ] **Step 4: Vérification réelle** — `cp .env.example .env` (valeurs bidons), `cd deploy && docker compose --env-file ../.env up -d`, attendre les healthchecks, `curl localhost:8000/health` → 200 et `curl localhost:8000/ready` → 200 avec db + redis `up`. Vérifier aussi `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` : aucun port publié. Documenter les commandes dans le README.
 - [ ] **Step 5: Commit** (validation utilisateur).
 
