@@ -4,11 +4,14 @@
 
 ## Étape en cours
 
-**Étape 0 — Fondations** (en cours, branche `feat/etape-0-fondations`). Plan détaillé : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md`.
+**Étape 0 — Fondations : TERMINÉE le 31/10/2026.** Branche `feat/etape-0-fondations` pushée sur GitHub (`ValMtp3/investia`), CI verte (run 41219238270 : ruff, format, ty, pytest 25 tests + couverture 89 % ≥ 80 %). Plan : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md`.
 
-Avancement (31/10/2026) : Tasks 1 à 5 terminées et commitées — structure + toolchain (T1), FastAPI + config + `/health` (T2), PostgreSQL async + Alembic + `/ready` (T3), Redis async (T4), Docker Compose complet (T5, vérifié en local via OrbStack : `compose up` → 4 conteneurs healthy, `/health` 200, `/ready` 200 db+redis up, 0 port publié en config prod). **Reste : Task 6 (CI GitHub Actions + premier push).**
+- T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
+- `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-Environnement de test local : PostgreSQL 17.11 (brew, port 5433) et Redis 8.10 (brew, port 6380) lancés en local pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
+**Prochaine étape : 1 — Boucle + outils.** Avant de la lancer : D36 (tester la couverture Europe de Finnhub en gratuit) et D34 (découper les étapes 1 et 4 en sous-étapes).
+
+Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (brew, port 6380) pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
 
 ## Bloqueurs / à vérifier maintenant
 
