@@ -113,3 +113,54 @@ async def test_http_401_raises_without_retry():
     with pytest.raises(LlmError, match="401"):
         await client.chat("small", [{"role": "user", "content": "hi"}])
     assert calls == 1, "pas de retry sur 401"
+
+
+async def test_chat_with_tools_sends_them_and_parses_tool_calls():
+    import json as jsonlib
+
+    tool_calls_payload = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_quote",
+                                "arguments": '{"symbol": "AAPL"}',
+                            },
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    tool_spec = {
+        "type": "function",
+        "function": {
+            "name": "get_quote",
+            "parameters": {
+                "type": "object",
+                "properties": {"symbol": {"type": "string"}},
+            },
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = jsonlib.loads(request.content)
+        assert body.get("tools") == [tool_spec], (
+            "les tools doivent être envoyés au gateway"
+        )
+        return httpx.Response(200, json=tool_calls_payload)
+
+    client = make_client(handler)
+    response = await client.chat(
+        "small", [{"role": "user", "content": "prix AAPL ?"}], tools=[tool_spec]
+    )
+    assert response.tool_calls[0].name == "get_quote"
+    assert response.tool_calls[0].arguments == {"symbol": "AAPL"}
+    assert response.tool_calls[0].id == "call_1"

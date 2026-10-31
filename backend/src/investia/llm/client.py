@@ -1,7 +1,8 @@
 """Client LiteLLM (gateway self-hosté, API OpenAI) avec retry, coût et budget."""
 
 import asyncio
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -14,12 +15,22 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    """Un appel d'outil demandé par le modèle (function calling)."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class LlmResponse:
     content: str
     model: str
     prompt_tokens: int
     completion_tokens: int
     cost_cents: float
+    tool_calls: list[ToolCall] = field(default_factory=list)
 
 
 class LlmClient:
@@ -45,23 +56,35 @@ class LlmClient:
     async def chat(
         self,
         model_key: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         temperature: float = 0.2,
+        tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         model = self._models.by_key(model_key)
-        payload = {
+        payload: dict[str, Any] = {
             "model": model.name,
             "messages": messages,
             "temperature": temperature,
         }
+        if tools:
+            payload["tools"] = tools
         response = await self._post_with_retry(payload)
         data = response.json()
         try:
-            content = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            content = message.get("content") or ""
             usage = data["usage"]
             prompt_tokens = int(usage["prompt_tokens"])
             completion_tokens = int(usage["completion_tokens"])
-        except (KeyError, IndexError, TypeError) as error:
+            tool_calls = [
+                ToolCall(
+                    id=call["id"],
+                    name=call["function"]["name"],
+                    arguments=json.loads(call["function"]["arguments"]),
+                )
+                for call in message.get("tool_calls", [])
+            ]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise LlmError(f"réponse mal formée du gateway ({model.name})") from error
         cost_cents = self._cost_cents(model, prompt_tokens, completion_tokens)
         if cost_cents > self._budget_cents:
@@ -75,6 +98,7 @@ class LlmClient:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost_cents=cost_cents,
+            tool_calls=tool_calls,
         )
 
     def _cost_cents(self, model, prompt_tokens: int, completion_tokens: int) -> float:

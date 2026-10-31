@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 1.4 — Boucle d'agent en CLI** (`uv run python -m investia.cli "question"`). Spec à écrire avant le code.
+**Prochaine étape : 1.5 — test de Jev en direct** (API TypeSafe/OpenRouter, compatibilité LiteLLM, Q10/D37). Spec à écrire avant le code.
+
+Avancement étape 1 : 1.1 ✅ · 1.2 ✅ · 1.3 ✅ · **1.4 ✅ boucle d'agent en CLI** (`uv run python -m investia.cli "question"` : max 8 tours, function calling sur les 4 outils, erreurs renvoyées au modèle, budget par run, tracé console) — 89 tests, 89 % couv. Critère étape 1 rempli côté code (le live CLI attend les vraies clés LLM).
 
 Avancement étape 1 : 1.1 ✅ connecteurs + cache · 1.2 ✅ outils agent · **1.3 ✅ client LiteLLM** (retry, coût depuis `models.toml`, budget par exécution en centimes, routeur petit/gros en dur) — 82 tests, 93,5 % couv. EODHD live testé (SAP.XETRA, AIR.PA). ⚠️ Clés Finnhub/EODHD vues en clair dans le chat de session : à révoquer si le chat est sauvegardé. Clés manquantes pour le live LLM : `OPENAI_API_KEY`, `MISTRAL_API_KEY` dans `.env`.
 
