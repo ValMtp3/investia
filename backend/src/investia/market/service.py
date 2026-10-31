@@ -28,10 +28,10 @@ class MarketService:
         self._connectors = connectors
         self._use_cache = use_cache
 
-    def _connector_for(self, symbol: str) -> MarketDataConnector:
+    def _connector_for(self, symbol: str, kind: str = "quote") -> MarketDataConnector:
         from investia.market.base import MarketDataError
 
-        source = pick_source(symbol)
+        source = pick_source(symbol, kind=kind)
         connector = self._connectors.get(source)
         if connector is None:
             raise MarketDataError(
@@ -40,7 +40,7 @@ class MarketService:
         return connector
 
     async def get_quote(self, symbol: str) -> MarketData:
-        connector = self._connector_for(symbol)
+        connector = self._connector_for(symbol, kind="quote")
         if not self._use_cache:
             return await connector.get_quote(symbol)
         raw = await cached(
@@ -51,7 +51,7 @@ class MarketService:
         return MarketData.from_dict(raw)
 
     async def get_history(self, symbol: str, days: int = 30) -> list[MarketData]:
-        connector = self._connector_for(symbol)
+        connector = self._connector_for(symbol, kind="history")
         if not self._use_cache:
             return await connector.get_history(symbol, days)
         raw = await cached(
@@ -62,7 +62,7 @@ class MarketService:
         return [MarketData.from_dict(item) for item in raw]
 
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
-        connector = self._connector_for(symbol)
+        connector = self._connector_for(symbol, kind="news")
         if not self._use_cache:
             return await connector.get_news(symbol, limit)
         return await cached(

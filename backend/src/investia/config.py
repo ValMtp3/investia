@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     mistral_api_key: SecretStr | None = None
     typesafe_api_key: SecretStr | None = None
     finnhub_api_key: SecretStr | None = None
+    eodhd_api_key: SecretStr | None = None
     coingecko_demo_api_key: SecretStr | None = None
     stooq_api_key: SecretStr | None = None
 

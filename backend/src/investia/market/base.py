@@ -59,3 +59,13 @@ class MarketDataConnector(Protocol):
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         """Actualités récentes sur un symbole."""
         ...
+
+
+class MarketDataService(Protocol):
+    """Façade de données utilisée par les outils (implémentée par MarketService)."""
+
+    async def get_quote(self, symbol: str) -> MarketData: ...
+
+    async def get_history(self, symbol: str, days: int = 30) -> list[MarketData]: ...
+
+    async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]: ...
