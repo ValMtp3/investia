@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from investia.cache import check_redis, close_redis
 from investia.config import get_settings
 from investia.db import check_db, close_db
 
@@ -16,6 +17,7 @@ from investia.db import check_db, close_db
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
     await close_db()
+    await close_redis()
 
 
 def create_app() -> FastAPI:
@@ -44,11 +46,13 @@ def create_app() -> FastAPI:
 
     @app.get("/ready")
     async def ready() -> JSONResponse:
-        """Prêt si la base répond. 503 + détail sinon, jamais de texte d'exception."""
-        db_up = await check_db()
-        return JSONResponse(
-            {"db": "up" if db_up else "down"}, status_code=200 if db_up else 503
-        )
+        """Prêt si la base et Redis répondent. 503 + détail par service sinon."""
+        db_up, redis_up = await check_db(), await check_redis()
+        body = {
+            "db": "up" if db_up else "down",
+            "redis": "up" if redis_up else "down",
+        }
+        return JSONResponse(body, status_code=200 if db_up and redis_up else 503)
 
     return app
 

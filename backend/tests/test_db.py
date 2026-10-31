@@ -13,6 +13,7 @@ from investia.main import create_app
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+HAS_TEST_REDIS = bool(os.environ.get("TEST_REDIS_URL"))
 
 BASE_ENV = {
     "REDIS_URL": "redis://localhost:6379/0",
@@ -24,13 +25,16 @@ BASE_ENV = {
 
 @pytest.fixture
 def reset_db_globals():
+    import investia.cache as cache_module
     import investia.db as db_module
 
     db_module._engine = None
     db_module._session_factory = None
+    cache_module._redis = None
     yield
     db_module._engine = None
     db_module._session_factory = None
+    cache_module._redis = None
 
 
 @pytest.mark.integration
@@ -56,23 +60,28 @@ async def test_app_starts_and_ready_503_when_db_down(monkeypatch, reset_db_globa
         ready = await client.get("/ready")
     assert health.status_code == 200
     assert ready.status_code == 503
-    assert ready.json() == {"db": "down"}
+    assert ready.json() == {"db": "down", "redis": "down"}
     assert "asyncpg" not in ready.text
     assert "OperationalError" not in ready.text
 
 
 @pytest.mark.integration
 @pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL non défini")
-async def test_ready_200_when_db_up(monkeypatch, reset_db_globals):
+@pytest.mark.skipif(not HAS_TEST_REDIS, reason="TEST_REDIS_URL non défini")
+async def test_ready_200_when_db_and_redis_up(monkeypatch, reset_db_globals):
+    assert TEST_DATABASE_URL is not None
+    test_redis_url = os.environ["TEST_REDIS_URL"]
     monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    monkeypatch.setenv("REDIS_URL", test_redis_url)
     for var, value in BASE_ENV.items():
-        monkeypatch.setenv(var, value)
+        if var not in ("DATABASE_URL", "REDIS_URL"):
+            monkeypatch.setenv(var, value)
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         ready = await client.get("/ready")
     assert ready.status_code == 200
-    assert ready.json() == {"db": "up"}
+    assert ready.json() == {"db": "up", "redis": "up"}
 
 
 @pytest.mark.integration
