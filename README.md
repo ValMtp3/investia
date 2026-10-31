@@ -35,6 +35,15 @@ Un agent (harness écrit à la main, modèles Jev + GPT-6 Luna + Mistral Large 4
 | Comparaison | Étape 6 : LangGraph vs Pydantic AI vs OpenAI Agents SDK |
 | Utilisateur | Toi seul |
 
+## Organisation IA du projet
+
+- `AGENTS.md` (racine) : règles lues par tous les agents IA à chaque session (stack, commandes, conventions, règles absolues).
+- [docs/GOVERNANCE.md](docs/GOVERNANCE.md) : quel document joue quel rôle (constitution / map / status / history).
+- [docs/STATUS.md](docs/STATUS.md) : étape en cours, bloqueurs, suppressions intentionnelles. **À lire en début de session.**
+- `docs/specs/` : une spec par fonctionnalité, écrite avant le code.
+- `.agents/skills/` : procédures réutilisables par les agents IA, versionnées dans le repo.
+- `.claude/commands/` : commandes slash (review, explain-diff).
+
 ## Où lire quoi
 
 | Document | Contenu |
@@ -50,6 +59,8 @@ Un agent (harness écrit à la main, modèles Jev + GPT-6 Luna + Mistral Large 4
 | [09 — Décisions (ADR)](docs/09-decisions.md) | Pourquoi chaque choix, et les questions ouvertes |
 | [10 — Glossaire](docs/10-glossaire.md) | Les mots techniques expliqués |
 | [11 — Stack moderne 2026](docs/11-stack-moderne-2026.md) | Toutes les technos retenues/proposées, à jour d'octobre 2026 |
+| [GOVERNANCE](docs/GOVERNANCE.md) | Les 4 rôles des documents (constitution / map / status / history) |
+| [STATUS](docs/STATUS.md) | Où on en est maintenant : étape en cours, bloqueurs, zone de suppression |
 
 ## Conventions
 
