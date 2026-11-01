@@ -1,19 +1,5 @@
-// Données mock pour le squelette (le temps réel SSE arrive à l'étape 4.4).
-export interface MockQuote {
-  symbol: string;
-  name: string;
-  price: number;
-  changePct: number;
-  time: string;
-  delayed: boolean;
-}
-
-export const MOCK_QUOTES: MockQuote[] = [
-  { symbol: "AAPL", name: "Apple", price: 344.63, changePct: 1.2, time: "16:00", delayed: false },
-  { symbol: "SAP.DE", name: "SAP", price: 211.25, changePct: -0.4, time: "17:30", delayed: true },
-  { symbol: "BTC-USD", name: "Bitcoin", price: 69245, changePct: 2.8, time: "17:45", delayed: false },
-];
-
+// Données mock restantes : uniquement l'historique du graphique (le flux SSE
+// pousse les prix live depuis l'étape 4.4b ; l'historique SSE arrive plus tard).
 export interface Candle {
   time: string;
   open: number;

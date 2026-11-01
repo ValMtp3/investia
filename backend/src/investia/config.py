@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     coingecko_demo_api_key: SecretStr | None = None
     stooq_api_key: SecretStr | None = None
 
+    # Origin autorisé pour les appels cross-origin du dashboard en dev (CORS)
+    frontend_origin: str = "http://localhost:5173"
+
 
 @lru_cache
 def get_settings() -> Settings:

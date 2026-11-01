@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -74,6 +75,13 @@ def create_app(
         llm = build_llm_client(settings)
 
     app = FastAPI(title="Investia", lifespan=lifespan)
+    # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_origin],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -187,7 +195,9 @@ def create_app(
                     for symbol in symbol_list:
                         try:
                             quote = await market.get_quote(symbol)
-                            quotes.append(quote.to_dict())
+                            quote_dict = quote.to_dict()
+                            quote_dict["symbol"] = symbol
+                            quotes.append(quote_dict)
                         except Exception as error:
                             quotes.append({"symbol": symbol, "error": str(error)})
                     yield format_sse("quotes", {"quotes": quotes})

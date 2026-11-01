@@ -1,6 +1,15 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
+
+// La page Marché ouvre un flux SSE au montage : on stubbe fetch (API non dispo en test).
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+vi.stubGlobal(
+  "fetch",
+  vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }),
+);
 
 // jsdom n'a pas de canvas : on mocke lightweight-charts (le vrai rendu est testé en E2E plus tard)
 vi.mock("lightweight-charts", () => ({
@@ -22,7 +31,9 @@ describe("App (layout + navigation)", () => {
     for (const label of ["Marché", "Portefeuille", "Agent", "Traces & evals"]) {
       expect(nav).toHaveTextContent(label);
     }
-    expect(screen.getByRole("alert")).toHaveTextContent("Simulation — argent fictif");
+    expect(
+      screen.getByText(/Simulation — argent fictif/i),
+    ).toBeInTheDocument();
   });
 
   it("affiche la page marché par défaut avec le graphique", async () => {

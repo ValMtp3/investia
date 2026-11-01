@@ -166,3 +166,49 @@ async def test_market_stream_pushes_quotes(app):
                 break
         await response.aclose()
         assert seen >= 2
+
+
+async def test_market_stream_quotes_include_symbol_and_source(app):
+    """Chaque quote du flux porte son symbole (le frontend associe prix -> symbole)."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with client.stream(
+            "GET",
+            "/market/stream?symbols=AAPL,SAP.DE&interval=0.05&max_events=1",
+        ) as response:
+            events = await parse_sse_events(response)
+    quotes_event = next(payload for kind, payload in events if kind == "quotes")
+    quotes = quotes_event["quotes"]
+    assert {q["symbol"] for q in quotes} == {"AAPL", "SAP.DE"}
+    for quote in quotes:
+        assert quote["value"] == 344.63
+        assert quote["source"] == "finnhub"
+        assert "timestamp" in quote
+
+
+async def test_cors_allows_frontend_origin(app, monkeypatch):
+    """Le dashboard en dev (localhost:5173) peut appeler l'API (sinon bloqué)."""
+    monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    from investia.config import get_settings
+
+    get_settings.cache_clear()
+    app_with_cors = create_app(
+        portfolio_service=FakePortfolio(), llm=FakeLlm(), market=FakeMarket()
+    )
+    transport = httpx.ASGITransport(app=app_with_cors)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/health", headers={"Origin": "http://localhost:5173"}
+        )
+        assert (
+            response.headers["access-control-allow-origin"] == "http://localhost:5173"
+        )
+        preflight = await client.options(
+            "/agent/run",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        assert preflight.status_code == 200
+        assert "POST" in preflight.headers["access-control-allow-methods"]
