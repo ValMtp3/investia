@@ -11,6 +11,7 @@ from investia.llm import build_llm_client
 from investia.llm.errors import LlmError
 from investia.market import build_market_service
 from investia.market.base import MarketDataError
+from investia.memory import build_memory
 from investia.tools import build_tools
 from investia.tracing import DbTraceStore
 
@@ -31,7 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = get_settings()
     market = build_market_service(settings)
-    tools = build_tools(market)
+    memory_store, embeddings = (None, None)
+    if settings.openrouter_api_key is not None:
+        memory_store, embeddings = build_memory(settings)
+    tools = build_tools(market, memory_store=memory_store, embeddings=embeddings)
     llm = build_llm_client(settings)
     try:
         result = asyncio.run(

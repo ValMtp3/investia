@@ -26,3 +26,20 @@ def test_every_tool_has_llm_contract():
         assert tool.args_schema.model_json_schema()["type"] == "object"
         spec = tool.to_openai_tool()
         assert spec["function"]["name"] == name
+
+
+def test_memory_tools_added_when_store_available():
+    from investia.memory.embeddings import FakeEmbeddingsForTests
+
+    class FakeStore:
+        async def save(self, content, embedding=None):
+            return "mem-1"
+
+        async def recall(self, query, k=5):
+            return []
+
+    tools = build_tools(
+        FakeMarket(), memory_store=FakeStore(), embeddings=FakeEmbeddingsForTests()
+    )
+    assert {"save_memory", "recall_memory"} <= set(tools)
+    assert len(tools) == 6

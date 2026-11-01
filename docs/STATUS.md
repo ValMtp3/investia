@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 3.2 — Mémoire longue (pgvector)** + evals DeepEval en CI. Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+**Prochaine étape : 4.1 — Modèle portefeuille en base** (tables + migration, API). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+
+**Étape 3 — Evals + mémoire : terminée le 31/10/2026.** 3.1 ✅ evals (runner + métriques en code + scores en base) · 3.2 ✅ mémoire longue pgvector (table memories + HNSW, embeddings OpenRouter text-embedding-3-small, outils save_memory/recall_memory branchés au registre et à la CLI) — 121 tests, ruff/ty propres. Base de test unique : conteneur Docker pgvector (127.0.0.1:5432).
 
 Avancement étape 3 : **3.1 ✅ evals** — runner maison (`uv run python -m investia.evals`), métriques en code (tool_used, numbers_sourced, format, langage, disclaimer, tours, coût), scores en base (`eval_runs`/`eval_results`, migration 0003), 3 cas mockés déterministes dans `evals/cases.yaml`, redteam Promptfoo (`evals/redteam.yaml`), deepeval en dev (D38) — 114 tests, ~90 % couv.
 

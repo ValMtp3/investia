@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     app_secret_key: SecretStr
 
     # Optionnels à l'étape 0, requis quand le code s'en sert (étape 1)
-    openai_api_key: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
     mistral_api_key: SecretStr | None = None
     typesafe_api_key: SecretStr | None = None
     finnhub_api_key: SecretStr | None = None
