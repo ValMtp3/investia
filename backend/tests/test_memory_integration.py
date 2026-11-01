@@ -12,9 +12,13 @@ from investia.memory.store import DbMemoryStore
 
 pytestmark = pytest.mark.integration
 
-TEST_PG_URL = os.environ.get(
-    "TEST_PGVECTOR_URL",
-    "postgresql+asyncpg://investia:localtest123@127.0.0.1:5432/investia_test",
+# Ordre : URL pgvector dédiée, puis la base de test commune (celle de la CI, comme les
+# autres tests d'intégration), puis la base locale Docker. Sans le 2e choix, la CI
+# retombait sur le mot de passe local et échouait (« password authentication failed »).
+TEST_PG_URL = (
+    os.environ.get("TEST_PGVECTOR_URL")
+    or os.environ.get("TEST_DATABASE_URL")
+    or "postgresql+asyncpg://investia:localtest123@127.0.0.1:5432/investia_test"
 )
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
