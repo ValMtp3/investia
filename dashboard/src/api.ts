@@ -38,7 +38,7 @@ export function usePortfolio() {
 
 /** Période demandée au backend, et affichée dans le texte alternatif du graphique. */
 export const HISTORY_DAYS = 30;
-// Le backend garde l'historique 1 h en cache : inutile de le redemander à chaque clic.
+// Le backend garde l'historique 24 h en cache : inutile de le redemander à chaque clic.
 const HISTORY_STALE_MS = 5 * 60 * 1000;
 
 export interface HistoryPoint {
@@ -72,6 +72,26 @@ async function errorDetail(response: Response, fallback: string): Promise<string
   return fallback;
 }
 
+function isHistoryPoint(point: unknown): point is HistoryPoint {
+  if (typeof point !== "object" || point === null) return false;
+  const { time, value } = point as Partial<HistoryPoint>;
+  return typeof time === "string" && typeof value === "number" && Number.isFinite(value);
+}
+
+/** Les dates AAAA-MM-JJ se comparent comme du texte : strictement croissantes, sans doublon. */
+function isStrictlyAscending(points: HistoryPoint[]): boolean {
+  return points.every((point, i) => i === 0 || points[i - 1].time < point.time);
+}
+
+/** Vérifie la forme de la réponse : le graphique plante sur des points mal formés. */
+function parseMarketHistory(raw: unknown): MarketHistory {
+  const points = (raw as Partial<MarketHistory> | null)?.points;
+  if (!Array.isArray(points) || !points.every(isHistoryPoint) || !isStrictlyAscending(points)) {
+    throw new Error("Historique reçu illisible : réponse inattendue du serveur.");
+  }
+  return raw as MarketHistory;
+}
+
 export async function fetchMarketHistory(
   symbol: string,
   signal?: AbortSignal,
@@ -83,7 +103,7 @@ export async function fetchMarketHistory(
       await errorDetail(response, `Historique indisponible (HTTP ${response.status})`),
     );
   }
-  return response.json() as Promise<MarketHistory>;
+  return parseMarketHistory(await response.json());
 }
 
 export function useMarketHistory(symbol: string) {
@@ -91,6 +111,9 @@ export function useMarketHistory(symbol: string) {
     queryKey: ["market-history", symbol],
     queryFn: ({ signal }) => fetchMarketHistory(symbol, signal),
     staleTime: HISTORY_STALE_MS,
+    // Le backend explique déjà l'échec (« eodhd: clé API manquante ») : on l'affiche tout
+    // de suite plutôt que de réessayer 3 fois (environ 7 s sur « Chargement… »).
+    retry: false,
   });
 }
 

@@ -152,7 +152,7 @@ async def test_market_stream_pushes_quotes(app):
         response = await client.send(
             httpx.Request(
                 "GET",
-                "http://test/market/stream?symbols=AAPL&interval=0.05&max_events=2",
+                "http://test/market/stream?symbols=AAPL&interval=1&max_events=2",
             ),
             stream=True,
         )
@@ -174,7 +174,7 @@ async def test_market_stream_quotes_include_symbol_and_source(app):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         async with client.stream(
             "GET",
-            "/market/stream?symbols=AAPL,SAP.DE&interval=0.05&max_events=1",
+            "/market/stream?symbols=AAPL,SAP.DE&interval=1&max_events=1",
         ) as response:
             events = await parse_sse_events(response)
     quotes_event = next(payload for kind, payload in events if kind == "quotes")

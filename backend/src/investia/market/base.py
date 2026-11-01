@@ -11,6 +11,7 @@ class MarketDataError(Exception):
     def __init__(self, source: str, detail: str, rate_limited: bool = False) -> None:
         super().__init__(f"{source}: {detail}")
         self.source = source
+        self.detail = detail
         # Vrai si la source répond « trop de requêtes » (429) : on la met en pause.
         self.rate_limited = rate_limited
 

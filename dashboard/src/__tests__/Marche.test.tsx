@@ -1,4 +1,4 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,24 +14,32 @@ import {
   stubBackend,
 } from "./fakeBackend";
 
-// jsdom n'a pas de canvas : on mocke lightweight-charts et on espionne les points reçus
-const { setData } = vi.hoisted(() => ({ setData: vi.fn() }));
-vi.mock("lightweight-charts", () => ({
-  createChart: () => ({
+// jsdom n'a pas de canvas : on mocke lightweight-charts et on espionne ses appels
+const { setData, remove, createChart } = vi.hoisted(() => {
+  const setData = vi.fn();
+  const remove = vi.fn();
+  const createChart = vi.fn(() => ({
     addSeries: () => ({ setData }),
     timeScale: () => ({ fitContent: () => {} }),
-    remove: () => {},
-  }),
+    remove,
+  }));
+  return { setData, remove, createChart };
+});
+vi.mock("lightweight-charts", () => ({
+  createChart,
   ColorType: { Solid: 0 },
   LineSeries: {},
 }));
 
 beforeEach(() => {
   setData.mockClear();
+  remove.mockClear();
+  createChart.mockClear();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 function renderMarche() {
@@ -178,6 +186,60 @@ describe("Page Marché (flux SSE live)", () => {
     expect(card).not.toHaveTextContent("00:00");
   });
 
+  it("affiche la bonne date de clôture même si le lecteur est à l'ouest de l'UTC", async () => {
+    // minuit UTC du 30/10 = 17 h le 29/10 à Los Angeles : sans `timeZone: "UTC"`
+    // dans formatAsOf, la carte afficherait « clôture du 29/10 ».
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    const closeQuote = {
+      quotes: [
+        {
+          symbol: "SAP.DE",
+          value: 189.4,
+          currency: "EUR",
+          source: "eodhd",
+          timestamp: "2026-10-30T00:00:00+00:00",
+          delayed: true,
+          is_close: true,
+        },
+      ],
+    };
+    stubBackend({
+      stream: () =>
+        streamResponse(sseBody([`event: quotes\ndata: ${JSON.stringify(closeQuote)}\n\n`])),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    await screen.findByText("189,40");
+    expect(screen.getByRole("button", { name: /SAP\.DE/ })).toHaveTextContent(
+      "clôture du 30/10",
+    );
+  });
+
+  it("affiche l'horodatage tel quel quand la date n'est pas valide", async () => {
+    const badDate = {
+      quotes: [
+        {
+          symbol: "AAPL",
+          value: 344.63,
+          currency: "USD",
+          source: "finnhub",
+          timestamp: "hier soir",
+          delayed: false,
+        },
+      ],
+    };
+    stubBackend({
+      stream: () =>
+        streamResponse(sseBody([`event: quotes\ndata: ${JSON.stringify(badDate)}\n\n`])),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    await screen.findByText("344,63");
+    expect(screen.getByRole("button", { name: /AAPL/ })).toHaveTextContent("hier soir");
+  });
+
   it("garde l'heure pour un prix en direct normal", async () => {
     stubBackend({
       stream: () =>
@@ -224,6 +286,9 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     const [historyUrl] = callsTo(fetchMock, "/market/history");
     expect(historyUrl.searchParams.get("symbol")).toBe("AAPL");
     expect(historyUrl.searchParams.get("days")).toBe("30");
+    // un seul graphique, tracé une seule fois
+    expect(createChart).toHaveBeenCalledTimes(1);
+    expect(setData).toHaveBeenCalledTimes(1);
   });
 
   it("n'annonce plus de données mock", async () => {
@@ -294,5 +359,119 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("affiche l'erreur tout de suite, sans attendre de nouvelles tentatives", async () => {
+    // Client avec les réglages par défaut de TanStack Query (3 nouvelles tentatives,
+    // 1 s, 2 s, 4 s) : une erreur du backend ne doit pas rester 7 s sur « Chargement ».
+    const defaultClient = new QueryClient();
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () => jsonResponse({ detail: "eodhd: clé API manquante" }, 502),
+    });
+    render(
+      <QueryClientProvider client={defaultClient}>
+        <Marche />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("clé API manquante");
+  });
+
+  it("refuse une réponse dont les points sont absents", async () => {
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () =>
+        jsonResponse({ symbol: "AAPL", source: "yahoo", currency: "USD", points: null }),
+    });
+    renderMarche();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/illisible/i);
+    expect(createChart).not.toHaveBeenCalled();
+  });
+
+  it("refuse des points dont les dates ne sont pas strictement croissantes", async () => {
+    // lightweight-charts lève une exception sur ces données : on s'arrête avant.
+    const doublon = [
+      { time: "2026-10-31", value: 1 },
+      { time: "2026-10-31", value: 2 },
+    ];
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () => jsonResponse(historyBody("AAPL", "yahoo", "USD", doublon)),
+    });
+    renderMarche();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/illisible/i);
+    expect(createChart).not.toHaveBeenCalled();
+  });
+
+  it("n'emporte pas la page si le graphique plante au tracé", async () => {
+    setData.mockImplementationOnce(() => {
+      throw new Error("Value is null");
+    });
+    stubBackend({ stream: silentStreamResponse, history: historyRoute });
+    renderMarche();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Le graphique n'a pas pu être tracé",
+    );
+    expect(remove).toHaveBeenCalledTimes(1); // graphique libéré malgré l'échec
+    expect(screen.getByRole("heading", { name: /marché/i })).toBeInTheDocument();
+  });
+
+  it("ne recrée pas le graphique quand un prix en direct arrive", async () => {
+    stubBackend({
+      stream: () =>
+        streamResponse(
+          sseBody(
+            [
+              `event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`,
+              `event: quotes\ndata: ${JSON.stringify(QUOTES_V2)}\n\n`,
+            ],
+            50,
+          ),
+        ),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    await waitFor(() => expect(setData).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("345,50")).toBeInTheDocument(); // 2e prix reçu
+    expect(createChart).toHaveBeenCalledTimes(1);
+    expect(setData).toHaveBeenCalledTimes(1);
+  });
+
+  it("libère le graphique au changement de symbole puis au démontage", async () => {
+    stubBackend({ stream: silentStreamResponse, history: historyRoute });
+    const { unmount } = renderMarche();
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
+    expect(remove).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
+    expect(remove).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+
+  it("annule la requête précédente quand on change de symbole", async () => {
+    const signals: Record<string, AbortSignal | null | undefined> = {};
+    stubBackend({
+      stream: silentStreamResponse,
+      history: (url, signal) => {
+        const symbol = url.searchParams.get("symbol") ?? "?";
+        signals[symbol] = signal;
+        return symbol === "AAPL"
+          ? new Promise(() => {}) // AAPL ne répond jamais
+          : jsonResponse(historyBody("SAP.DE", "eodhd", "EUR", SAP_POINTS));
+      },
+    });
+    renderMarche();
+    await waitFor(() => expect(signals.AAPL).toBeDefined());
+    expect(signals.AAPL?.aborted).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+
+    await waitFor(() => expect(signals.AAPL?.aborted).toBe(true));
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
   });
 });

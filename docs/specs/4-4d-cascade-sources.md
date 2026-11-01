@@ -43,7 +43,7 @@ Une source **non configurée** (pas de clé) est sautée et mentionnée dans l'e
 - [ ] **Dashboard** : une carte avec `is_close` affiche « clôture du 30/10 » (date, pas d'heure) à la place de « 00:00 · eodhd » ; test dans `Marche.test.tsx`. La légende du graphique affiche la source qui a répondu.
 - [ ] `cd backend && uv run pytest -q && uv run ruff check . && uv run ruff format --check . && uv run ty check` passent ; `cd dashboard && npx vitest run && npx tsc --noEmit && npm run build` passent.
 - [ ] Vérification réelle : backend Docker reconstruit ; `curl '/market/history?symbol=AAPL'` renvoie des points (source `eodhd` tant que Yahoo est bloqué) ; la page Marché trace AAPL et affiche SAP.DE en clôture étiquetée. Twelve Data et Massive vérifiés en vrai seulement quand les clés sont dans `.env`.
-- [ ] `docs/04-donnees-de-marche.md` (tableau + stratégie multi-sources), `docs/09-decisions.md` (D46), `docs/STATUS.md` mis à jour ; `deploy/.env.example` documente les deux nouvelles clés (sans valeur).
+- [ ] `docs/04-donnees-de-marche.md` (tableau + stratégie multi-sources), `docs/09-decisions.md` (D46), `docs/STATUS.md` mis à jour ; `.env.example` (à la racine du repo) documente les deux nouvelles clés (sans valeur).
 
 ## Fichiers touchés
 
@@ -58,7 +58,7 @@ Une source **non configurée** (pas de clé) est sautée et mentionnée dans l'e
 | `backend/src/investia/main.py` | repli « dernière clôture » dans `/market/stream` |
 | `backend/tests/test_market_*.py` | tests cascade, pause, connecteurs, repli |
 | `dashboard/src/api.ts`, `pages/Marche.tsx`, `__tests__/Marche.test.tsx` | `is_close`, affichage « clôture du … » |
-| `docs/04-…`, `docs/09-decisions.md`, `docs/STATUS.md`, `deploy/.env.example` | documentation |
+| `docs/04-…`, `docs/09-decisions.md`, `docs/STATUS.md`, `.env.example` | documentation |
 
 ## Comment vérifier
 

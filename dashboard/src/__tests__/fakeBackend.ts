@@ -50,15 +50,15 @@ export function historyBody(
 
 interface Routes {
   stream: () => unknown;
-  history: (url: URL) => unknown;
+  history: (url: URL, signal?: AbortSignal | null) => unknown;
 }
 
 /** Remplace `fetch` : chaque route du backend a sa réponse simulée. */
 export function stubBackend(routes: Routes) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.pathname === "/market/stream") return routes.stream();
-    if (url.pathname === "/market/history") return routes.history(url);
+    if (url.pathname === "/market/history") return routes.history(url, init?.signal);
     throw new Error(`appel inattendu : ${url.pathname}`);
   });
   vi.stubGlobal("fetch", fetchMock);

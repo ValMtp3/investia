@@ -11,6 +11,8 @@ pytestmark = pytest.mark.integration
 
 HAS_FINNHUB = bool(os.environ.get("FINNHUB_API_KEY"))
 HAS_EODHD = bool(os.environ.get("EODHD_API_KEY"))
+HAS_TWELVEDATA = bool(os.environ.get("TWELVEDATA_API_KEY"))
+HAS_MASSIVE = bool(os.environ.get("MASSIVE_API_KEY"))
 HAS_REDIS = bool(os.environ.get("TEST_REDIS_URL"))
 
 
@@ -73,3 +75,32 @@ async def test_real_history_europe_via_eodhd(monkeypatch):
     assert all(h.currency == "EUR" for h in history)
 
     redis_module._redis = None
+
+
+@pytest.mark.skipif(not HAS_TWELVEDATA, reason="TWELVEDATA_API_KEY manquante")
+async def test_real_history_us_via_twelvedata():
+    from pydantic import SecretStr
+
+    from investia.market.twelvedata import TwelveDataConnector
+
+    connector = TwelveDataConnector(api_key=SecretStr(os.environ["TWELVEDATA_API_KEY"]))
+    history = await connector.get_history("AAPL", days=10)
+    assert len(history) > 0
+    assert all(h.source == "twelvedata" and h.value > 0 for h in history)
+    assert all(h.currency == "USD" for h in history)
+    dates = [h.timestamp for h in history]
+    assert dates == sorted(dates), "du plus ancien au plus récent"
+
+
+@pytest.mark.skipif(not HAS_MASSIVE, reason="MASSIVE_API_KEY manquante")
+async def test_real_history_us_via_massive():
+    from pydantic import SecretStr
+
+    from investia.market.massive import MassiveConnector
+
+    connector = MassiveConnector(api_key=SecretStr(os.environ["MASSIVE_API_KEY"]))
+    history = await connector.get_history("AAPL", days=10)
+    assert 0 < len(history) <= 10
+    assert all(h.source == "massive" and h.value > 0 for h in history)
+    dates = [h.timestamp for h in history]
+    assert dates == sorted(dates), "du plus ancien au plus récent"

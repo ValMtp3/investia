@@ -68,3 +68,38 @@ async def test_cached_with_real_redis(monkeypatch):
     assert calls == 1
     await redis_module.get_redis().delete(key)
     redis_module._redis = None
+
+
+class BrokenRedis:
+    async def get(self, key):
+        raise ConnectionError("Redis est tombé")
+
+    async def set(self, key, value, ex=None):
+        raise ConnectionError("Redis est tombé")
+
+
+@pytest.fixture
+def broken_redis(monkeypatch):
+    import investia.market.cache as cache_module
+
+    monkeypatch.setattr(cache_module, "get_redis", lambda: BrokenRedis())
+
+
+async def test_cached_computes_without_cache_when_redis_is_down(broken_redis):
+    calls = 0
+
+    async def factory():
+        nonlocal calls
+        calls += 1
+        return {"value": 42}
+
+    assert await cached("quote:AAPL", ttl=60, factory=factory) == {"value": 42}
+    assert await cached("quote:AAPL", ttl=60, factory=factory) == {"value": 42}
+    assert calls == 2, "sans Redis, chaque appel recalcule"
+
+
+async def test_pause_helpers_never_raise_when_redis_is_down(broken_redis):
+    from investia.market.cache import is_paused, pause
+
+    assert await is_paused("yahoo") is False
+    await pause("yahoo", 600)  # ne lève pas

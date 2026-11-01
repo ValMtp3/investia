@@ -65,7 +65,7 @@ async def first_quotes(market: FakeMarket, monkeypatch) -> dict[str, dict]:
         monkeypatch.setenv(var, "x")
     app = create_app(portfolio_service=FakePortfolio(), llm=object(), market=market)
     transport = httpx.ASGITransport(app=app)
-    url = "/market/stream?symbols=AAPL,SAP.DE&interval=0.05&max_events=1"
+    url = "/market/stream?symbols=AAPL,SAP.DE&interval=1&max_events=1"
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         async with client.stream("GET", url) as response:
             body = "".join([chunk async for chunk in response.aiter_text()])
@@ -124,9 +124,16 @@ async def test_no_history_call_when_the_quote_works(monkeypatch, symbols):
         monkeypatch.setenv(var, "x")
     app = create_app(portfolio_service=FakePortfolio(), llm=object(), market=market)
     transport = httpx.ASGITransport(app=app)
-    url = f"/market/stream?symbols={symbols}&interval=0.05&max_events=1"
+    url = f"/market/stream?symbols={symbols}&interval=1&max_events=1"
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         async with client.stream("GET", url) as response:
             async for _ in response.aiter_text():
                 pass
     assert market.history_calls == []
+
+
+async def test_fallback_logs_the_original_error(monkeypatch, caplog):
+    with caplog.at_level("WARNING"):
+        await first_quotes(FakeMarket(), monkeypatch)
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("SAP.DE" in m and "HTTP 429" in m for m in messages), messages
