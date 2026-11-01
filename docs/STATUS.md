@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 3 — Evals + mémoire** (jeu d'evals DeepEval/Promptfoo, scores en base, mémoire courte/longue pgvector). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+**Prochaine étape : 3.2 — Mémoire longue (pgvector)** + evals DeepEval en CI. Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+
+Avancement étape 3 : **3.1 ✅ evals** — runner maison (`uv run python -m investia.evals`), métriques en code (tool_used, numbers_sourced, format, langage, disclaimer, tours, coût), scores en base (`eval_runs`/`eval_results`, migration 0003), 3 cas mockés déterministes dans `evals/cases.yaml`, redteam Promptfoo (`evals/redteam.yaml`), deepeval en dev (D38) — 114 tests, ~90 % couv.
 
 Avancement étape 2 : 2.1 ✅ garde-fous en code (format, chiffres sourcés ±0,5 %, langage interdit, disclaimer ; max 2 corrections puis refus) · **2.2 ✅ traces en base** (migration 0002 runs/run_steps JSONB, TraceStore async, branché boucle + CLI, statut ok/blocked/max_turns, test fuite de secrets) — 109 tests, 90,6 % couv. Critères étape 2 remplis : chiffre inventé bloqué (testé), exécution rejouable (get_run + steps). D43 : OpenRouter pour GPT+Jev, Mistral direct.
 
