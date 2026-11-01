@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 4.1 — Modèle portefeuille en base** (tables + migration, API). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+**Prochaine étape : 4.3 — Squelette dashboard React 19** (Vite + TanStack, 4 pages, graphiques). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+
+Avancement étape 4 : **4.1+4.2 ✅ portefeuille simulé** — migration 0005 (portfolios/positions/orders/capital_adjustments), calculs en code (`portfolio/calc.py`, frais 0,1 % D35, prix dernier connu converti EUR), PortfolioService SQL, API (`GET /portfolio`, `POST /orders`, `POST /portfolio/adjust` admin via X-Admin-Token) — 133 tests, scénario buy/sell/adjust vérifié sur vraie base.
 
 **Étape 3 — Evals + mémoire : terminée le 31/10/2026.** 3.1 ✅ evals (runner + métriques en code + scores en base) · 3.2 ✅ mémoire longue pgvector (table memories + HNSW, embeddings OpenRouter text-embedding-3-small, outils save_memory/recall_memory branchés au registre et à la CLI) — 121 tests, ruff/ty propres. Base de test unique : conteneur Docker pgvector (127.0.0.1:5432).
 
