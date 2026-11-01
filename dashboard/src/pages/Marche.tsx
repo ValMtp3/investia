@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import ErrorNotice from "../components/ErrorNotice";
+import Module from "../components/Module";
 import PriceChart from "../components/PriceChart";
 import { streamMarket, type LiveQuote } from "../api";
+import { isAbortError } from "../lib/errors";
 
 const SYMBOLS = ["AAPL", "SAP.DE", "BTC-USD"];
 
@@ -29,25 +32,30 @@ export default function Marche() {
         });
       },
       controller.signal,
-    ).catch((err: unknown) => {
-      if ((err as Error).name !== "AbortError") {
-        setStreamError(err instanceof Error ? err.message : "Erreur inconnue");
-      }
-    });
+    )
+      .then(() => {
+        // Le serveur a fermé le flux sans qu'on l'ait demandé : les prix ne bougent plus.
+        if (!controller.signal.aborted) {
+          setStreamError(
+            "Flux de prix interrompu : les prix affichés ne sont plus mis à jour.",
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        if (!isAbortError(err)) {
+          setStreamError(err instanceof Error ? err.message : "Erreur inconnue");
+        }
+      });
     return () => controller.abort();
   }, []);
 
   return (
     <section aria-labelledby="marche-title">
-      <h1 id="marche-title" className="text-2xl font-bold mb-4">
+      <h1 id="marche-title" className="mb-3 text-lg font-bold">
         Marché
       </h1>
-      {streamError && (
-        <p role="alert" className="mb-4 rounded border border-red-500/50 bg-red-500/10 p-3 text-red-300">
-          {streamError}
-        </p>
-      )}
-      <ul className="mb-6 grid gap-2 sm:grid-cols-3" aria-live="polite">
+      {streamError && <ErrorNotice className="mb-3">{streamError}</ErrorNotice>}
+      <ul className="mb-3 grid gap-3 sm:grid-cols-3" aria-live="polite">
         {SYMBOLS.map((symbol) => {
           const quote = quotes[symbol];
           return (
@@ -55,12 +63,12 @@ export default function Marche() {
               <button
                 onClick={() => setSelected(symbol)}
                 aria-pressed={selected === symbol}
-                className="w-full rounded border border-slate-800 p-3 text-left hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-sky-400"
+                className="w-full border border-rule bg-paper p-3 text-left hover:bg-wash aria-pressed:border-ink aria-pressed:bg-wash aria-pressed:shadow-[inset_0_0_0_1px_var(--color-ink)]"
               >
-                <div className="font-semibold">{symbol}</div>
-                <div>
+                <div className="font-bold">{symbol}</div>
+                <div className="text-lg font-medium">
                   {quote?.error ? (
-                    "erreur"
+                    <span className="text-signal-ink">erreur</span>
                   ) : quote?.value !== undefined && quote.currency ? (
                     <>
                       <span>
@@ -69,13 +77,13 @@ export default function Marche() {
                           maximumFractionDigits: 2,
                         })}
                       </span>{" "}
-                      <span className="text-xs text-slate-400">{quote.currency}</span>
+                      <span className="text-xs text-muted">{quote.currency}</span>
                     </>
                   ) : (
                     "—"
                   )}
                 </div>
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-muted">
                   {quote?.timestamp ? formatTime(quote.timestamp) : ""}{" "}
                   {quote?.source ? `· ${quote.source}` : ""}
                   {quote?.delayed ? " · différé" : ""}
@@ -85,12 +93,13 @@ export default function Marche() {
           );
         })}
       </ul>
-      <h2 className="text-lg font-semibold mb-2">{selected}</h2>
-      <PriceChart symbol={selected} />
-      <p className="mt-2 text-xs text-slate-500">
-        Prix en direct via le flux SSE du backend — le graphique reste sur données mock
-        (historique SSE à venir).
-      </p>
+      <Module title={selected}>
+        <PriceChart symbol={selected} />
+        <p className="mt-2 text-xs text-muted">
+          Prix en direct via le flux SSE du backend — le graphique reste sur données mock
+          (historique SSE à venir).
+        </p>
+      </Module>
     </section>
   );
 }

@@ -12,7 +12,7 @@ export function mockCandles(): Candle[] {
   const candles: Candle[] = [];
   let price = 330;
   for (let i = 29; i >= 0; i--) {
-    const day = new Date(2026, 9, 31 - i);
+    const day = new Date(Date.UTC(2026, 9, 31 - i));
     const open = price;
     const close = open + (Math.sin(i) * 4 + 1.5);
     candles.push({

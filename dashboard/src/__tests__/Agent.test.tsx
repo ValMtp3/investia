@@ -64,6 +64,34 @@ describe("Page Agent (chat streaming SSE)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Flux indisponible (HTTP 503)",
     );
+    // Pas de bulle « agent » vide qui traîne après l'erreur
+    expect(screen.queryByText("agent")).not.toBeInTheDocument();
+  });
+
+  it("coupe le flux en cours quand on quitte la page", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode('event: start\ndata: {"question":"q","max_turns":8}\n\n'),
+          );
+          // flux qui ne se termine jamais : simule un run long
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<Agent />);
+    await userEvent.type(screen.getByLabelText(/question/i), "question longue");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+    await screen.findByRole("button", { name: /stop/i });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal?.aborted).toBe(false);
+    unmount();
+    expect(init.signal?.aborted).toBe(true);
   });
 
   it("le bouton Stop interrompt le flux en cours", async () => {
