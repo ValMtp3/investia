@@ -65,6 +65,7 @@ async def run_agent(
     model_key: str | None = None,
     max_corrections: int = DEFAULT_MAX_CORRECTIONS,
     trace_store: TraceStoreProtocol | None = None,
+    event_sink: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
@@ -72,6 +73,12 @@ async def run_agent(
     model_key = model_key or choose(question)
     store = trace_store
     run_id = await store.start_run(question) if store is not None else None
+
+    async def emit(kind: str, payload: dict[str, Any]) -> None:
+        if event_sink is not None:
+            await event_sink(kind, payload)
+
+    await emit("start", {"question": question, "max_turns": max_turns})
     tool_specs = [tool.to_openai_tool() for tool in tools.values()]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -98,6 +105,15 @@ async def run_agent(
                     "tool_calls": [call.name for call in response.tool_calls],
                 },
             )
+        await emit(
+            "llm_call",
+            {
+                "turn": turn,
+                "model": response.model,
+                "cost_cents": response.cost_cents,
+                "tool_calls": [c.name for c in response.tool_calls],
+            },
+        )
         if response.tool_calls:
             messages.append(
                 {
@@ -136,6 +152,15 @@ async def run_agent(
                             "result": result_text,
                         },
                     )
+                await emit(
+                    "tool_call",
+                    {
+                        "turn": turn,
+                        "name": call.name,
+                        "arguments": call.arguments,
+                        "ok": entry.ok,
+                    },
+                )
                 messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": result_text}
                 )
@@ -148,6 +173,11 @@ async def run_agent(
             GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
             for name, result in checks
         )
+        for name, result in checks:
+            await emit(
+                "guardrail",
+                {"turn": turn, "check": name, "ok": result.ok, "detail": result.detail},
+            )
         if store is not None and run_id is not None:
             for name, result in checks:
                 await store.log_step(
@@ -158,6 +188,7 @@ async def run_agent(
                 )
         failed = [(name, result.detail) for name, result in checks if not result.ok]
         if not failed:
+            await emit("answer", {"turn": turn, "text": response.content})
             result = AgentResult(
                 answer=response.content,
                 turns=turn,
@@ -175,6 +206,15 @@ async def run_agent(
                     cost_cents=result.total_cost_cents,
                     status="ok",
                 )
+            await emit("answer", {"turn": turn, "text": result.answer})
+            await emit(
+                "done",
+                {
+                    "turns": result.turns,
+                    "cost_cents": result.total_cost_cents,
+                    "status": "ok",
+                },
+            )
             return result
         if corrections < max_corrections:
             corrections += 1
@@ -212,6 +252,15 @@ async def run_agent(
                 cost_cents=result.total_cost_cents,
                 status="blocked",
             )
+        await emit("answer", {"turn": turn, "text": result.answer})
+        await emit(
+            "done",
+            {
+                "turns": result.turns,
+                "cost_cents": result.total_cost_cents,
+                "status": "blocked",
+            },
+        )
         return result
 
     max_turns_answer = (
@@ -235,6 +284,15 @@ async def run_agent(
             cost_cents=result.total_cost_cents,
             status="max_turns",
         )
+    await emit("answer", {"turn": max_turns, "text": result.answer})
+    await emit(
+        "done",
+        {
+            "turns": result.turns,
+            "cost_cents": result.total_cost_cents,
+            "status": "max_turns",
+        },
+    )
     return result
 
 

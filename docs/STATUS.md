@@ -9,7 +9,9 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Prochaine étape : 4.3 — Squelette dashboard React 19** (Vite + TanStack, 4 pages, graphiques). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+**Prochaine étape : 4.4b — Frontend SSE** (page Agent qui consomme POST /agent/run, page Marché qui consomme GET /market/stream). Spec à écrire avant le code. (2.3 spans OTel GenAI en attente, D38.)
+
+Avancement étape 4 : 4.1+4.2 ✅ portefeuille + API · 4.3 ✅ squelette dashboard (4 pages, build+tests+CI frontend) · **4.4a ✅ backend SSE** (`POST /agent/run` stream start/llm_call/tool_call/guardrail/answer/done, `GET /market/stream` pousse les prix, boucle émet via event_sink, 136 tests).
 
 Avancement étape 4 : **4.1+4.2 ✅ portefeuille simulé** — migration 0005 (portfolios/positions/orders/capital_adjustments), calculs en code (`portfolio/calc.py`, frais 0,1 % D35, prix dernier connu converti EUR), PortfolioService SQL, API (`GET /portfolio`, `POST /orders`, `POST /portfolio/adjust` admin via X-Admin-Token) — 133 tests, scénario buy/sell/adjust vérifié sur vraie base.
 
