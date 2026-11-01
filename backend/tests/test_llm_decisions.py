@@ -1,4 +1,4 @@
-"""Tests du client Jev via LiteLLM (/v1/systemone) — HTTP mocké."""
+"""Tests du client de décision (elephant-1) via LiteLLM (/v1/systemone) — HTTP mocké."""
 
 import json
 
@@ -6,13 +6,13 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from investia.llm.decisions import DecisionClient
 from investia.llm.errors import LlmError
-from investia.llm.jev import JevClient
 
 
-def make_client(handler, retry_delay=0.0) -> JevClient:
+def make_client(handler, retry_delay=0.0) -> DecisionClient:
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return JevClient(
+    return DecisionClient(
         base_url="http://litellm.test",
         master_key=SecretStr("sk-test"),
         http_client=http,
@@ -37,7 +37,7 @@ async def test_decide_sends_systemone_format_and_parses_answer():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/systemone"
         body = json.loads(request.content)
-        assert body["model"] == "jev"
+        assert body["model"] == "elephant"
         assert isinstance(body["questions"], dict)
         assert body["questions"]["q1"]["type"] == "choice"
         assert isinstance(body["questions"]["q1"]["criteria"], dict)
@@ -67,11 +67,7 @@ async def test_decide_401_raises_llm_error_without_retry():
         calls += 1
         return httpx.Response(
             401,
-            json={
-                "error": {
-                    "message": "Missing API key for Decisions provider 'typesafe'"
-                }
-            },
+            json={"error": {"message": "Missing API key for Decisions provider"}},
         )
 
     client = make_client(handler)

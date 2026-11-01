@@ -10,10 +10,10 @@ model_list:
       model: mistral/mistral-large-4
       api_base: https://api.mistral.ai/v1
       api_key: os.environ/MISTRAL_API_KEY
-  # Decision model (Q10/D37) : servi par LiteLLM sur /v1/decisions et /v1/systemone, via OpenRouter
-  - model_name: jev
+  # Decision model (D44 : elephant-1 de Baseten remplace Jev) — /v1/decisions et /v1/systemone, via OpenRouter (gratuit)
+  - model_name: elephant
     litellm_params:
-      model: openrouter/typesafe/jev-latest
+      model: openrouter/baseten/elephant-1
       api_key: os.environ/OPENROUTER_API_KEY
 
 general_settings:

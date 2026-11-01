@@ -1,4 +1,4 @@
-"""Routeur petit/gros modèle — règles en dur au début (Jev arrive à l'étape 1.5)."""
+"""Routeur petit/gros modèle — règles en dur (décisionnaire : étape 1.5, D44)."""
 
 SMALL_KEYWORDS = (
     "résume",

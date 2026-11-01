@@ -1,8 +1,8 @@
-"""Client Jev (TypeSafe) via le gateway LiteLLM — endpoint /v1/systemone.
+"""Client de décision (Baseten elephant-1, ex-Jev) via LiteLLM — endpoint /v1/systemone.
 
-Jev ne rédige pas : on envoie un state + des questions typées, il renvoie des
-probabilités calibrées. Routage confirmé le 31/10/2026 (Q10/D37) : LiteLLM sert
-`jev` en mode evaluation et proxifie vers typesafe/jev-latest.
+Le modèle de décision ne rédige pas : state + questions typées en entrée,
+probabilités calibrées en sortie. D44 : elephant-1 (Baseten) remplace Jev,
+même API System One, payant sur OpenRouter (baseten/elephant-1).
 """
 
 import asyncio
@@ -17,14 +17,14 @@ from investia.llm.errors import LlmError
 
 
 @dataclass(frozen=True)
-class JevAnswer:
+class DecisionAnswer:
     value: Any
     probabilities: dict[str, float]
     confidence: float
 
 
-class JevClient:
-    """Appelle Jev via LiteLLM (un seul point d'appel, cost tracking centralisé)."""
+class DecisionClient:
+    """Appelle le modèle de décision via LiteLLM (un seul point d'appel)."""
 
     def __init__(
         self,
@@ -43,19 +43,19 @@ class JevClient:
 
     async def decide(
         self, state: Any, questions: dict[str, dict[str, Any]]
-    ) -> dict[str, JevAnswer]:
+    ) -> dict[str, DecisionAnswer]:
         """Envoie un state + des questions typées, renvoie les réponses par id.
 
         Format System One : questions = {id: {"type": "choice"|"noul"|"score", ...}}.
         Choice : {"type": "choice", "instructions": "...", "criteria": {label: desc}}.
         """
-        payload = {"model": "jev", "state": state, "questions": questions}
+        payload = {"model": "elephant", "state": state, "questions": questions}
         response = await self._post_with_retry(payload)
         data = response.json()
         answers = data.get("answers", {})
-        result: dict[str, JevAnswer] = {}
+        result: dict[str, DecisionAnswer] = {}
         for question_id, raw in answers.items():
-            result[question_id] = JevAnswer(
+            result[question_id] = DecisionAnswer(
                 value=raw.get("value"),
                 probabilities={
                     k: float(v) for k, v in raw.get("probabilities", {}).items()
@@ -73,9 +73,13 @@ class JevClient:
             )
             if response.status_code == 200:
                 return response
-            last_error = LlmError(f"jev via gateway HTTP {response.status_code}")
+            last_error = LlmError(f"elephant via gateway HTTP {response.status_code}")
             is_last = attempt == self._max_retries - 1
             if response.status_code not in RETRYABLE_STATUS or is_last:
                 raise last_error
             await asyncio.sleep(self._retry_delay)
-        raise last_error if last_error else LlmError("jev: pas de réponse du gateway")
+        raise (
+            last_error
+            if last_error
+            else LlmError("decision: pas de réponse du gateway")
+        )

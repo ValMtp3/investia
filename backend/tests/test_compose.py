@@ -51,17 +51,17 @@ def test_litellm_image_is_pinned_to_a_version_not_latest():
     assert re.match(r"^ghcr\.io/berriai/litellm:v\d+\.\d+\.\d+", image), image
 
 
-def test_litellm_config_declares_chat_models_and_jev():
+def test_litellm_config_declares_chat_models_and_elephant():
     config = yaml.safe_load(
         (DEPLOY_DIR / "litellm" / "config.yaml").read_text(encoding="utf-8")
     )
     models = {
         m["model_name"]: m["litellm_params"]["model"] for m in config["model_list"]
     }
-    assert {"gpt-6-luna", "mistral-large-4", "jev"} <= set(models)
+    assert {"gpt-6-luna", "mistral-large-4", "elephant"} <= set(models)
 
 
-def test_litellm_providers_are_openrouter_for_gpt_jev_and_mistral_direct():
+def test_litellm_providers_are_openrouter_for_gpt_elephant_mistral_direct():
     config = yaml.safe_load(
         (DEPLOY_DIR / "litellm" / "config.yaml").read_text(encoding="utf-8")
     )
@@ -69,5 +69,5 @@ def test_litellm_providers_are_openrouter_for_gpt_jev_and_mistral_direct():
         m["model_name"]: m["litellm_params"]["model"] for m in config["model_list"]
     }
     assert models["gpt-6-luna"].startswith("openrouter/"), models["gpt-6-luna"]
-    assert models["jev"].startswith("openrouter/"), models["jev"]
+    assert models["elephant"].startswith("openrouter/"), models["elephant"]
     assert models["mistral-large-4"] == "mistral/mistral-large-4"
