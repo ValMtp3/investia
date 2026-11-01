@@ -1,6 +1,6 @@
 # STATUS — où en est le projet
 
-> **Mis à jour le : 31/10/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
+> **Mis à jour le : 01/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
 
 ## Étape en cours
 
@@ -10,6 +10,8 @@
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
 **Prochaine étape : 4.5 — page Traces & evals** (lire runs/run_steps/eval_results en base et les afficher). 4.4b terminée le 01/11/2026. (2.3 spans OTel GenAI en attente, D38.)
+
+Avancement 4.4c/4.4d (01/11/2026) : **graphique Marché = vrais cours** (`GET /market/history`, ligne des clôtures journalières, source et devise affichées) · **cascade de sources** (D46) : AAPL = Yahoo → EODHD → Twelve Data → Massive, pause 10 min après un 429, cache 24 h ; SAP.DE sans prix en direct = dernière clôture EODHD étiquetée. Vérifié en vrai : AAPL via EODHD (Yahoo en 429), cache, pause Redis, repli SAP.DE. **À faire par le propriétaire** : créer des comptes gratuits Twelve Data et Massive et mettre `TWELVEDATA_API_KEY` / `MASSIVE_API_KEY` dans `.env` (sans clé, ces deux sources sont sautées). Backend : 182 tests ; dashboard : 35 tests.
 
 Avancement étape 4 : 4.1+4.2 ✅ portefeuille + API · 4.3 ✅ squelette dashboard (4 pages, build+tests+CI frontend) · **4.4a ✅ backend SSE** (`POST /agent/run` stream start/llm_call/tool_call/guardrail/answer/done, `GET /market/stream` pousse les prix, boucle émet via event_sink) · **4.4b ✅ frontend SSE** — client SSE maison zéro dépendance (`dashboard/src/lib/sse.ts`, fetch+ReadableStream, parser incrémental, abort via signal), page `/agent` chat streaming (étapes en direct aria-live, stop, erreur lisible), page `/marche` prix live (symbol/source/heure/badge différé), fix backend : `symbol` dans chaque quote + CORSMiddleware (`FRONTEND_ORIGIN`, défaut localhost:5173). 125 tests backend, 17 tests frontend, ruff/ty/tsc/build propres, test live curl OK.
 

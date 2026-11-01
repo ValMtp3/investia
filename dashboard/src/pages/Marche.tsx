@@ -7,11 +7,21 @@ import { isAbortError } from "../lib/errors";
 
 const SYMBOLS = ["AAPL", "SAP.DE", "BTC-USD"];
 
-function formatTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime())
-    ? timestamp
-    : date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+/** Heure du prix, ou « clôture du 30/10 » : une clôture n'a pas d'heure à afficher. */
+function formatAsOf(quote: LiveQuote): string {
+  if (!quote.timestamp) return "";
+  const date = new Date(quote.timestamp);
+  if (Number.isNaN(date.getTime())) return quote.timestamp;
+  if (quote.is_close) {
+    // UTC : la date de la clôture ne doit pas glisser d'un jour selon le fuseau du lecteur.
+    const day = date.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "UTC",
+    });
+    return `clôture du ${day}`;
+  }
+  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 export default function Marche() {
@@ -85,7 +95,7 @@ export default function Marche() {
                   )}
                 </div>
                 <div className="text-xs text-muted">
-                  {quote?.timestamp ? formatTime(quote.timestamp) : ""}{" "}
+                  {quote ? formatAsOf(quote) : ""}{" "}
                   {quote?.source ? `· ${quote.source}` : ""}
                   {quote?.delayed ? " · différé" : ""}
                 </div>

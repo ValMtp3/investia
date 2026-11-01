@@ -149,6 +149,51 @@ describe("Page Marché (flux SSE live)", () => {
     expect(screen.getByText("344,63")).toBeInTheDocument();
   });
 
+  it("étiquette une dernière clôture (date, pas d'heure) quand le prix en direct manque", async () => {
+    const closeQuote = {
+      quotes: [
+        {
+          symbol: "SAP.DE",
+          value: 189.4,
+          currency: "EUR",
+          source: "eodhd",
+          // minuit UTC : afficher « 00:00 » serait mensonger, c'est une clôture
+          timestamp: "2026-10-30T00:00:00+00:00",
+          delayed: true,
+          is_close: true,
+        },
+      ],
+    };
+    stubBackend({
+      stream: () =>
+        streamResponse(sseBody([`event: quotes\ndata: ${JSON.stringify(closeQuote)}\n\n`])),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    expect(await screen.findByText("189,40")).toBeInTheDocument();
+    const card = screen.getByRole("button", { name: /SAP\.DE/ });
+    expect(card).toHaveTextContent("clôture du 30/10");
+    expect(card).toHaveTextContent("eodhd");
+    expect(card).not.toHaveTextContent("00:00");
+  });
+
+  it("garde l'heure pour un prix en direct normal", async () => {
+    stubBackend({
+      stream: () =>
+        streamResponse(
+          sseBody([`event: quotes\ndata: ${JSON.stringify(QUOTES_V2)}\n\n`]),
+        ),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    await screen.findByText("345,50");
+    const card = screen.getByRole("button", { name: /AAPL/ });
+    expect(card).not.toHaveTextContent(/clôture du/);
+    expect(card).toHaveTextContent(/\d{2}:\d{2}/);
+  });
+
   it("affiche une erreur lisible si le flux est indisponible", async () => {
     stubBackend({
       stream: () => ({ ok: false, status: 503, body: null }),

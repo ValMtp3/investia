@@ -72,3 +72,17 @@ async def test_news_not_available():
     )
     with pytest.raises(MarketDataError, match="news"):
         await connector.get_news("SAP.DE")
+
+
+async def test_429_is_flagged_rate_limited():
+    connector = make_connector(lambda request: httpx.Response(429))
+    with pytest.raises(MarketDataError) as caught:
+        await connector.get_history("AAPL", days=30)
+    assert caught.value.rate_limited is True
+
+
+async def test_other_http_errors_are_not_rate_limited():
+    connector = make_connector(lambda request: httpx.Response(500))
+    with pytest.raises(MarketDataError) as caught:
+        await connector.get_history("AAPL", days=30)
+    assert caught.value.rate_limited is False

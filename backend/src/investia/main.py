@@ -50,6 +50,34 @@ HISTORY_MAX_DAYS = 400
 HISTORY_DEFAULT_DAYS = 30
 
 
+async def stream_quote(market: Any, symbol: str) -> dict[str, Any]:
+    """Prix d'un symbole pour le flux ; s'il échoue, sa dernière clôture, étiquetée.
+
+    Repli d'affichage seulement (le dashboard) : `get_quote`, utilisé par l'agent et le
+    portefeuille, garde son erreur claire plutôt qu'un prix de la veille. La durée
+    (30 jours) est celle du graphique : même entrée de cache, un seul appel
+    au fournisseur.
+    """
+    try:
+        quote = (await market.get_quote(symbol)).to_dict()
+        quote["symbol"] = symbol
+        return quote
+    except Exception as error:
+        try:
+            history = await market.get_history(symbol, days=HISTORY_DEFAULT_DAYS)
+        except Exception:
+            history = []  # on garde l'erreur du prix, plus parlante pour l'utilisateur
+        if not history:
+            return {"symbol": symbol, "error": str(error)}
+        last_close = max(history, key=lambda point: point.timestamp)
+        return {
+            **last_close.to_dict(),
+            "symbol": symbol,
+            "delayed": True,
+            "is_close": True,
+        }
+
+
 def daily_closes(history: list[MarketData]) -> list[dict[str, Any]]:
     """Un point `{time, value}` par jour, trié par date. Doublon : le dernier gagne.
 
@@ -213,13 +241,7 @@ def create_app(
                 while max_events is None or sent < max_events:
                     quotes = []
                     for symbol in symbol_list:
-                        try:
-                            quote = await market.get_quote(symbol)
-                            quote_dict = quote.to_dict()
-                            quote_dict["symbol"] = symbol
-                            quotes.append(quote_dict)
-                        except Exception as error:
-                            quotes.append({"symbol": symbol, "error": str(error)})
+                        quotes.append(await stream_quote(market, symbol))
                     yield format_sse("quotes", {"quotes": quotes})
                     sent += 1
                     await asyncio.sleep(interval)

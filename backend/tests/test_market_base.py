@@ -34,3 +34,13 @@ def test_market_data_error_names_the_source():
     err = MarketDataError("finnhub", "HTTP 500")
     assert "finnhub" in str(err)
     assert err.source == "finnhub"
+
+
+def test_market_data_error_is_not_rate_limited_by_default():
+    error = MarketDataError("yahoo", "HTTP 500")
+    assert error.rate_limited is False
+    assert str(error) == "yahoo: HTTP 500"
+
+
+def test_market_data_error_can_flag_rate_limiting():
+    assert MarketDataError("yahoo", "HTTP 429", rate_limited=True).rate_limited is True

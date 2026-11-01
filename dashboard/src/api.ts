@@ -145,6 +145,8 @@ export interface LiveQuote {
   source?: string;
   timestamp?: string;
   delayed?: boolean;
+  // Vrai si le prix en direct a échoué : on affiche la dernière clôture à la place.
+  is_close?: boolean;
   error?: string;
 }
 
