@@ -1,1 +1,51 @@
+/* Police hébergée dans le projet : latin seulement, graisses 400 et 700. */
+@import "@fontsource/noto-sans-jp/latin-400.css";
+@import "@fontsource/noto-sans-jp/latin-700.css";
 @import "tailwindcss";
+
+/* Direction : densité japonaise. Fond blanc, filets fins gris, onglets rouge signal. */
+@theme {
+  --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #ffffff;
+  --color-ink: #1b1f23;
+  --color-muted: #55606a;
+  --color-rule: #7b858d;
+  --color-wash: #f1f3f4;
+  --color-signal: #d7261e;
+  --color-signal-wash: #fdecea;
+  --color-signal-ink: #8f1712;
+  --color-gain: #0b7a43;
+  --color-caution-wash: #fff4d6;
+  --color-caution-ink: #6b4a00;
+  --color-focus: #1a56db;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: 400 0.875rem/1.45 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Éléments du navigateur que le design reprend : sélection, focus, barres de défilement. */
+::selection {
+  background: var(--color-signal);
+  color: var(--color-paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-color: var(--color-rule) var(--color-wash);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

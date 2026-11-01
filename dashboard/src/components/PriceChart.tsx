@@ -9,19 +9,20 @@ export default function PriceChart({ symbol }: { symbol: string }) {
     const container = containerRef.current;
     if (!container) return;
     const chart: IChartApi = createChart(container, {
-      width: container.clientWidth,
+      autoSize: true,
       height: 300,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#cbd5e1",
+        textColor: "#55606a",
+        fontFamily: "'Noto Sans JP', ui-sans-serif, system-ui, sans-serif",
       },
-      grid: { vertLines: { color: "#1e293b" }, horzLines: { color: "#1e293b" } },
+      grid: { vertLines: { color: "#e1e5e8" }, horzLines: { color: "#e1e5e8" } },
     });
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
+      upColor: "#0b7a43",
+      downColor: "#d7261e",
+      wickUpColor: "#0b7a43",
+      wickDownColor: "#d7261e",
       borderVisible: false,
     });
     const data: Candle[] = mockCandles();
@@ -34,7 +35,7 @@ export default function PriceChart({ symbol }: { symbol: string }) {
     <div
       ref={containerRef}
       role="img"
-      aria-label={`Graphique de ${symbol}`}
+      aria-label={`Graphique fictif de ${symbol} (données de démonstration)`}
       className="w-full"
     />
   );

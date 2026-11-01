@@ -111,6 +111,21 @@ describe("Page Marché (flux SSE live)", () => {
     expect(init.method ?? "GET").toBe("GET");
   });
 
+  it("signale que le flux s'est arrêté quand le serveur le ferme", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: sseBody([`event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`]),
+      }),
+    );
+    render(<Marche />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/flux.*interrompu/i);
+    // Les derniers prix reçus restent affichés
+    expect(screen.getByText("344,63")).toBeInTheDocument();
+  });
+
   it("affiche une erreur lisible si le flux est indisponible", async () => {
     vi.stubGlobal(
       "fetch",

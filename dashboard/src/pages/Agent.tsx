@@ -1,5 +1,8 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { streamAgentRun, type AgentEvent } from "../api";
+import ErrorNotice from "../components/ErrorNotice";
+import Module from "../components/Module";
+import { isAbortError } from "../lib/errors";
 
 interface Step {
   id: number;
@@ -48,6 +51,9 @@ export default function Agent() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stepIdRef = useRef(0);
+
+  // Quitter la page coupe le flux : sinon le run continue (et coûte des appels au modèle).
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   function patchLastAssistant(patch: (msg: ChatMessage) => ChatMessage) {
     setMessages((prev) => {
@@ -101,10 +107,17 @@ export default function Agent() {
         controller.signal,
       );
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
+      if (isAbortError(err)) {
         patchLastAssistant((msg) => ({ ...msg, stopped: true }));
       } else {
         setError(err instanceof Error ? err.message : "Erreur inconnue");
+        // Pas de bulle « agent » vide : l'erreur est déjà affichée au-dessus.
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          const isEmptyAssistant =
+            last?.role === "assistant" && last.steps.length === 0 && !last.answer;
+          return isEmptyAssistant ? prev.slice(0, -1) : prev;
+        });
       }
     } finally {
       setRunning(false);
@@ -118,84 +131,84 @@ export default function Agent() {
 
   return (
     <section aria-labelledby="agent-title">
-      <h1 id="agent-title" className="text-2xl font-bold mb-4">
+      <h1 id="agent-title" className="mb-3 text-lg font-bold">
         Conseils de l'agent
       </h1>
 
-      <form onSubmit={send} className="mb-6 flex gap-2">
-        <div className="flex-1">
-          <label htmlFor="agent-question" className="sr-only">
-            Question
-          </label>
-          <input
-            id="agent-question"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            maxLength={2000}
-            placeholder="ex. : prix de AAPL ?"
-            className="w-full rounded border border-slate-800 bg-slate-900 px-3 py-2 focus-visible:outline-2 focus-visible:outline-sky-400"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={running || !input.trim()}
-          className="rounded bg-sky-600 px-4 py-2 font-semibold hover:bg-sky-500 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-sky-400"
-        >
-          Envoyer
-        </button>
-        {running && (
+      <Module title="Demande à l'agent" className="mb-3">
+        <form onSubmit={send} className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="agent-question" className="sr-only">
+              Question
+            </label>
+            <input
+              id="agent-question"
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              maxLength={2000}
+              placeholder="ex. : prix de AAPL ?"
+              className="w-full border border-rule bg-paper px-3 py-2 placeholder:text-muted"
+            />
+          </div>
           <button
-            type="button"
-            onClick={stop}
-            className="rounded border border-red-500/60 px-4 py-2 text-red-300 hover:bg-red-500/10 focus-visible:outline-2 focus-visible:outline-red-400"
+            type="submit"
+            disabled={running || !input.trim()}
+            className="bg-ink px-4 py-2 font-bold text-paper hover:bg-signal disabled:opacity-50 disabled:hover:bg-ink"
           >
-            Stop
+            Envoyer
           </button>
-        )}
-      </form>
+          {running && (
+            <button
+              type="button"
+              onClick={stop}
+              className="border border-signal px-4 py-2 font-bold text-signal-ink hover:bg-signal-wash"
+            >
+              Stop
+            </button>
+          )}
+        </form>
+      </Module>
 
       {running && (
-        <p role="status" className="mb-4 text-sm text-slate-400">
+        <p role="status" className="mb-3 text-muted">
           L'agent réfléchit…
         </p>
       )}
-      {error && (
-        <p role="alert" className="mb-4 rounded border border-red-500/50 bg-red-500/10 p-3 text-red-300">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice className="mb-3">{error}</ErrorNotice>}
 
-      <ol className="space-y-4">
+      <ol className="space-y-3">
         {messages.map((msg, i) =>
           msg.role === "user" ? (
-            <li key={i} className="rounded border border-slate-800 bg-slate-900 p-3">
-              <div className="text-xs text-slate-500">toi</div>
+            <li key={i} className="border border-rule bg-wash p-3">
+              <div className="text-xs font-medium text-muted">toi</div>
               <div>{msg.text}</div>
             </li>
           ) : (
-            <li key={i} className="rounded border border-slate-800 p-3">
-              <div className="text-xs text-slate-500">agent</div>
+            <li key={i} className="border border-rule p-3">
+              <div className="text-xs font-medium text-muted">agent</div>
               {msg.steps.length > 0 && (
                 <ul
                   aria-label="Étapes de l'agent"
                   aria-live="polite"
-                  className="mb-2 space-y-1 text-sm text-slate-400"
+                  className="mb-2 mt-1 divide-y divide-rule/50 border-y border-rule/50 text-muted"
                 >
                   {msg.steps.map((step) => (
-                    <li key={step.id}>
+                    <li key={step.id} className="py-1 [overflow-wrap:anywhere]">
                       {step.text}
                       {step.ok === false && (
-                        <span className="text-red-400"> — échec</span>
+                        <span className="font-bold text-signal-ink"> — échec</span>
                       )}
                     </li>
                   ))}
                 </ul>
               )}
-              {msg.answer && <div className="whitespace-pre-wrap">{msg.answer}</div>}
-              {msg.summary && <div className="mt-2 text-sm text-slate-400">{msg.summary}</div>}
+              {msg.answer && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{msg.answer}</div>}
+              {msg.summary && <div className="mt-2 text-muted">{msg.summary}</div>}
               {msg.stopped && (
-                <div className="mt-2 text-sm text-amber-300">Flux interrompu par l'utilisateur.</div>
+                <div className="mt-2 font-medium text-caution-ink">
+                  Flux interrompu par l'utilisateur.
+                </div>
               )}
             </li>
           ),

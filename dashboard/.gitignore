@@ -1,3 +1,14 @@
+# Dépendances
 node_modules
+
+# Build
 dist
+
+# Fichiers locaux
 *.local
+
+# Outils d'IA et de design (locaux, non commités)
+/.impeccable/
+/.agents/
+/.claude/
+/.vibe/

@@ -41,6 +41,6 @@ describe("App (layout + navigation)", () => {
     expect(
       await screen.findByRole("heading", { name: /marché/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /graphique de/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /graphique fictif de/i })).toBeInTheDocument();
   });
 });

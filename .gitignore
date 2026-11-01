@@ -6,15 +6,18 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# Tooling
+# Build
+dist/
+*.egg-info/
+
+# Outils de test et de lint
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-# Build
-dist/
-*.egg-info/
+# Outils d'IA et de design (locaux, non commités)
+/.superpowers/
 
 # macOS
 .DS_Store

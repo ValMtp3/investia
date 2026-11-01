@@ -49,6 +49,10 @@ describe("Page Portefeuille", () => {
       expect(screen.getByText(/9 983,40/)).toBeInTheDocument(),
     );
     expect(screen.getByText("AAPL")).toBeInTheDocument();
+    // Montants du tableau au même format français que le haut de page
+    // (3 083,40 € apparaît dans le bloc Valeur et dans la ligne AAPL du tableau)
+    expect(screen.getAllByText(/3\s083,40\s€/)).toHaveLength(2);
+    expect(screen.getAllByText(/308,34\s€/).length).toBeGreaterThan(0);
   });
 
   it("affiche une erreur lisible si l'API est down", async () => {
