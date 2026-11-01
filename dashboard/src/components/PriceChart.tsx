@@ -1,8 +1,15 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, CandlestickSeries, type IChartApi } from "lightweight-charts";
-import { mockCandles, type Candle } from "../lib/mockMarket";
+import { createChart, ColorType, LineSeries, type IChartApi } from "lightweight-charts";
+import { HISTORY_DAYS, type HistoryPoint } from "../api";
 
-export default function PriceChart({ symbol }: { symbol: string }) {
+interface PriceChartProps {
+  symbol: string;
+  source: string;
+  points: HistoryPoint[];
+}
+
+/** Courbe des cours de clôture journaliers d'un symbole. */
+export default function PriceChart({ symbol, source, points }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,24 +25,17 @@ export default function PriceChart({ symbol }: { symbol: string }) {
       },
       grid: { vertLines: { color: "#e1e5e8" }, horzLines: { color: "#e1e5e8" } },
     });
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#0b7a43",
-      downColor: "#d7261e",
-      wickUpColor: "#0b7a43",
-      wickDownColor: "#d7261e",
-      borderVisible: false,
-    });
-    const data: Candle[] = mockCandles();
-    series.setData(data);
+    const series = chart.addSeries(LineSeries, { color: "#1b1f23", lineWidth: 2 });
+    series.setData(points);
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [symbol]);
+  }, [points]);
 
   return (
     <div
       ref={containerRef}
       role="img"
-      aria-label={`Graphique fictif de ${symbol} (données de démonstration)`}
+      aria-label={`Courbe des cours de clôture de ${symbol}, ${HISTORY_DAYS} jours, source ${source}`}
       className="w-full"
     />
   );

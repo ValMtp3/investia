@@ -1,35 +1,63 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Marche from "../pages/Marche";
+import {
+  callsTo,
+  historyBody,
+  jsonResponse,
+  newTestQueryClient,
+  silentStreamResponse,
+  sseBody,
+  streamResponse,
+  stubBackend,
+} from "./fakeBackend";
 
-// jsdom n'a pas de canvas : on mocke lightweight-charts (comme App.test.tsx)
+// jsdom n'a pas de canvas : on mocke lightweight-charts et on espionne les points reçus
+const { setData } = vi.hoisted(() => ({ setData: vi.fn() }));
 vi.mock("lightweight-charts", () => ({
   createChart: () => ({
-    addSeries: () => ({ setData: () => {} }),
+    addSeries: () => ({ setData }),
     timeScale: () => ({ fitContent: () => {} }),
     remove: () => {},
   }),
   ColorType: { Solid: 0 },
-  CandlestickSeries: {},
+  LineSeries: {},
 }));
+
+beforeEach(() => {
+  setData.mockClear();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function sseBody(chunks: string[], delayMs = 0): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    async start(controller) {
-      for (const [i, chunk] of chunks.entries()) {
-        controller.enqueue(encoder.encode(chunk));
-        if (delayMs > 0 && i < chunks.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-      }
-      controller.close();
-    },
-  });
+function renderMarche() {
+  return render(
+    <QueryClientProvider client={newTestQueryClient()}>
+      <Marche />
+    </QueryClientProvider>,
+  );
+}
+
+const AAPL_POINTS = [
+  { time: "2026-10-30", value: 340.1 },
+  { time: "2026-10-31", value: 344.63 },
+];
+const SAP_POINTS = [
+  { time: "2026-10-30", value: 210.0 },
+  { time: "2026-10-31", value: 211.25 },
+];
+
+/** Historique par symbole, comme le backend (route /market/history). */
+function historyRoute(url: URL) {
+  const symbol = url.searchParams.get("symbol");
+  if (symbol === "SAP.DE") {
+    return jsonResponse(historyBody("SAP.DE", "eodhd", "EUR", SAP_POINTS));
+  }
+  return jsonResponse(historyBody("AAPL", "yahoo", "USD", AAPL_POINTS));
 }
 
 const QUOTES_V1 = {
@@ -76,21 +104,20 @@ const QUOTES_V2 = {
 
 describe("Page Marché (flux SSE live)", () => {
   it("affiche les prix reçus par le stream avec source et badge différé, puis les met à jour", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        body: sseBody(
-          [
-            `event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`,
-            `event: quotes\ndata: ${JSON.stringify(QUOTES_V2)}\n\n`,
-          ],
-          100,
+    const fetchMock = stubBackend({
+      stream: () =>
+        streamResponse(
+          sseBody(
+            [
+              `event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`,
+              `event: quotes\ndata: ${JSON.stringify(QUOTES_V2)}\n\n`,
+            ],
+            100,
+          ),
         ),
-      }),
-    );
-    render(<Marche />);
+      history: historyRoute,
+    });
+    renderMarche();
 
     // Premier push : les 3 symboles avec prix, source, badge différé
     expect(await screen.findByText("344,63")).toBeInTheDocument();
@@ -104,36 +131,123 @@ describe("Page Marché (flux SSE live)", () => {
     );
 
     // Le GET part bien vers /market/stream avec les symboles
-    const fetchMock = vi.mocked(fetch);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain("/market/stream");
-    expect(url).toContain("symbols=AAPL%2CSAP.DE%2CBTC-USD");
-    expect(init.method ?? "GET").toBe("GET");
+    const [streamUrl] = callsTo(fetchMock, "/market/stream");
+    expect(streamUrl.searchParams.get("symbols")).toBe("AAPL,SAP.DE,BTC-USD");
   });
 
-  it("signale que le flux s'est arrêté quand le serveur le ferme", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        body: sseBody([`event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`]),
-      }),
-    );
-    render(<Marche />);
+  it("signale que le flux s'est arrêté quand le serveur ferme le flux", async () => {
+    stubBackend({
+      stream: () =>
+        streamResponse(
+          sseBody([`event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`]),
+        ),
+      history: historyRoute,
+    });
+    renderMarche();
     expect(await screen.findByRole("alert")).toHaveTextContent(/flux.*interrompu/i);
     // Les derniers prix reçus restent affichés
     expect(screen.getByText("344,63")).toBeInTheDocument();
   });
 
   it("affiche une erreur lisible si le flux est indisponible", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }),
-    );
-    render(<Marche />);
+    stubBackend({
+      stream: () => ({ ok: false, status: 503, body: null }),
+      history: historyRoute,
+    });
+    renderMarche();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Flux indisponible (HTTP 503)",
     );
+  });
+});
+
+describe("Page Marché (graphique : vrais cours de clôture)", () => {
+  it("trace la courbe de clôture du symbole avec sa source et sa devise", async () => {
+    const fetchMock = stubBackend({ stream: silentStreamResponse, history: historyRoute });
+    renderMarche();
+
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
+    expect(
+      screen.getByRole("img", {
+        name: "Courbe des cours de clôture de AAPL, 30 jours, source yahoo",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/cours de clôture journaliers.*source : yahoo.*devise : USD/i),
+    ).toBeInTheDocument();
+
+    const [historyUrl] = callsTo(fetchMock, "/market/history");
+    expect(historyUrl.searchParams.get("symbol")).toBe("AAPL");
+    expect(historyUrl.searchParams.get("days")).toBe("30");
+  });
+
+  it("n'annonce plus de données mock", async () => {
+    stubBackend({ stream: silentStreamResponse, history: historyRoute });
+    renderMarche();
+    await waitFor(() => expect(setData).toHaveBeenCalled());
+    expect(screen.queryByText(/mock/i)).not.toBeInTheDocument();
+  });
+
+  it("change de courbe quand on choisit un autre symbole", async () => {
+    const fetchMock = stubBackend({ stream: silentStreamResponse, history: historyRoute });
+    renderMarche();
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
+
+    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
+    expect(
+      await screen.findByText(/source : eodhd.*devise : EUR/i),
+    ).toBeInTheDocument();
+    const symbols = callsTo(fetchMock, "/market/history").map((url) =>
+      url.searchParams.get("symbol"),
+    );
+    expect(symbols).toEqual(["AAPL", "SAP.DE"]);
+  });
+
+  it("indique le chargement de l'historique", async () => {
+    stubBackend({ stream: silentStreamResponse, history: () => new Promise(() => {}) });
+    renderMarche();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Chargement de l'historique…",
+    );
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("affiche l'erreur du backend, qui nomme la source", async () => {
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () =>
+        jsonResponse({ detail: "eodhd: clé API manquante" }, 502),
+    });
+    renderMarche();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "eodhd: clé API manquante",
+    );
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("affiche un message lisible si la réponse d'erreur n'est pas du JSON", async () => {
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () => ({ ok: false, status: 500, json: async () => Promise.reject(new Error("pas du json")) }),
+    });
+    renderMarche();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Historique indisponible (HTTP 500)",
+    );
+  });
+
+  it("dit qu'il n'y a pas d'historique plutôt que d'afficher un graphique vide", async () => {
+    stubBackend({
+      stream: silentStreamResponse,
+      history: () => jsonResponse(historyBody("AAPL", "yahoo", "USD", [])),
+    });
+    renderMarche();
+    expect(
+      await screen.findByText("Aucun historique disponible pour ce symbole."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(setData).not.toHaveBeenCalled();
   });
 });

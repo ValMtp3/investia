@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
 import PriceChart from "../components/PriceChart";
-import { streamMarket, type LiveQuote } from "../api";
+import { streamMarket, useMarketHistory, type LiveQuote } from "../api";
 import { isAbortError } from "../lib/errors";
 
 const SYMBOLS = ["AAPL", "SAP.DE", "BTC-USD"];
@@ -18,6 +18,7 @@ export default function Marche() {
   const [selected, setSelected] = useState(SYMBOLS[0]);
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
+  const history = useMarketHistory(selected);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -94,11 +95,29 @@ export default function Marche() {
         })}
       </ul>
       <Module title={selected}>
-        <PriceChart symbol={selected} />
-        <p className="mt-2 text-xs text-muted">
-          Prix en direct via le flux SSE du backend — le graphique reste sur données mock
-          (historique SSE à venir).
-        </p>
+        {history.isPending && (
+          <p role="status" className="text-muted">
+            Chargement de l'historique…
+          </p>
+        )}
+        {history.isError && <ErrorNotice>{history.error.message}</ErrorNotice>}
+        {history.data && history.data.points.length === 0 && (
+          <p className="text-muted">Aucun historique disponible pour ce symbole.</p>
+        )}
+        {history.data && history.data.points.length > 0 && (
+          <>
+            <PriceChart
+              symbol={selected}
+              source={history.data.source ?? "inconnue"}
+              points={history.data.points}
+            />
+            <p className="mt-2 text-xs text-muted">
+              Cours de clôture journaliers · source : {history.data.source ?? "inconnue"} ·
+              devise : {history.data.currency ?? "inconnue"}
+              {history.data.delayed ? " · différé" : ""}
+            </p>
+          </>
+        )}
       </Module>
     </section>
   );

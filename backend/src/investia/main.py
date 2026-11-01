@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 from investia.cache import check_redis, close_redis
 from investia.config import get_settings
 from investia.db import check_db, close_db
+from investia.market.base import MarketData, MarketDataError
 
 
 @asynccontextmanager
@@ -39,6 +40,25 @@ class AgentRunBody(BaseModel):
 
 
 MARKET_STREAM_INTERVAL = 5.0
+
+# Symbole accepté par /market/history : lettres, chiffres et . - ^ =
+# (ex. SAP.DE, BTC-USD).
+SYMBOL_PATTERN = r"^[A-Za-z0-9.\-^=]{1,20}$"
+# Mêmes bornes que l'outil `get_history` de l'agent.
+HISTORY_MIN_DAYS = 5
+HISTORY_MAX_DAYS = 400
+HISTORY_DEFAULT_DAYS = 30
+
+
+def daily_closes(history: list[MarketData]) -> list[dict[str, Any]]:
+    """Un point `{time, value}` par jour, trié par date. Doublon : le dernier gagne.
+
+    `lightweight-charts` (le graphique du dashboard) refuse deux points à la même date.
+    """
+    by_day: dict[str, float] = {}
+    for point in sorted(history, key=lambda p: p.timestamp):
+        by_day[point.timestamp.date().isoformat()] = point.value
+    return [{"time": day, "value": value} for day, value in by_day.items()]
 
 
 def create_app(
@@ -207,6 +227,28 @@ def create_app(
                 raise
 
         return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.get("/market/history")
+    async def market_history(
+        symbol: str = Query(..., pattern=SYMBOL_PATTERN),
+        days: int = Query(
+            HISTORY_DEFAULT_DAYS, ge=HISTORY_MIN_DAYS, le=HISTORY_MAX_DAYS
+        ),
+    ) -> dict[str, Any]:
+        """Cours de clôture journaliers d'un symbole, pour le graphique du dashboard."""
+        symbol = symbol.upper()
+        try:
+            history = await market.get_history(symbol, days=days)
+        except MarketDataError as error:
+            # Le message nomme la source (ex. « eodhd: clé API manquante ») sans secret.
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        return {
+            "symbol": symbol,
+            "source": history[0].source if history else None,
+            "currency": history[0].currency if history else None,
+            "delayed": any(point.delayed for point in history),
+            "points": daily_closes(history),
+        }
 
     return app
 
