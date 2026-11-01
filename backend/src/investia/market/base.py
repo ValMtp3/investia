@@ -8,9 +8,12 @@ from typing import Any, Protocol
 class MarketDataError(Exception):
     """Erreur d'un fournisseur de données — nomme toujours la source."""
 
-    def __init__(self, source: str, detail: str) -> None:
+    def __init__(self, source: str, detail: str, rate_limited: bool = False) -> None:
         super().__init__(f"{source}: {detail}")
         self.source = source
+        self.detail = detail
+        # Vrai si la source répond « trop de requêtes » (429) : on la met en pause.
+        self.rate_limited = rate_limited
 
 
 @dataclass(frozen=True)

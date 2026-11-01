@@ -52,3 +52,27 @@ async def test_http_error_raises_and_names_source():
     connector = make_connector(lambda request: httpx.Response(401))
     with pytest.raises(MarketDataError, match="eodhd"):
         await connector.get_history("SAP.DE")
+
+
+async def test_get_history_us_symbol_uses_the_us_exchange_and_usd():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/eod/AAPL.US"
+        return httpx.Response(
+            200,
+            json=[
+                {"date": "2026-10-29", "close": 340.1},
+                {"date": "2026-10-30", "close": 344.63},
+            ],
+        )
+
+    history = await make_connector(handler).get_history("AAPL", days=30)
+    assert [h.value for h in history] == [340.1, 344.63]
+    assert all(h.currency == "USD" for h in history)
+    assert all(h.source == "eodhd" for h in history)
+
+
+async def test_429_is_flagged_rate_limited():
+    connector = make_connector(lambda request: httpx.Response(429))
+    with pytest.raises(MarketDataError) as caught:
+        await connector.get_history("AAPL", days=30)
+    assert caught.value.rate_limited is True

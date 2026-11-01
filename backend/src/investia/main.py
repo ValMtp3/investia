@@ -1,11 +1,13 @@
 """Point d'entrée de l'API FastAPI."""
 
+import logging
+import re
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -13,6 +15,9 @@ from pydantic import BaseModel, Field, ValidationError
 from investia.cache import check_redis, close_redis
 from investia.config import get_settings
 from investia.db import check_db, close_db
+from investia.market.base import MarketData, MarketDataError, MarketDataService
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -39,6 +44,64 @@ class AgentRunBody(BaseModel):
 
 
 MARKET_STREAM_INTERVAL = 5.0
+# Au plus un tour toutes les secondes : `interval=0` ferait une boucle sans pause.
+MARKET_STREAM_MIN_INTERVAL = 1.0
+# Chaque symbole peut coûter jusqu'à 4 appels fournisseurs (cascade).
+MARKET_STREAM_MAX_SYMBOLS = 20
+
+# Symbole accepté par /market/history : lettres, chiffres et . - ^ =
+# (ex. SAP.DE, BTC-USD).
+SYMBOL_PATTERN = r"^[A-Za-z0-9.\-^=]{1,20}$"
+SYMBOL_RE = re.compile(SYMBOL_PATTERN)
+# Mêmes bornes que l'outil `get_history` de l'agent.
+HISTORY_MIN_DAYS = 5
+HISTORY_MAX_DAYS = 400
+# Même valeur que `HISTORY_DAYS` du dashboard (src/api.ts) : le repli du flux de prix
+# et le graphique partagent ainsi la même entrée de cache.
+HISTORY_DEFAULT_DAYS = 30
+
+
+async def stream_quote(market: MarketDataService, symbol: str) -> dict[str, Any]:
+    """Prix d'un symbole pour le flux ; s'il échoue, sa dernière clôture, étiquetée.
+
+    Repli d'affichage seulement (le dashboard) : `get_quote`, utilisé par l'agent et le
+    portefeuille, garde son erreur claire plutôt qu'un prix de la veille. La durée
+    (30 jours) est celle du graphique : même entrée de cache, un seul appel
+    au fournisseur.
+    """
+    try:
+        quote = (await market.get_quote(symbol)).to_dict()
+        quote["symbol"] = symbol
+        return quote
+    except Exception as error:
+        # Le flux d'affichage ne doit jamais s'arrêter pour un symbole : on trace, on
+        # tente la dernière clôture, sinon on renvoie l'erreur du prix.
+        logger.warning("Prix de %s indisponible : %s", symbol, error)
+        try:
+            history = await market.get_history(symbol, days=HISTORY_DEFAULT_DAYS)
+        except Exception as history_error:
+            logger.warning("Clôture de %s indisponible : %s", symbol, history_error)
+            history = []
+        if not history:
+            return {"symbol": symbol, "error": str(error)}
+        last_close = max(history, key=lambda point: point.timestamp)
+        return {
+            **last_close.to_dict(),
+            "symbol": symbol,
+            "delayed": True,
+            "is_close": True,
+        }
+
+
+def daily_closes(history: list[MarketData]) -> list[dict[str, Any]]:
+    """Un point `{time, value}` par jour, trié par date. Doublon : le dernier gagne.
+
+    `lightweight-charts` (le graphique du dashboard) refuse deux points à la même date.
+    """
+    by_day: dict[str, float] = {}
+    for point in sorted(history, key=lambda p: p.timestamp):
+        by_day[point.timestamp.date().isoformat()] = point.value
+    return [{"time": day, "value": value} for day, value in by_day.items()]
 
 
 def create_app(
@@ -69,10 +132,15 @@ def create_app(
 
         market = market or build_market_service(settings)
         portfolio_service = portfolio_service or PortfolioService(get_session(), market)
+    market_service: MarketDataService = market  # non None : construit juste au-dessus
     if llm is None:
         from investia.llm import build_llm_client
 
         llm = build_llm_client(settings)
+
+    # httpx écrit l'URL complète de chaque requête au niveau INFO, donc la clé API
+    # des fournisseurs qui la prennent en paramètre (EODHD, Finnhub, CoinGecko).
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     app = FastAPI(title="Investia", lifespan=lifespan)
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
@@ -172,12 +240,13 @@ def create_app(
     @app.get("/market/stream")
     async def market_stream(
         symbols: str,
-        interval: float = MARKET_STREAM_INTERVAL,
+        interval: float = Query(MARKET_STREAM_INTERVAL, ge=MARKET_STREAM_MIN_INTERVAL),
         max_events: int | None = None,
     ) -> Any:
         """Stream SSE des prix (toutes les `interval` s, cache Redis 60 s).
 
-        `max_events` optionnel : arrête après N événements (utile en test/CI).
+        Symboles validés (le symbole finit dans l'URL des fournisseurs) et limités
+        en nombre. `max_events` optionnel : arrête après N événements (test/CI).
         """
         import asyncio
 
@@ -186,27 +255,57 @@ def create_app(
         from investia.sse import format_sse
 
         symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if not symbol_list:
+            raise HTTPException(status_code=422, detail="au moins un symbole")
+        if len(symbol_list) > MARKET_STREAM_MAX_SYMBOLS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{MARKET_STREAM_MAX_SYMBOLS} symboles au maximum",
+            )
+        invalid = [s for s in symbol_list if not SYMBOL_RE.fullmatch(s)]
+        if invalid:
+            raise HTTPException(
+                status_code=422, detail=f"symbole invalide : {invalid[0][:25]!r}"
+            )
 
         async def generate():
             sent = 0
             try:
-                while max_events is None or sent < max_events:
-                    quotes = []
-                    for symbol in symbol_list:
-                        try:
-                            quote = await market.get_quote(symbol)
-                            quote_dict = quote.to_dict()
-                            quote_dict["symbol"] = symbol
-                            quotes.append(quote_dict)
-                        except Exception as error:
-                            quotes.append({"symbol": symbol, "error": str(error)})
+                while True:
+                    quotes = [
+                        await stream_quote(market_service, s) for s in symbol_list
+                    ]
                     yield format_sse("quotes", {"quotes": quotes})
                     sent += 1
+                    if max_events is not None and sent >= max_events:
+                        break
                     await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 raise
 
         return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.get("/market/history")
+    async def market_history(
+        symbol: str = Query(..., pattern=SYMBOL_PATTERN),
+        days: int = Query(
+            HISTORY_DEFAULT_DAYS, ge=HISTORY_MIN_DAYS, le=HISTORY_MAX_DAYS
+        ),
+    ) -> dict[str, Any]:
+        """Cours de clôture journaliers d'un symbole, pour le graphique du dashboard."""
+        symbol = symbol.upper()
+        try:
+            history = await market.get_history(symbol, days=days)
+        except MarketDataError as error:
+            # Le message nomme la source (ex. « eodhd: clé API manquante ») sans secret.
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        return {
+            "symbol": symbol,
+            "source": history[0].source if history else None,
+            "currency": history[0].currency if history else None,
+            "delayed": any(point.delayed for point in history),
+            "points": daily_closes(history),
+        }
 
     return app
 

@@ -2,22 +2,33 @@ import { useEffect, useState } from "react";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
 import PriceChart from "../components/PriceChart";
-import { streamMarket, type LiveQuote } from "../api";
+import { streamMarket, useMarketHistory, type LiveQuote } from "../api";
 import { isAbortError } from "../lib/errors";
 
 const SYMBOLS = ["AAPL", "SAP.DE", "BTC-USD"];
 
-function formatTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime())
-    ? timestamp
-    : date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+/** Heure du prix, ou « clôture du 30/10 » : une clôture n'a pas d'heure à afficher. */
+function formatAsOf(quote: LiveQuote): string {
+  if (!quote.timestamp) return "";
+  const date = new Date(quote.timestamp);
+  if (Number.isNaN(date.getTime())) return quote.timestamp;
+  if (quote.is_close) {
+    // UTC : la date de la clôture ne doit pas glisser d'un jour selon le fuseau du lecteur.
+    const day = date.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "UTC",
+    });
+    return `clôture du ${day}`;
+  }
+  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 export default function Marche() {
   const [selected, setSelected] = useState(SYMBOLS[0]);
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
+  const history = useMarketHistory(selected);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,7 +95,7 @@ export default function Marche() {
                   )}
                 </div>
                 <div className="text-xs text-muted">
-                  {quote?.timestamp ? formatTime(quote.timestamp) : ""}{" "}
+                  {quote ? formatAsOf(quote) : ""}{" "}
                   {quote?.source ? `· ${quote.source}` : ""}
                   {quote?.delayed ? " · différé" : ""}
                 </div>
@@ -94,11 +105,29 @@ export default function Marche() {
         })}
       </ul>
       <Module title={selected}>
-        <PriceChart symbol={selected} />
-        <p className="mt-2 text-xs text-muted">
-          Prix en direct via le flux SSE du backend — le graphique reste sur données mock
-          (historique SSE à venir).
-        </p>
+        {history.isPending && (
+          <p role="status" className="text-muted">
+            Chargement de l'historique…
+          </p>
+        )}
+        {history.isError && <ErrorNotice>{history.error.message}</ErrorNotice>}
+        {history.data && history.data.points.length === 0 && (
+          <p className="text-muted">Aucun historique disponible pour ce symbole.</p>
+        )}
+        {history.data && history.data.points.length > 0 && (
+          <>
+            <PriceChart
+              symbol={selected}
+              source={history.data.source ?? "inconnue"}
+              points={history.data.points}
+            />
+            <p className="mt-2 text-xs text-muted">
+              Cours de clôture journaliers · source : {history.data.source ?? "inconnue"} ·
+              devise : {history.data.currency ?? "inconnue"}
+              {history.data.delayed ? " · différé" : ""}
+            </p>
+          </>
+        )}
       </Module>
     </section>
   );

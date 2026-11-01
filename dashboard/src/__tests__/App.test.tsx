@@ -1,15 +1,28 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
+import {
+  historyBody,
+  jsonResponse,
+  newTestQueryClient,
+  silentStreamResponse,
+  stubBackend,
+} from "./fakeBackend";
 
-// La page Marché ouvre un flux SSE au montage : on stubbe fetch (API non dispo en test).
+// La page Marché ouvre un flux SSE et charge un historique au montage : faux backend (API non dispo en test).
+beforeEach(() => {
+  stubBackend({
+    stream: silentStreamResponse,
+    history: () =>
+      jsonResponse(
+        historyBody("AAPL", "yahoo", "USD", [{ time: "2026-10-31", value: 344.63 }]),
+      ),
+  });
+});
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-vi.stubGlobal(
-  "fetch",
-  vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }),
-);
 
 // jsdom n'a pas de canvas : on mocke lightweight-charts (le vrai rendu est testé en E2E plus tard)
 vi.mock("lightweight-charts", () => ({
@@ -19,12 +32,20 @@ vi.mock("lightweight-charts", () => ({
     remove: () => {},
   }),
   ColorType: { Solid: 0 },
-  CandlestickSeries: {},
+  LineSeries: {},
 }));
+
+function renderApp() {
+  return render(
+    <QueryClientProvider client={newTestQueryClient()}>
+      <App />
+    </QueryClientProvider>,
+  );
+}
 
 describe("App (layout + navigation)", () => {
   it("affiche les 4 pages dans la nav et le bandeau simulation", async () => {
-    render(<App />);
+    renderApp();
     const nav = await screen.findByRole("navigation", {
       name: /navigation principale/i,
     });
@@ -36,11 +57,13 @@ describe("App (layout + navigation)", () => {
     ).toBeInTheDocument();
   });
 
-  it("affiche la page marché par défaut avec le graphique", async () => {
-    render(<App />);
+  it("affiche la page marché par défaut avec le graphique des cours", async () => {
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: /marché/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /graphique fictif de/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("img", { name: /courbe des cours de clôture de AAPL/i }),
+    ).toBeInTheDocument();
   });
 });

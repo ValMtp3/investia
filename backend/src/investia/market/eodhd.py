@@ -20,7 +20,14 @@ def to_eodhd_symbol(symbol: str) -> str:
     upper = symbol.upper()
     if upper.endswith(".DE"):
         return upper[: -len(".DE")] + ".XETRA"
+    if "." not in upper:
+        return upper + ".US"  # action US : AAPL -> AAPL.US
     return upper
+
+
+def currency_for(eodhd_symbol: str) -> str:
+    """Devise de cotation : USD pour la place US, EUR pour XETRA et Euronext."""
+    return "USD" if eodhd_symbol.endswith(".US") else "EUR"
 
 
 class EodhdConnector:
@@ -48,7 +55,9 @@ class EodhdConnector:
         )
         if response.status_code != 200:
             raise MarketDataError(
-                self.name, f"HTTP {response.status_code} pour {eodhd_symbol}"
+                self.name,
+                f"HTTP {response.status_code} pour {eodhd_symbol}",
+                rate_limited=response.status_code == 429,
             )
         rows = response.json()
         if not isinstance(rows, list):
@@ -57,7 +66,7 @@ class EodhdConnector:
         return [
             MarketData(
                 value=float(row["close"]),
-                currency="EUR",
+                currency=currency_for(eodhd_symbol),
                 source=self.name,
                 timestamp=datetime.fromisoformat(row["date"]).replace(tzinfo=UTC),
                 delayed=True,

@@ -42,7 +42,9 @@ class YahooConnector:
             break
         if response is None or response.status_code != 200:
             status = response.status_code if response is not None else "no response"
-            raise MarketDataError(self.name, f"HTTP {status} pour {symbol}")
+            raise MarketDataError(
+                self.name, f"HTTP {status} pour {symbol}", rate_limited=status == 429
+            )
         payload = response.json()
         chart = payload.get("chart", {})
         if chart.get("error"):
