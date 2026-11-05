@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createChart, ColorType, LineSeries, type IChartApi } from "lightweight-charts";
+import { createChart, LineSeries, type IChartApi } from "lightweight-charts";
 import { HISTORY_DAYS, type HistoryPoint } from "../api";
+import { chartLayoutOptions } from "../lib/chartTheme";
 import ErrorNotice from "./ErrorNotice";
 
 interface PriceChartProps {
@@ -21,12 +22,7 @@ export default function PriceChart({ symbol, source, points }: PriceChartProps) 
     try {
       chart = createChart(container, {
         autoSize: true, // prend la taille du conteneur (h-[300px] ci-dessous)
-        layout: {
-          background: { type: ColorType.Solid, color: "transparent" },
-          textColor: "#55606a",
-          fontFamily: "'Noto Sans JP', ui-sans-serif, system-ui, sans-serif",
-        },
-        grid: { vertLines: { color: "#e1e5e8" }, horzLines: { color: "#e1e5e8" } },
+        ...chartLayoutOptions(),
       });
       const series = chart.addSeries(LineSeries, { color: "#1b1f23", lineWidth: 2 });
       series.setData(points);

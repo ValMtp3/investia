@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createChart,
-  ColorType,
   LineSeries,
   type IChartApi,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { chartLayoutOptions } from "../lib/chartTheme";
 import ErrorNotice from "./ErrorNotice";
 
 export interface EvalSeriesPoint {
@@ -36,12 +36,7 @@ export default function EvalChart({ series, label }: EvalChartProps) {
     try {
       chart = createChart(container, {
         autoSize: true,
-        layout: {
-          background: { type: ColorType.Solid, color: "transparent" },
-          textColor: "#55606a",
-          fontFamily: "'Noto Sans JP', ui-sans-serif, system-ui, sans-serif",
-        },
-        grid: { vertLines: { color: "#e1e5e8" }, horzLines: { color: "#e1e5e8" } },
+        ...chartLayoutOptions(),
       });
       for (const oneSeries of series) {
         chart.addSeries(LineSeries, { color: oneSeries.color, lineWidth: 2 }).setData(

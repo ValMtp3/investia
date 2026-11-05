@@ -13,7 +13,7 @@ export default function Module({ title, children, className = "" }: ModuleProps)
     <section aria-labelledby={headingId} className={`border border-rule bg-paper ${className}`}>
       <h2
         id={headingId}
-        className="inline-block bg-signal px-2 py-0.5 text-xs font-bold text-paper"
+        className="inline-block bg-signal px-2 py-0.5 text-xs font-medium text-paper"
       >
         {title}
       </h2>

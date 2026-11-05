@@ -1,6 +1,6 @@
-/* Police hébergée dans le projet : latin seulement, graisses 400 et 700. */
+/* Police hébergée dans le projet : latin seulement, graisses 400 et 500. */
 @import "@fontsource/noto-sans-jp/latin-400.css";
-@import "@fontsource/noto-sans-jp/latin-700.css";
+@import "@fontsource/noto-sans-jp/latin-500.css";
 @import "tailwindcss";
 
 /* Direction : densité japonaise. Fond blanc, filets fins gris, onglets rouge signal. */

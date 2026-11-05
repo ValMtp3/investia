@@ -8,7 +8,7 @@ export default function Portefeuille() {
 
   return (
     <section aria-labelledby="portefeuille-title">
-      <h1 id="portefeuille-title" className="mb-3 text-lg font-bold">
+      <h1 id="portefeuille-title" className="mb-3 text-lg font-medium">
         Portefeuille simulé
       </h1>
       {isLoading && (
@@ -27,7 +27,7 @@ export default function Portefeuille() {
             <dl className="divide-y divide-rule">
               <div className="flex items-baseline justify-between gap-3 pb-2">
                 <dt className="text-muted">Valeur totale</dt>
-                <dd className="text-lg font-bold">
+                <dd className="text-lg font-medium">
                   {formatMoney(data.total_value, data.currency)}
                 </dd>
               </div>
@@ -51,26 +51,26 @@ export default function Portefeuille() {
                 <caption className="sr-only">Positions du portefeuille</caption>
                 <thead>
                   <tr className="border-b border-rule bg-wash text-muted">
-                    <th scope="col" className="px-2 py-1.5 font-medium">Symbole</th>
-                    <th scope="col" className="px-2 py-1.5 text-right font-medium">Qté</th>
-                    <th scope="col" className="px-2 py-1.5 text-right font-medium">Prix moy.</th>
-                    <th scope="col" className="px-2 py-1.5 text-right font-medium">Prix</th>
-                    <th scope="col" className="px-2 py-1.5 text-right font-medium">Valeur</th>
+                    <th scope="col" className="px-2 py-2 font-medium">Symbole</th>
+                    <th scope="col" className="px-2 py-2 text-right font-medium">Qté</th>
+                    <th scope="col" className="px-2 py-2 text-right font-medium">Prix moy.</th>
+                    <th scope="col" className="px-2 py-2 text-right font-medium">Prix</th>
+                    <th scope="col" className="px-2 py-2 text-right font-medium">Valeur</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.positions.map((p) => (
                     <tr key={p.symbol} className="border-b border-rule/50 hover:bg-wash">
-                      <td className="px-2 py-1.5 font-bold">{p.symbol}</td>
-                      <td className="px-2 py-1.5 text-right">{p.quantity}</td>
-                      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <td className="px-2 py-2 font-medium">{p.symbol}</td>
+                      <td className="px-2 py-2 text-right">{p.quantity}</td>
+                      <td className="px-2 py-2 text-right whitespace-nowrap">
                         {formatMoney(p.avg_price, data.currency)}
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <span className="whitespace-nowrap">{formatMoney(p.price_eur, data.currency)}</span>{" "}
                         <span className="text-xs text-muted">({p.source})</span>
                       </td>
-                      <td className="px-2 py-1.5 text-right font-medium whitespace-nowrap">
+                      <td className="px-2 py-2 text-right font-medium whitespace-nowrap">
                         {formatMoney(p.value_eur, data.currency)}
                       </td>
                     </tr>

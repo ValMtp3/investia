@@ -150,7 +150,7 @@ export default function Agent() {
 
   return (
     <section aria-labelledby="agent-title">
-      <h1 id="agent-title" className="mb-3 text-lg font-bold">
+      <h1 id="agent-title" className="mb-3 text-lg font-medium">
         Conseils de l'agent
       </h1>
 
@@ -174,7 +174,7 @@ export default function Agent() {
             <dl className="flex flex-wrap gap-x-6 gap-y-1">
               <div className="flex items-baseline gap-2">
                 <dt className="text-muted">Valeur totale</dt>
-                <dd className="font-bold">
+                <dd className="font-medium">
                   {formatMoney(portfolio.data.total_value, portfolio.data.currency)}
                 </dd>
               </div>
@@ -215,7 +215,7 @@ export default function Agent() {
           <button
             type="submit"
             disabled={running || !input.trim()}
-            className="bg-ink px-4 py-2 font-bold text-paper hover:bg-signal disabled:opacity-50 disabled:hover:bg-ink"
+            className="bg-ink px-4 py-2 font-medium text-paper hover:bg-signal disabled:opacity-50 disabled:hover:bg-ink"
           >
             Envoyer
           </button>
@@ -223,7 +223,7 @@ export default function Agent() {
             <button
               type="button"
               onClick={stop}
-              className="border border-signal px-4 py-2 font-bold text-signal-ink hover:bg-signal-wash"
+              className="border border-signal px-4 py-2 font-medium text-signal-ink hover:bg-signal-wash"
             >
               Stop
             </button>
@@ -258,7 +258,7 @@ export default function Agent() {
                     <li key={step.id} className="py-1 [overflow-wrap:anywhere]">
                       {step.text}
                       {step.ok === false && (
-                        <span className="font-bold text-signal-ink"> — échec</span>
+                        <span className="font-medium text-signal-ink"> — échec</span>
                       )}
                     </li>
                   ))}

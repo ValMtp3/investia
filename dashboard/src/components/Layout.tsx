@@ -19,7 +19,7 @@ export default function Layout() {
       </div>
       <div className="flex flex-1 flex-col md:flex-row">
         <aside className="border-b border-rule md:w-44 md:shrink-0 md:border-r md:border-b-0">
-          <div className="px-4 py-3 text-base font-bold">Investia</div>
+          <div className="px-4 py-3 text-base font-medium">Investia</div>
           <nav aria-label="Navigation principale">
             <ul className="flex flex-wrap md:flex-col">
               {NAV.map((item) => (

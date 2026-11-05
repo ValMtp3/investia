@@ -62,7 +62,7 @@ export default function Marche() {
 
   return (
     <section aria-labelledby="marche-title">
-      <h1 id="marche-title" className="mb-3 text-lg font-bold">
+      <h1 id="marche-title" className="mb-3 text-lg font-medium">
         Marché
       </h1>
       {streamError && <ErrorNotice className="mb-3">{streamError}</ErrorNotice>}
@@ -76,7 +76,7 @@ export default function Marche() {
                 aria-pressed={selected === symbol}
                 className="w-full border border-rule bg-paper p-3 text-left hover:bg-wash aria-pressed:border-ink aria-pressed:bg-wash aria-pressed:shadow-[inset_0_0_0_1px_var(--color-ink)]"
               >
-                <div className="font-bold">{symbol}</div>
+                <div className="font-medium">{symbol}</div>
                 <div className="text-lg font-medium">
                   {quote?.error ? (
                     <span className="text-signal-ink">erreur</span>

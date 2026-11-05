@@ -70,7 +70,7 @@ export default function Traces() {
 
   return (
     <section aria-labelledby="traces-title">
-      <h1 id="traces-title" className="mb-3 text-lg font-bold">
+      <h1 id="traces-title" className="mb-3 text-lg font-medium">
         Traces & évaluations
       </h1>
       <div className="grid gap-3 lg:grid-cols-[22rem_1fr]">
@@ -143,7 +143,7 @@ export default function Traces() {
                   {detail.data.run.answer}
                 </div>
               )}
-              <h3 className="mb-1 text-sm font-bold">Étapes</h3>
+              <h3 className="mb-1 text-sm font-medium">Étapes</h3>
               {detail.data.steps.length === 0 ? (
                 <p className="text-muted">Aucune étape enregistrée.</p>
               ) : (
@@ -187,7 +187,7 @@ export default function Traces() {
             <>
               <ul aria-label="Métriques" className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
                 {evalSeries.map((oneSeries) => (
-                  <li key={oneSeries.name} className="flex items-center gap-1.5 text-sm">
+                  <li key={oneSeries.name} className="flex items-center gap-2 text-sm">
                     <span
                       aria-hidden="true"
                       className="inline-block h-0.5 w-4"
