@@ -3,6 +3,8 @@
 services:
   postgres:
     restart: unless-stopped
+    environment:
+      AUTHELIA_DB_PASSWORD: ${AUTHELIA_DB_PASSWORD:?AUTHELIA_DB_PASSWORD est requis en prod}
   redis:
     restart: unless-stopped
   backend:

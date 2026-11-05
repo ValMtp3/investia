@@ -8,6 +8,8 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-investia}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis}
+      # Mot de passe de l'utilisateur « authelia » (D50). Facultatif en local, requis en prod.
+      AUTHELIA_DB_PASSWORD: ${AUTHELIA_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
