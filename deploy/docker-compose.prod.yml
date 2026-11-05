@@ -9,3 +9,5 @@ services:
     restart: unless-stopped
   litellm:
     restart: unless-stopped
+  dashboard:
+    restart: unless-stopped
