@@ -1,0 +1,56 @@
+# Authelia 4.39 — connexion unique (mot de passe + TOTP) devant investia.valentin-fiess.fr (D12, D39, D50).
+# AUCUN secret ici (dépôt public, D42) : ils arrivent par variables d'environnement depuis le .env
+# (AUTHELIA_SESSION_SECRET, AUTHELIA_STORAGE_ENCRYPTION_KEY,
+#  AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET, AUTHELIA_STORAGE_POSTGRES_PASSWORD).
+
+server:
+  # Le portail vit sur le chemin /auth du même domaine (D39).
+  address: 'tcp://:9091/auth'
+  endpoints:
+    authz:
+      auth-request:
+        implementation: 'AuthRequest'
+
+log:
+  level: 'info'
+
+authentication_backend:
+  # Un seul utilisateur, dans un fichier (voir users_database.example.yml). Pas de réinitialisation
+  # de mot de passe par message : pas de serveur d'e-mail, et une surface d'attaque en moins.
+  password_reset:
+    disable: true
+  file:
+    path: '/config/users_database.yml'
+
+totp:
+  issuer: 'investia.valentin-fiess.fr'
+
+access_control:
+  # Tout est fermé par défaut ; le seul domaine ouvert exige mot de passe + code TOTP.
+  default_policy: 'deny'
+  rules:
+    - domain: 'investia.valentin-fiess.fr'
+      policy: 'two_factor'
+
+session:
+  name: 'investia_session'
+  cookies:
+    # Cookie limité à ce sous-domaine : les autres services du VPS ne le reçoivent pas.
+    - domain: 'investia.valentin-fiess.fr'
+      authelia_url: 'https://investia.valentin-fiess.fr/auth'
+      default_redirection_url: 'https://investia.valentin-fiess.fr/'
+      # Choix du propriétaire (05/11/2026) : connexion valable 8 h, coupée après 1 h d'inactivité.
+      expiration: '8h'
+      inactivity: '1h'
+
+storage:
+  postgres:
+    address: 'tcp://postgres:5432'
+    database: 'authelia'
+    username: 'authelia'
+
+notifier:
+  # Pas d'e-mail : le code de vérification demandé lors de l'enregistrement du TOTP
+  # est écrit dans ce fichier (lisible avec `docker compose exec authelia cat /data/notification.txt`).
+  filesystem:
+    filename: '/data/notification.txt'

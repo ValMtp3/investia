@@ -21,3 +21,6 @@ htmlcov/
 
 # macOS
 .DS_Store
+
+# Authelia : fichier des utilisateurs (contient un hash de mot de passe), jamais commité
+deploy/authelia/users_database.yml
