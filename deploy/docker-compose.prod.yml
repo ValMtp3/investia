@@ -30,6 +30,30 @@ services:
       - ./authelia/configuration.yml:/config/configuration.yml:ro
       - ./authelia/users_database.yml:/config/users_database.yml:ro
       - authelia_data:/data
+  # Sauvegarde quotidienne des bases (D52) : sur le VPS seulement, dans le volume `backups`.
+  # Même image que PostgreSQL pour avoir un `pg_dump` de la même version (17).
+  backup:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["bash", "/scripts/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-investia}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis}
+    volumes:
+      - ./backup:/scripts:ro
+      - backups:/backups
+    healthcheck:
+      # unhealthy si aucune sauvegarde réussie depuis plus de 26 h (1560 min).
+      test: ["CMD-SHELL", "find /backups/last_success -mmin -1560 2>/dev/null | grep -q ."]
+      interval: 1h
+      timeout: 10s
+      retries: 1
+      start_period: 10m
 
 volumes:
   authelia_data:
+  backups:
