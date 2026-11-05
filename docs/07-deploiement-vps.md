@@ -14,7 +14,7 @@
 | `postgres` | **Un seul** PostgreSQL 17 : base de l'app (+ base Authelia si besoin, même serveur) |
 | `redis` | Cache données de marché (TTL) + cache sémantique LLM |
 
-**NPM (hors notre compose, déjà sur le VPS)** : point d'entrée de `investia.valentin-fiess.fr`. On y ajoute des *Proxy Hosts* vers nos conteneurs (`backend:8000`, `dashboard:3000`) avec en « Advanced » la config nginx de forward-auth vers `http://authelia:9091/api/authz/auth-request` (pattern Authelia 4.39 + NPM). Aucune page ni API accessible sans session Authelia. ⚠️ Pour le SSE, ajouter dans l'« Advanced » du proxy host : `proxy_buffering off;` et un `proxy_read_timeout` long, sinon nginx garde les messages en mémoire et le flux se bloque. À tester à l'étape 4 bis.
+**NPM (hors notre compose, déjà sur le VPS)** : point d'entrée de `investia.valentin-fiess.fr`. On y ajoute **un seul Proxy Host** vers le conteneur `dashboard` (D49 : son nginx sert les pages et aiguille `/api/` vers `backend:8000` en retirant le préfixe, donc une seule origine, pas de CORS) plus le chemin `/auth` vers Authelia (D39), avec en « Advanced » la config nginx de forward-auth vers `http://authelia:9091/api/authz/auth-request` (pattern Authelia 4.39 + NPM). Aucune page ni API accessible sans session Authelia. ⚠️ Pour le SSE, ajouter dans l'« Advanced » du proxy host : `proxy_buffering off;` et un `proxy_read_timeout` long, sinon nginx garde les messages en mémoire et le flux se bloque. À tester à l'étape 4 bis.
 
 Un seul serveur PostgreSQL héberge plusieurs bases de données si besoin : on sépare logiquement, pas en conteneurs. C'est comme un seul frigo avec plusieurs compartiments.
 
@@ -28,7 +28,7 @@ Trois fichiers : `docker-compose.yml` (base commune), `docker-compose.override.y
 2. Pare-feu : NPM a besoin de 80/443 (déjà ouverts) ; nos conteneurs ne publient **aucun port** en dehors du réseau Docker interne.
 3. Connexion SSH par clé, mot de passe désactivé (déjà en place a priori — à vérifier).
 4. Mises à jour de sécurité automatiques.
-5. Sauvegardes régulières des bases PostgreSQL, avec test de restauration.
+5. Sauvegardes : `pg_dump` quotidien, 7 jours gardés **sur le VPS seulement** (D52, remplace D40), avec test de restauration. ⚠️ Si le VPS tombe, base et dumps partent ensemble : risque assumé, à revoir si la perte devient coûteuse.
 
 ## Ressources (VPS partagé)
 
@@ -36,7 +36,7 @@ Trois fichiers : `docker-compose.yml` (base commune), `docker-compose.override.y
 
 ## Mise en ligne
 
-Pas avant l'étape 4 de la roadmap, et seulement après la revue de sécurité (voir `06-securite-et-legal.md`). Le déploiement est une action difficile à annuler : chaque mise en ligne est validée avec toi.
+Pas avant l'étape 4 de la roadmap, et seulement après la revue de sécurité (voir `06-securite-et-legal.md`). Le déploiement est une action difficile à annuler : chaque mise en ligne est validée avec toi. Tu lances les commandes sur le VPS (`git pull` puis `docker compose build`), je prépare les fichiers et le guide (D48). Spec : `docs/specs/4bis-mise-en-ligne.md`.
 
 ## À prévoir plus tard
 
