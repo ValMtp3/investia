@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { streamAgentRun, type AgentEvent } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
@@ -17,6 +18,7 @@ interface ChatMessage {
   answer?: string;
   summary?: string;
   stopped?: boolean;
+  runId?: string | null;
 }
 
 function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
@@ -90,6 +92,9 @@ export default function Agent() {
               ...msg,
               steps: [...msg.steps, { id, text: step.text, ok: step.ok }],
             }));
+          } else if (evt.kind === "start") {
+            // Le run est tracé côté backend : on garde son id pour le lien « voir la trace ».
+            patchLastAssistant((msg) => ({ ...msg, runId: evt.payload.run_id ?? null }));
           } else if (evt.kind === "answer") {
             patchLastAssistant((msg) => ({ ...msg, answer: evt.payload.text }));
           } else if (evt.kind === "done") {
@@ -205,6 +210,17 @@ export default function Agent() {
               )}
               {msg.answer && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{msg.answer}</div>}
               {msg.summary && <div className="mt-2 text-muted">{msg.summary}</div>}
+              {msg.runId && (
+                <div className="mt-2">
+                  <Link
+                    to="/traces"
+                    search={{ run: msg.runId }}
+                    className="font-medium text-signal-ink underline hover:text-ink"
+                  >
+                    Voir la trace
+                  </Link>
+                </div>
+              )}
               {msg.stopped && (
                 <div className="mt-2 font-medium text-caution-ink">
                   Flux interrompu par l'utilisateur.

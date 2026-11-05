@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAbortError } from "../lib/errors";
-import { formatMoney } from "../lib/format";
+import { formatDateTime, formatMoney } from "../lib/format";
 
 describe("formatMoney", () => {
   it("formate en français avec la virgule et le symbole de la devise", () => {
@@ -10,6 +10,18 @@ describe("formatMoney", () => {
 
   it("garde deux décimales même pour un nombre entier", () => {
     expect(formatMoney(3, "EUR")).toMatch(/^3,00\s€$/);
+  });
+});
+
+describe("formatDateTime", () => {
+  it("formate une date ISO en français (JJ/MM/AAAA, HH:MM)", () => {
+    const formatted = formatDateTime("2026-11-05T10:30:00+00:00");
+    expect(formatted).toMatch(/05\/11\/2026/);
+    expect(formatted).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("renvoie la chaîne telle quelle si la date est illisible", () => {
+    expect(formatDateTime("pas une date")).toBe("pas une date");
   });
 });
 

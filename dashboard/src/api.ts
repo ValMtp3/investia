@@ -120,7 +120,10 @@ export function useMarketHistory(symbol: string) {
 // --- Flux SSE (étape 4.4) ---
 
 export type AgentEvent =
-  | { kind: "start"; payload: { question: string; max_turns: number } }
+  | {
+      kind: "start";
+      payload: { question: string; max_turns: number; run_id?: string | null };
+    }
   | {
       kind: "llm_call";
       payload: {
@@ -187,5 +190,192 @@ export function streamMarket(
         onQuotes((data as { quotes: LiveQuote[] }).quotes);
       }
     },
+  });
+}
+
+// --- Traces & evals (étape 4.5) ---
+
+export interface TraceRunSummary {
+  id: string;
+  question: string;
+  status: string;
+  model: string | null;
+  turns: number;
+  total_cost_cents: number;
+  created_at: string;
+}
+
+export interface TraceStep {
+  turn: number;
+  kind: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TraceRunDetail extends TraceRunSummary {
+  answer: string | null;
+}
+
+export interface TraceDetail {
+  run: TraceRunDetail | null;
+  steps: TraceStep[];
+}
+
+export interface EvalResult {
+  case_id: string;
+  metric: string;
+  score: number;
+}
+
+export interface EvalRun {
+  id: string;
+  started_at: string;
+  model: string | null;
+  commit: string | null;
+  mode: string;
+  results: EvalResult[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isTraceRunSummary(raw: unknown): raw is TraceRunSummary {
+  return (
+    isRecord(raw) &&
+    typeof raw.id === "string" &&
+    typeof raw.question === "string" &&
+    typeof raw.status === "string" &&
+    (raw.model === null || typeof raw.model === "string") &&
+    typeof raw.turns === "number" &&
+    typeof raw.total_cost_cents === "number" &&
+    typeof raw.created_at === "string"
+  );
+}
+
+function isTraceRunDetail(raw: unknown): raw is TraceRunDetail {
+  return (
+    isRecord(raw) &&
+    (raw.answer === null || typeof raw.answer === "string") &&
+    isTraceRunSummary(raw)
+  );
+}
+
+function isTraceStep(raw: unknown): raw is TraceStep {
+  return (
+    isRecord(raw) &&
+    typeof raw.turn === "number" &&
+    typeof raw.kind === "string" &&
+    isRecord(raw.payload) &&
+    typeof raw.created_at === "string"
+  );
+}
+
+function isEvalResult(raw: unknown): raw is EvalResult {
+  return (
+    isRecord(raw) &&
+    typeof raw.case_id === "string" &&
+    typeof raw.metric === "string" &&
+    typeof raw.score === "number"
+  );
+}
+
+function isEvalRun(raw: unknown): raw is EvalRun {
+  return (
+    isRecord(raw) &&
+    typeof raw.id === "string" &&
+    typeof raw.started_at === "string" &&
+    (raw.model === null || typeof raw.model === "string") &&
+    (raw.commit === null || typeof raw.commit === "string") &&
+    typeof raw.mode === "string" &&
+    Array.isArray(raw.results) &&
+    raw.results.every(isEvalResult)
+  );
+}
+
+/** Vérifie la forme de la réponse : on n'affiche jamais une donnée illisible. */
+function parseTraces(raw: unknown): { runs: TraceRunSummary[] } {
+  const runs = (raw as { runs?: unknown } | null)?.runs;
+  if (!Array.isArray(runs) || !runs.every(isTraceRunSummary)) {
+    throw new Error("Traces reçues illisibles : réponse inattendue du serveur.");
+  }
+  return { runs };
+}
+
+function parseTraceDetail(raw: unknown): TraceDetail {
+  if (!isRecord(raw) || !Array.isArray(raw.steps) || !raw.steps.every(isTraceStep)) {
+    throw new Error("Détail de la trace illisible : réponse inattendue du serveur.");
+  }
+  const run = raw.run;
+  if (run !== null && !isTraceRunDetail(run)) {
+    throw new Error("Détail de la trace illisible : réponse inattendue du serveur.");
+  }
+  return { run, steps: raw.steps };
+}
+
+function parseEvals(raw: unknown): { runs: EvalRun[] } {
+  const runs = (raw as { runs?: unknown } | null)?.runs;
+  if (!Array.isArray(runs) || !runs.every(isEvalRun)) {
+    throw new Error("Evals reçues illisibles : réponse inattendue du serveur.");
+  }
+  return { runs };
+}
+
+export async function fetchTraces(
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<{ runs: TraceRunSummary[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const response = await fetch(`${API_URL}/traces?${params.toString()}`, { signal });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Traces indisponibles (HTTP ${response.status})`),
+    );
+  }
+  return parseTraces(await response.json());
+}
+
+export async function fetchTrace(runId: string, signal?: AbortSignal): Promise<TraceDetail> {
+  const response = await fetch(`${API_URL}/traces/${encodeURIComponent(runId)}`, { signal });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Trace indisponible (HTTP ${response.status})`),
+    );
+  }
+  return parseTraceDetail(await response.json());
+}
+
+export async function fetchEvals(signal?: AbortSignal): Promise<{ runs: EvalRun[] }> {
+  const response = await fetch(`${API_URL}/evals`, { signal });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Evals indisponibles (HTTP ${response.status})`),
+    );
+  }
+  return parseEvals(await response.json());
+}
+
+export function useTraces(limit = 50) {
+  return useQuery({
+    queryKey: ["traces", limit],
+    queryFn: ({ signal }) => fetchTraces(limit, signal),
+    retry: false,
+  });
+}
+
+export function useTrace(runId: string | null) {
+  return useQuery({
+    queryKey: ["trace", runId],
+    queryFn: ({ signal }) => fetchTrace(runId as string, signal),
+    enabled: runId !== null,
+    retry: false,
+  });
+}
+
+export function useEvals() {
+  return useQuery({
+    queryKey: ["evals"],
+    queryFn: ({ signal }) => fetchEvals(signal),
+    retry: false,
   });
 }

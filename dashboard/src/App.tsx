@@ -36,6 +36,10 @@ const routes = [
   createRoute({
     getParentRoute: () => rootRoute,
     path: "/traces",
+    // ?run=<id> présélectionne l'exécution à afficher (lien « voir la trace » de la page Agent).
+    validateSearch: (search: Record<string, unknown>): { run?: string } => ({
+      run: typeof search.run === "string" && search.run ? search.run : undefined,
+    }),
     component: Traces,
   }),
 ];

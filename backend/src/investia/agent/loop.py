@@ -78,7 +78,9 @@ async def run_agent(
         if event_sink is not None:
             await event_sink(kind, payload)
 
-    await emit("start", {"question": question, "max_turns": max_turns})
+    await emit(
+        "start", {"question": question, "max_turns": max_turns, "run_id": run_id}
+    )
     tool_specs = [tool.to_openai_tool() for tool in tools.values()]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},

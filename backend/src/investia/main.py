@@ -6,6 +6,7 @@ import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,10 @@ HISTORY_MAX_DAYS = 400
 # et le graphique partagent ainsi la même entrée de cache.
 HISTORY_DEFAULT_DAYS = 30
 
+# Bornes de la liste des exécutions (GET /traces).
+TRACES_DEFAULT_LIMIT = 50
+TRACES_MAX_LIMIT = 200
+
 
 async def stream_quote(market: MarketDataService, symbol: str) -> dict[str, Any]:
     """Prix d'un symbole pour le flux ; s'il échoue, sa dernière clôture, étiquetée.
@@ -108,8 +113,10 @@ def create_app(
     portfolio_service: Any | None = None,
     llm: Any | None = None,
     market: Any | None = None,
+    trace_store: Any | None = None,
+    eval_store: Any | None = None,
 ) -> FastAPI:
-    """Crée l'app. `portfolio_service`/`llm`/`market` injectables (tests).
+    """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
     Si la configuration est invalide : message clair sur stderr (noms des
     variables manquantes, sans stack trace) puis exit code 1.
@@ -127,11 +134,16 @@ def create_app(
 
     if market is None or portfolio_service is None:
         from investia.db import get_session
+        from investia.evals.store import EvalStore
         from investia.market import build_market_service
         from investia.portfolio import PortfolioService
+        from investia.tracing.store import DbTraceStore
 
+        session = get_session()
         market = market or build_market_service(settings)
-        portfolio_service = portfolio_service or PortfolioService(get_session(), market)
+        portfolio_service = portfolio_service or PortfolioService(session, market)
+        trace_store = trace_store or DbTraceStore(session)
+        eval_store = eval_store or EvalStore(session)
     market_service: MarketDataService = market  # non None : construit juste au-dessus
     if llm is None:
         from investia.llm import build_llm_client
@@ -170,6 +182,37 @@ def create_app(
     async def get_portfolio() -> dict[str, Any]:
         """État du portefeuille simulé, valorisé au dernier prix connu."""
         return await portfolio_service.get_portfolio()
+
+    def require_trace_store() -> Any:
+        if trace_store is None:
+            raise HTTPException(status_code=503, detail="traces non disponibles")
+        return trace_store
+
+    def require_eval_store() -> Any:
+        if eval_store is None:
+            raise HTTPException(status_code=503, detail="evals non disponibles")
+        return eval_store
+
+    @app.get("/traces")
+    async def list_traces(
+        limit: int = Query(TRACES_DEFAULT_LIMIT, ge=1, le=TRACES_MAX_LIMIT),
+    ) -> dict[str, Any]:
+        """Exécutions récentes de l'agent, sans la réponse (réservée au détail)."""
+        runs = await require_trace_store().list_runs(limit)
+        return {"runs": runs}
+
+    @app.get("/traces/{run_id}")
+    async def get_trace(run_id: UUID) -> dict[str, Any]:
+        """Détail d'une exécution : run complet + étapes pas à pas."""
+        data = await require_trace_store().get_run(str(run_id))
+        if data.get("run") is None:
+            raise HTTPException(status_code=404, detail=f"run inconnu : {run_id}")
+        return data
+
+    @app.get("/evals")
+    async def list_evals() -> dict[str, Any]:
+        """Runs d'evals avec leurs scores, pour les courbes dans le temps."""
+        return await require_eval_store().list_eval_runs()
 
     @app.post("/orders", status_code=200)
     async def place_order(body: OrderBody) -> dict[str, Any]:
@@ -215,6 +258,7 @@ def create_app(
                     llm,
                     build_tools(market),
                     max_turns=body.max_turns,
+                    trace_store=trace_store,
                     event_sink=sink,
                 )
             )

@@ -102,6 +102,25 @@ class DbTraceStore:
             )
             await session.commit()
 
+    async def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Exécutions récentes (sans la réponse, réservée au détail)."""
+        async with self._session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id::text AS id, question, status, model, turns, "
+                            "total_cost_cents, created_at FROM runs "
+                            "ORDER BY created_at DESC, id DESC LIMIT :limit"
+                        ),
+                        {"limit": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+
     async def get_run(self, run_id: str) -> dict[str, Any]:
         async with self._session_factory() as session:
             run = (
@@ -118,7 +137,7 @@ class DbTraceStore:
                 (
                     await session.execute(
                         text(
-                            "SELECT turn, kind, payload FROM run_steps "
+                            "SELECT turn, kind, payload, created_at FROM run_steps "
                             "WHERE run_id = :rid ORDER BY id"
                         ),
                         {"rid": UUID(run_id)},

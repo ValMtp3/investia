@@ -64,6 +64,28 @@ async def test_trace_store_roundtrip_on_real_db(store):
     assert data["run"]["question"] == "prix AAPL ?"
     assert [s["kind"] for s in data["steps"]] == ["llm_call", "tool_call", "guardrail"]
     assert data["steps"][1]["payload"]["name"] == "get_quote"
+    assert all("created_at" in step for step in data["steps"])
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL non défini")
+async def test_list_runs_returns_recent_runs_without_answer(store):
+    run_id = await store.start_run("prix AAPL ?")
+    await store.finish_run(
+        run_id,
+        answer="réponse longue réservée au détail",
+        model="gpt-6-luna",
+        turns=1,
+        cost_cents=0.01,
+        status="ok",
+    )
+    runs = await store.list_runs(10)
+    mine = [r for r in runs if r["id"] == run_id]
+    assert len(mine) == 1
+    assert mine[0]["status"] == "ok"
+    assert mine[0]["question"] == "prix AAPL ?"
+    assert "answer" not in mine[0]
+    created = [r["created_at"] for r in runs]
+    assert created == sorted(created, reverse=True)
 
 
 @pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL non défini")

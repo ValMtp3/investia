@@ -69,6 +69,62 @@ class FakeMarket:
         return []
 
 
+CREATED_AT = "2026-11-05T10:00:00Z"
+
+
+class FakeTraceStore:
+    """Faux store de traces en mémoire : start_run renvoie un id, finish_run écrit."""
+
+    def __init__(self):
+        self.runs: dict[str, dict] = {}
+        self._next = 0
+
+    async def start_run(self, question):
+        self._next += 1
+        run_id = f"00000000-0000-0000-0000-{self._next:012d}"
+        self.runs[run_id] = {"question": question, "status": "running", "steps": []}
+        return run_id
+
+    async def log_step(self, run_id, turn, kind, payload):
+        self.runs[run_id]["steps"].append((turn, kind))
+
+    async def finish_run(self, run_id, *, answer, model, turns, cost_cents, status):
+        self.runs[run_id].update(
+            status=status,
+            answer=answer,
+            model=model,
+            turns=turns,
+            cost_cents=cost_cents,
+        )
+
+    async def list_runs(self, limit=50):
+        return [self._summary(rid, run) for rid, run in list(self.runs.items())[:limit]]
+
+    async def get_run(self, run_id):
+        run = self.runs.get(run_id)
+        if run is None:
+            return {"run": None, "steps": []}
+        return {
+            "run": {**self._summary(run_id, run), "answer": run.get("answer")},
+            "steps": [
+                {"turn": turn, "kind": kind, "payload": {}, "created_at": CREATED_AT}
+                for turn, kind in run["steps"]
+            ],
+        }
+
+    @staticmethod
+    def _summary(run_id, run):
+        return {
+            "id": run_id,
+            "question": run["question"],
+            "status": run["status"],
+            "model": run.get("model"),
+            "turns": run.get("turns", 0),
+            "total_cost_cents": run.get("cost_cents", 0.0),
+            "created_at": CREATED_AT,
+        }
+
+
 class FakePortfolio:
     async def ensure_default_portfolio(self):
         return "p1"
@@ -89,7 +145,12 @@ class FakePortfolio:
 
 
 @pytest.fixture
-def app(monkeypatch):
+def trace_store():
+    return FakeTraceStore()
+
+
+@pytest.fixture
+def app(monkeypatch, trace_store):
     for var in (
         "DATABASE_URL",
         "REDIS_URL",
@@ -99,7 +160,10 @@ def app(monkeypatch):
     ):
         monkeypatch.setenv(var, "x")
     return create_app(
-        portfolio_service=FakePortfolio(), llm=FakeLlm(), market=FakeMarket()
+        portfolio_service=FakePortfolio(),
+        llm=FakeLlm(),
+        market=FakeMarket(),
+        trace_store=trace_store,
     )
 
 
@@ -124,7 +188,7 @@ async def parse_sse_events(response: httpx.Response) -> list[tuple[str, dict]]:
     return events
 
 
-async def test_agent_run_streams_events_in_order(app):
+async def test_agent_run_streams_events_in_order(app, trace_store):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         async with client.stream(
@@ -144,6 +208,33 @@ async def test_agent_run_streams_events_in_order(app):
     done = events[-1][1]
     assert done["turns"] >= 2
     assert "cost_cents" in done
+
+
+async def test_agent_run_start_event_carries_run_id_and_run_is_traced(app, trace_store):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with client.stream(
+            "POST", "/agent/run", json={"question": "prix AAPL ?"}
+        ) as response:
+            events = await parse_sse_events(response)
+        start = events[0][1]
+        assert events[0][0] == "start"
+        assert start["run_id"] in trace_store.runs
+        traced = trace_store.runs[start["run_id"]]
+        assert traced["question"] == "prix AAPL ?"
+        assert traced["status"] == "ok"
+        assert traced["steps"]  # les étapes ont été loguées
+
+        # Chaîne complète (spec 4.5) : le run tracé est relisable via GET /traces/{id}
+        detail = await client.get(f"/traces/{start['run_id']}")
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["run"]["question"] == "prix AAPL ?"
+        assert body["run"]["status"] == "ok"
+        assert body["steps"]
+        listing = await client.get("/traces")
+        assert listing.status_code == 200
+        assert any(r["id"] == start["run_id"] for r in listing.json()["runs"])
 
 
 async def test_market_stream_pushes_quotes(app):

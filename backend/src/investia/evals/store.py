@@ -44,6 +44,47 @@ class EvalStore:
             )
             await session.commit()
 
+    async def list_eval_runs(self) -> dict[str, Any]:
+        """Runs d'evals (plus récents d'abord) avec leurs résultats."""
+        async with self._session_factory() as session:
+            runs = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id::text AS id, started_at, model, commit, mode "
+                            "FROM eval_runs ORDER BY started_at DESC, id DESC"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            results = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT run_id::text AS run_id, case_id, metric, score "
+                            "FROM eval_results ORDER BY id"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        by_run: dict[str, list[dict[str, Any]]] = {}
+        for row in results:
+            result = {
+                "case_id": row["case_id"],
+                "metric": row["metric"],
+                "score": row["score"],
+            }
+            by_run.setdefault(row["run_id"], []).append(result)
+        return {
+            "runs": [
+                {**dict(run), "results": by_run.get(run["id"], [])} for run in runs
+            ]
+        }
+
     async def latest_scores(self) -> dict[str, Any]:
         async with self._session_factory() as session:
             rows = (

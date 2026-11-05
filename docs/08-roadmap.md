@@ -16,7 +16,8 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 | **4.2 — API portefeuille** | Routes CRUD portefeuille, mode admin ajuste le capital (D27) | L'API répond, le capital est ajustable en admin |
 | **4.3 — Squelette dashboard** | React 19 + Vite + TanStack Router/Query, les 4 pages, graphiques lightweight-charts | `npm run dev` affiche les 4 pages en local |
 | **4.4 — Chat AG-UI + SSE** | Stream agent → dashboard (AG-UI/CopilotKit sur SSE, D14) | Un message de l'agent s'affiche en streaming dans le dashboard |
-| **4.5 — Outil `get_portfolio`** | Branche le portefeuille simulé dans le harness | L'agent voit l'état du portefeuille dans ses réponses |
+| **4.5 — Page Traces & evals** ✅ faite le 05/11/2026 | Lire runs/run_steps/eval_results en base et les afficher dans le dashboard, lien « voir la trace » depuis le chat | `GET /traces`, `/traces/{id}`, `/evals` répondent ; la page affiche exécutions, détail pas à pas et courbes d'evals |
+| **4.6 — Outil `get_portfolio`** | Branche le portefeuille simulé dans le harness | L'agent voit l'état du portefeuille dans ses réponses |
 | **4 bis — Mise en ligne** | Authelia derrière le NPM existant, proxy hosts sur `investia.valentin-fiess.fr`, VPS OVH VPS-1 partagé, sauvegardes, revue de sécurité | Rien n'est accessible sans connexion ; revue sans point bloquant |
 | **5 — Validation humaine + MCP** | Accord humain avant ordre simulé ; serveur ou client MCP | Aucun ordre simulé sans ton accord |
 | **6 — Multi-agents + comparaison** | Agents spécialisés en A2A, comparaison avec l'agent seul via les evals, **et** le même harness reconstruit avec LangGraph / Pydantic AI / OpenAI Agents SDK | Les evals montrent un gain (ou non, documenté) pour chaque approche |

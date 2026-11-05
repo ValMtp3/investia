@@ -1,11 +1,42 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Agent from "../pages/Agent";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/** La page Agent utilise <Link to="/traces"> : il lui faut un routeur dans le test. */
+async function renderAgent() {
+  const rootRoute = createRootRoute();
+  const agentRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/agent",
+    component: Agent,
+  });
+  const tracesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/traces",
+    validateSearch: (search: Record<string, unknown>) => ({
+      run: typeof search.run === "string" && search.run ? search.run : undefined,
+    }),
+    component: () => <div>page traces</div>,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([agentRoute, tracesRoute]),
+    history: createMemoryHistory({ initialEntries: ["/agent"] }),
+  });
+  await router.load();
+  return render(<RouterProvider router={router} />);
+}
 
 function sseBody(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -18,7 +49,7 @@ function sseBody(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 const FULL_RUN = [
-  'event: start\ndata: {"question":"prix AAPL ?","max_turns":8}\n\n',
+  'event: start\ndata: {"question":"prix AAPL ?","max_turns":8,"run_id":"run-abc-123"}\n\n',
   'event: llm_call\ndata: {"turn":1,"model":"gpt-6-luna","cost_cents":0.01,"tool_calls":["get_quote"]}\n\n',
   'event: tool_call\ndata: {"turn":1,"name":"get_quote","arguments":{"symbol":"AAPL"},"ok":true}\n\n',
   'event: guardrail\ndata: {"turn":2,"check":"format","ok":true,"detail":"ok"}\n\n',
@@ -32,7 +63,7 @@ describe("Page Agent (chat streaming SSE)", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, status: 200, body: sseBody([FULL_RUN]) }),
     );
-    render(<Agent />);
+    await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
 
@@ -53,12 +84,25 @@ describe("Page Agent (chat streaming SSE)", () => {
     expect(JSON.parse(init.body as string)).toEqual({ question: "prix AAPL ?" });
   });
 
+  it("affiche un lien « Voir la trace » vers /traces?run=<run_id> après un run tracé", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, body: sseBody([FULL_RUN]) }),
+    );
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    const link = await screen.findByRole("link", { name: /voir la trace/i });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/traces?run=run-abc-123"));
+  });
+
   it("affiche une erreur lisible si le flux tombe", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }),
     );
-    render(<Agent />);
+    await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -83,7 +127,7 @@ describe("Page Agent (chat streaming SSE)", () => {
       }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    const { unmount } = render(<Agent />);
+    const { unmount } = await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "question longue");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     await screen.findByRole("button", { name: /stop/i });
@@ -111,7 +155,7 @@ describe("Page Agent (chat streaming SSE)", () => {
         }),
       }),
     );
-    render(<Agent />);
+    await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "question longue");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     const stop = await screen.findByRole("button", { name: /stop/i });
