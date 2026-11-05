@@ -13,11 +13,19 @@ services:
     restart: unless-stopped
   dashboard:
     restart: unless-stopped
+    networks:
+      default: {}
+      npm:
+        aliases: [investia-dashboard]
   # Connexion (D50). En prod seulement : en local, aucun Authelia ni NPM devant le dashboard.
   # Aucun port publié : NPM l'appelle par le réseau Docker (voir le guide de déploiement).
   authelia:
     image: authelia/authelia:4.39.28
     restart: unless-stopped
+    networks:
+      default: {}
+      npm:
+        aliases: [investia-authelia]
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,3 +65,10 @@ services:
 volumes:
   authelia_data:
   backups:
+
+# Réseau Docker du Nginx Proxy Manager existant (créé par lui, pas par nous).
+# Seuls `dashboard` et `authelia` y sont attachés : NPM ne voit ni la base, ni le backend, ni Redis.
+networks:
+  npm:
+    external: true
+    name: ${NPM_NETWORK_NAME:?NPM_NETWORK_NAME est requis en prod (voir docker network ls sur le VPS)}
