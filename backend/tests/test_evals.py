@@ -93,6 +93,33 @@ async def test_run_evals_returns_scores_for_every_case_and_metric():
     assert second["metrics"]["tool_used"] == 0.0
 
 
+async def test_run_evals_passes_portfolio_service_to_build_tools(monkeypatch):
+    """Spec 4.6 : le runner d'evals transmet le service portefeuille à build_tools."""
+    import investia.evals.runner as runner
+
+    captured: list[dict] = []
+    real_build_tools = runner.build_tools
+
+    def spy(market, **kwargs):
+        captured.append(kwargs)
+        return real_build_tools(market, **kwargs)
+
+    monkeypatch.setattr(runner, "build_tools", spy)
+
+    class FakePortfolioService:
+        async def get_portfolio(self):
+            return {"cash": 10_000.0, "positions": [], "currency": "EUR"}
+
+    service = FakePortfolioService()
+    await run_evals(
+        [make_case()], market=FakeMarket(), mode="mock", portfolio_service=service
+    )
+    assert captured[-1]["portfolio_service"] is service
+
+    await run_evals([make_case()], market=FakeMarket(), mode="mock")
+    assert captured[-1]["portfolio_service"] is None
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:

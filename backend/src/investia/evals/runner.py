@@ -102,10 +102,11 @@ async def run_evals(
     market: MarketDataService | None = None,
     eval_store=None,
     mode: str = "mock",
+    portfolio_service=None,
 ) -> dict[str, Any]:
     """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni."""
     market = market or MockMarket()
-    tools = build_tools(market)
+    tools = build_tools(market, portfolio_service=portfolio_service)
     run_id = None
     if eval_store is not None:
         run_id = await eval_store.start_eval_run(

@@ -1,5 +1,6 @@
 """Tests des routes SSE : POST /agent/run et GET /market/stream (flux mockés)."""
 
+import json
 from datetime import UTC, datetime
 
 import httpx
@@ -235,6 +236,82 @@ async def test_agent_run_start_event_carries_run_id_and_run_is_traced(app, trace
         listing = await client.get("/traces")
         assert listing.status_code == 200
         assert any(r["id"] == start["run_id"] for r in listing.json()["runs"])
+
+
+class RecordingTraceStore(FakeTraceStore):
+    """FakeTraceStore qui conserve les payloads des étapes tool_call."""
+
+    def __init__(self):
+        super().__init__()
+        self.tool_payloads: list[dict] = []
+
+    async def log_step(self, run_id, turn, kind, payload):
+        await super().log_step(run_id, turn, kind, payload)
+        if kind == "tool_call":
+            self.tool_payloads.append(payload)
+
+
+async def test_agent_run_offers_and_executes_get_portfolio(monkeypatch):
+    """Spec 4.6 : /agent/run propose get_portfolio, l'exécute ok, trace le payload."""
+
+    class PortfolioLlm:
+        def __init__(self):
+            self._responses = [
+                LlmResponse(
+                    content="",
+                    model="gpt-6-luna",
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    cost_cents=0.01,
+                    tool_calls=[ToolCall(id="c1", name="get_portfolio", arguments={})],
+                ),
+                LlmResponse(
+                    content=FINAL_OK,
+                    model="gpt-6-luna",
+                    prompt_tokens=20,
+                    completion_tokens=50,
+                    cost_cents=0.02,
+                ),
+            ]
+
+        async def chat(self, model_key, messages, temperature=0.2, tools=None):
+            offered = {t["function"]["name"] for t in tools or []}
+            assert "get_portfolio" in offered
+            if len(self._responses) > 1:
+                return self._responses.pop(0)
+            return self._responses[0]
+
+    for var in (
+        "DATABASE_URL",
+        "REDIS_URL",
+        "LITELLM_BASE_URL",
+        "LITELLM_MASTER_KEY",
+        "APP_SECRET_KEY",
+    ):
+        monkeypatch.setenv(var, "x")
+    trace_store = RecordingTraceStore()
+    app = create_app(
+        portfolio_service=FakePortfolio(),
+        llm=PortfolioLlm(),
+        market=FakeMarket(),
+        trace_store=trace_store,
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with client.stream(
+            "POST", "/agent/run", json={"question": "où en est mon portefeuille ?"}
+        ) as response:
+            events = await parse_sse_events(response)
+    tool_events = [payload for kind, payload in events if kind == "tool_call"]
+    assert tool_events, "aucun événement tool_call reçu"
+    assert tool_events[0]["name"] == "get_portfolio"
+    assert tool_events[0]["ok"] is True
+    # Le payload du portefeuille part au LLM (message role: tool) et est persisté
+    # dans la trace : l'événement SSE ne le transporte pas (contrat existant).
+    traced = [p for p in trace_store.tool_payloads if p["name"] == "get_portfolio"]
+    assert len(traced) == 1
+    assert traced[0]["ok"] is True
+    assert json.loads(traced[0]["result"])["cash"] == 10_000.0
 
 
 async def test_market_stream_pushes_quotes(app):

@@ -256,7 +256,7 @@ def create_app(
                 run_agent(
                     body.question,
                     llm,
-                    build_tools(market),
+                    build_tools(market, portfolio_service=portfolio_service),
                     max_turns=body.max_turns,
                     trace_store=trace_store,
                     event_sink=sink,

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { streamAgentRun, type AgentEvent } from "../api";
+import { streamAgentRun, usePortfolio, type AgentEvent, type Portfolio } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
 import { isAbortError } from "../lib/errors";
+import { formatMoney } from "../lib/format";
 
 interface Step {
   id: number;
@@ -19,6 +20,17 @@ interface ChatMessage {
   summary?: string;
   stopped?: boolean;
   runId?: string | null;
+}
+
+/** Garde-fou : le payload /portfolio doit avoir la forme attendue avant affichage. */
+function isPortfolioPayload(data: Portfolio | undefined): data is Portfolio {
+  return (
+    data != null &&
+    typeof data.total_value === "number" &&
+    typeof data.cash === "number" &&
+    typeof data.positions_value === "number" &&
+    Array.isArray(data.positions)
+  );
 }
 
 function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
@@ -53,6 +65,8 @@ export default function Agent() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stepIdRef = useRef(0);
+  // Résumé du portefeuille simulé (l'agent y a accès via l'outil get_portfolio).
+  const portfolio = usePortfolio();
 
   // Quitter la page coupe le flux : sinon le run continue (et coûte des appels au modèle).
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -139,6 +153,48 @@ export default function Agent() {
       <h1 id="agent-title" className="mb-3 text-lg font-bold">
         Conseils de l'agent
       </h1>
+
+      <Module title="Portefeuille simulé" className="mb-3">
+        {portfolio.isLoading && (
+          <p role="status" className="text-muted">
+            Chargement du portefeuille…
+          </p>
+        )}
+        {portfolio.isError && (
+          <ErrorNotice>
+            Portefeuille indisponible :{" "}
+            {portfolio.error instanceof Error ? portfolio.error.message : "API indisponible"}
+          </ErrorNotice>
+        )}
+        {portfolio.data && !isPortfolioPayload(portfolio.data) && (
+          <ErrorNotice>Portefeuille indisponible : réponse malformée.</ErrorNotice>
+        )}
+        {isPortfolioPayload(portfolio.data) && (
+          <>
+            <dl className="flex flex-wrap gap-x-6 gap-y-1">
+              <div className="flex items-baseline gap-2">
+                <dt className="text-muted">Valeur totale</dt>
+                <dd className="font-bold">
+                  {formatMoney(portfolio.data.total_value, portfolio.data.currency)}
+                </dd>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <dt className="text-muted">Cash</dt>
+                <dd>{formatMoney(portfolio.data.cash, portfolio.data.currency)}</dd>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <dt className="text-muted">Positions</dt>
+                <dd>{formatMoney(portfolio.data.positions_value, portfolio.data.currency)}</dd>
+              </div>
+            </dl>
+            {portfolio.data.positions.length > 0 && (
+              <p className="mt-1 text-muted">
+                {portfolio.data.positions.map((position) => position.symbol).join(", ")}
+              </p>
+            )}
+          </>
+        )}
+      </Module>
 
       <Module title="Demande à l'agent" className="mb-3">
         <form onSubmit={send} className="flex gap-2">

@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -9,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Agent from "../pages/Agent";
+import { jsonResponse, newTestQueryClient } from "./fakeBackend";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,7 +37,11 @@ async function renderAgent() {
     history: createMemoryHistory({ initialEntries: ["/agent"] }),
   });
   await router.load();
-  return render(<RouterProvider router={router} />);
+  return render(
+    <QueryClientProvider client={newTestQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
 }
 
 function sseBody(chunks: string[]): ReadableStream<Uint8Array> {
@@ -57,12 +63,71 @@ const FULL_RUN = [
   'event: done\ndata: {"turns":2,"cost_cents":0.03,"status":"ok"}\n\n',
 ].join("");
 
+const PORTFOLIO = {
+  cash: 10_000,
+  positions: [
+    {
+      symbol: "AAPL",
+      quantity: 10,
+      avg_price: 200,
+      price_eur: 180,
+      value_eur: 1_800,
+      source: "finnhub",
+      price_timestamp: "2026-11-05T10:00:00+00:00",
+    },
+  ],
+  positions_value: 1_800,
+  total_value: 11_800,
+  currency: "EUR",
+};
+
+interface AgentFetchOpts {
+  sse?: string[];
+  status?: number; // statut de POST /agent/run (défaut 200)
+  hangStart?: boolean; // flux SSE qui ne se termine jamais
+  portfolioStatus?: number; // statut de GET /portfolio (défaut 200)
+  portfolioBody?: unknown; // corps de GET /portfolio si 200 (défaut PORTFOLIO)
+}
+
+/** fetch routé : GET /portfolio → JSON, POST /agent/run → flux SSE. */
+function stubAgentFetch(opts: AgentFetchOpts = {}) {
+  const sse = opts.hangStart
+    ? new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              'event: start\ndata: {"question":"q","max_turns":8}\n\n',
+            ),
+          );
+          // flux qui ne se termine jamais : simule un run long
+        },
+      })
+    : sseBody(opts.sse ?? [""]);
+  const status = opts.status ?? 200;
+  const portfolioStatus = opts.portfolioStatus ?? 200;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/portfolio") {
+      return portfolioStatus === 200
+        ? jsonResponse(opts.portfolioBody ?? PORTFOLIO)
+        : jsonResponse({ detail: "portefeuille indisponible" }, portfolioStatus);
+    }
+    return { ok: status < 400, status, body: sse };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** Retrouve l'appel POST /agent/run parmi les appels fetch (le 1er est souvent /portfolio). */
+function agentRunCall(fetchMock: ReturnType<typeof vi.fn>) {
+  const call = fetchMock.mock.calls.find(([url]) => String(url).includes("/agent/run"));
+  if (!call) throw new Error("aucun appel à /agent/run");
+  return call as [string, RequestInit];
+}
+
 describe("Page Agent (chat streaming SSE)", () => {
   it("affiche les étapes en direct puis la réponse et le récap", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, status: 200, body: sseBody([FULL_RUN]) }),
-    );
+    const fetchMock = stubAgentFetch({ sse: [FULL_RUN] });
     await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
@@ -78,17 +143,13 @@ describe("Page Agent (chat streaming SSE)", () => {
     expect(screen.getByText(/statut ok/i)).toBeInTheDocument();
 
     // Le POST part bien vers /agent/run avec la question
-    const fetchMock = vi.mocked(fetch);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = agentRunCall(fetchMock);
     expect(url).toContain("/agent/run");
     expect(JSON.parse(init.body as string)).toEqual({ question: "prix AAPL ?" });
   });
 
   it("affiche un lien « Voir la trace » vers /traces?run=<run_id> après un run tracé", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, status: 200, body: sseBody([FULL_RUN]) }),
-    );
+    stubAgentFetch({ sse: [FULL_RUN] });
     await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
@@ -98,10 +159,7 @@ describe("Page Agent (chat streaming SSE)", () => {
   });
 
   it("affiche une erreur lisible si le flux tombe", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }),
-    );
+    stubAgentFetch({ status: 503 });
     await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
@@ -113,53 +171,62 @@ describe("Page Agent (chat streaming SSE)", () => {
   });
 
   it("coupe le flux en cours quand on quitte la page", async () => {
-    const encoder = new TextEncoder();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            encoder.encode('event: start\ndata: {"question":"q","max_turns":8}\n\n'),
-          );
-          // flux qui ne se termine jamais : simule un run long
-        },
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubAgentFetch({ hangStart: true });
     const { unmount } = await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "question longue");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     await screen.findByRole("button", { name: /stop/i });
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = agentRunCall(fetchMock);
     expect(init.signal?.aborted).toBe(false);
     unmount();
     expect(init.signal?.aborted).toBe(true);
   });
 
   it("le bouton Stop interrompt le flux en cours", async () => {
-    const encoder = new TextEncoder();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('event: start\ndata: {"question":"q","max_turns":8}\n\n'),
-            );
-            // flux qui ne se termine jamais : simule un run long
-          },
-        }),
-      }),
-    );
+    stubAgentFetch({ hangStart: true });
     await renderAgent();
     await userEvent.type(screen.getByLabelText(/question/i), "question longue");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     const stop = await screen.findByRole("button", { name: /stop/i });
     await userEvent.click(stop);
     expect(await screen.findByText(/interrompu/i)).toBeInTheDocument();
+  });
+
+  it("affiche le résumé du portefeuille simulé à côté du chat", async () => {
+    stubAgentFetch({ sse: [FULL_RUN] });
+    await renderAgent();
+
+    const module = await screen.findByRole("region", { name: /portefeuille/i });
+    expect(await within(module).findByText(/11.?800,00/)).toBeInTheDocument(); // valeur totale
+    expect(within(module).getByText(/10.?000,00/)).toBeInTheDocument(); // cash
+    // « 1 800,00 » sans confondre avec « 11 800,00 » (lookbehind)
+    expect(within(module).getByText(/(?<!1)1.?800,00/)).toBeInTheDocument(); // positions
+    expect(within(module).getByText("AAPL")).toBeInTheDocument();
+  });
+
+  it("le chat fonctionne même si /portfolio renvoie une erreur", async () => {
+    stubAgentFetch({ sse: [FULL_RUN], portfolioStatus: 500 });
+    await renderAgent();
+
+    // Le module portefeuille affiche une erreur lisible…
+    const module = await screen.findByRole("region", { name: /portefeuille/i });
+    expect(await within(module).findByRole("alert")).toHaveTextContent(/portefeuille/i);
+    // …mais le chat, lui, marche encore
+    await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+    expect(await screen.findByText("AAPL vaut 344.63 $")).toBeInTheDocument();
+  });
+
+  it("affiche une erreur lisible si /portfolio renvoie un payload malformé", async () => {
+    stubAgentFetch({ sse: [FULL_RUN], portfolioBody: { detail: "inattendu" } });
+    await renderAgent();
+
+    const module = await screen.findByRole("region", { name: /portefeuille/i });
+    expect(await within(module).findByRole("alert")).toHaveTextContent(/malformée/i);
+    // Le chat continue de fonctionner
+    await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+    expect(await screen.findByText("AAPL vaut 344.63 $")).toBeInTheDocument();
   });
 });
