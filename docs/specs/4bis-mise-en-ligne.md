@@ -1,6 +1,6 @@
 # Spec — 4 bis : Mise en ligne sur le VPS
 
-*Écrite le : 2026-11-05 | Étape roadmap : 4 bis | Statut : validée par le propriétaire le 2026-11-05*
+*Écrite le : 2026-11-05 | Mise à jour le 2026-11-07 (D54 : NPM en `network_mode: host`, ports loopback) | Étape roadmap : 4 bis | Statut : validée par le propriétaire le 2026-11-05*
 
 ## Objectif
 
@@ -8,12 +8,12 @@
 
 ## Pourquoi
 
-Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 (existantes) et D48 à D52 (`docs/09-decisions.md`). `docs/06-securite-et-legal.md` impose une revue de sécurité avant toute mise en ligne.
+Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 (existantes) et D48 à D54 (`docs/09-decisions.md`). `docs/06-securite-et-legal.md` impose une revue de sécurité avant toute mise en ligne.
 
 ## Contraintes
 
 - **Le propriétaire exécute les commandes sur le VPS** ; je livre fichiers + guide (D48). Aucune action sur le VPS depuis cette session.
-- VPS OVH VPS-1 **partagé** (4 vCores, 8 Go) avec NPM déjà en place sur 80/443 : on ne publie **aucun port** (D13).
+- VPS OVH VPS-1 **partagé** (4 vCores, 8 Go) avec NPM déjà en place sur 80/443. NPM tourne en `network_mode: host` (constaté le 07/11/2026, D54) : on ne publie **aucun port sur `0.0.0.0`** — `dashboard` et `authelia` écoutent sur `127.0.0.1` uniquement, NPM y accède en `localhost` (D13, D54).
 - Aucun secret dans le repo public (D42) : tout dans `.env` sur le VPS, `.env.example` sans valeurs.
 - Ne rien casser en local : `docker-compose.yml` + `override.yml` continuent de fonctionner (`cd deploy && docker compose --env-file ../.env up`).
 - SSE (`/agent/run`, `/market/stream`) : pas de buffering, timeout long, dans le nginx du dashboard **et** dans NPM.
@@ -22,7 +22,7 @@ Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 
 
 ## Critères d'acceptation
 
-- [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` passe sans erreur, et **aucun** service ne publie de port.
+- [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` passe sans erreur, et **aucun** service ne publie de port sur `0.0.0.0` (seuls `dashboard`/`authelia`, liés à `127.0.0.1` — D54, testé par `test_compose.py`).
 - [ ] Le service `dashboard` (nginx) sert `/` et aiguille `/api/x` vers `backend:8000/x` ; test local : `curl localhost:<port-test>/api/health` → 200.
 - [ ] Le dashboard construit avec `VITE_API_URL=/api` ; plus aucun appel vers `127.0.0.1:8000` dans le build de prod.
 - [ ] Le service `authelia` démarre, sert le portail sur `/auth`, stocke dans la base PostgreSQL `authelia` ; un compte unique avec TOTP.

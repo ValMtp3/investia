@@ -1,5 +1,7 @@
-# Prod (VPS) — aucun port publié : tout passe par le réseau Docker interne,
-# exposé uniquement via le Nginx Proxy Manager existant.
+# Prod (VPS) — aucun port publié sur 0.0.0.0. NPM tourne en network_mode: host sur ce VPS
+# (D54) : il atteint notre pile en localhost. Seuls dashboard et authelia écoutent sur
+# 127.0.0.1, joignable uniquement depuis le VPS lui-même (jamais depuis l'extérieur ni
+# depuis un autre conteneur). backend/tests/test_compose.py veille à cette règle.
 services:
   postgres:
     restart: unless-stopped
@@ -15,19 +17,18 @@ services:
     restart: unless-stopped
     environment:
       EDGE_SECRET: ${EDGE_SECRET:?EDGE_SECRET est requis en prod (secret partagé avec NPM, voir le guide)}
-    networks:
-      default: {}
-      npm:
-        aliases: [investia-dashboard]
+    # Port loopback pour NPM (host), D54 : 127.0.0.1 uniquement, jamais 0.0.0.0.
+    # À changer seulement si le port est pris sur le VPS : DASHBOARD_LOOPBACK_PORT dans .env.
+    ports:
+      - "127.0.0.1:${DASHBOARD_LOOPBACK_PORT:-8080}:80"
   # Connexion (D50). En prod seulement : en local, aucun Authelia ni NPM devant le dashboard.
-  # Aucun port publié : NPM l'appelle par le réseau Docker (voir le guide de déploiement).
+  # Port loopback comme dashboard : NPM (host) appelle 127.0.0.1 pour le portail /auth
+  # et le point de contrôle auth_request (bloc nginx dans le guide de déploiement).
   authelia:
     image: authelia/authelia:4.39.28
     restart: unless-stopped
-    networks:
-      default: {}
-      npm:
-        aliases: [investia-authelia]
+    ports:
+      - "127.0.0.1:${AUTHELIA_LOOPBACK_PORT:-9092}:9091"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,10 +68,3 @@ services:
 volumes:
   authelia_data:
   backups:
-
-# Réseau Docker du Nginx Proxy Manager existant (créé par lui, pas par nous).
-# Seuls `dashboard` et `authelia` y sont attachés : NPM ne voit ni la base, ni le backend, ni Redis.
-networks:
-  npm:
-    external: true
-    name: ${NPM_NETWORK_NAME:?NPM_NETWORK_NAME est requis en prod (voir docker network ls sur le VPS)}

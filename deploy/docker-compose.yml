@@ -7,8 +7,8 @@ services:
     image: pgvector/pgvector:pg17
     networks:
       default:
-        # Nom unique : Authelia (relié aussi au réseau partagé de NPM) ne doit pas confondre
-        # ce « postgres » avec celui d'une autre pile.
+        # Nom unique : Authelia atteint ce postgres par cet alias sur le réseau interne
+        # de la pile (D53), pour ne pas confondre avec un « postgres » d'une autre pile.
         aliases: [investia-postgres]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-investia}
@@ -40,7 +40,7 @@ services:
     networks:
       default:
         aliases: [investia-backend]
-    # Liste explicite (D53) : le backend ne voit PAS les secrets d'Authelia ni NPM_NETWORK_NAME.
+    # Liste explicite (D53) : le backend ne voit PAS les secrets d'Authelia.
     # Un nom seul = la variable est transmise telle qu'elle est dans .env, et absente si .env
     # ne la définit pas (le code distingue « pas de clé » de « clé vide »).
     environment:

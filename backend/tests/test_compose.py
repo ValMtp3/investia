@@ -20,11 +20,42 @@ def test_all_services_present_in_base_compose():
     assert SERVICES <= set(compose["services"].keys())
 
 
-def test_base_and_prod_compose_publish_no_ports():
-    for name in ("docker-compose.yml", "docker-compose.prod.yml"):
-        compose = load_compose(name)
-        for service_name, service in compose["services"].items():
-            assert "ports" not in service, f"{name}:{service_name} publie des ports"
+def test_base_compose_publishes_no_ports():
+    compose = load_compose("docker-compose.yml")
+    for service_name, service in compose["services"].items():
+        assert "ports" not in service, (
+            f"docker-compose.yml:{service_name} publie des ports"
+        )
+
+
+def test_prod_compose_publishes_only_loopback_ports_on_edge_services():
+    # D54 : NPM est en network_mode: host sur le VPS, il atteint la pile en localhost.
+    # Seuls dashboard/authelia peuvent publier un port, lié à 127.0.0.1 uniquement.
+    compose = load_compose("docker-compose.prod.yml")
+    for service_name, service in compose["services"].items():
+        for port in service.get("ports", []):
+            assert service_name in {"dashboard", "authelia"}, (
+                f"docker-compose.prod.yml:{service_name} publie un port"
+            )
+            assert str(port).startswith("127.0.0.1:"), (
+                f"{service_name}: {port} n'est pas lié à 127.0.0.1"
+            )
+
+
+def test_prod_edge_services_expose_a_loopback_port_for_npm():
+    # Sans port loopback, NPM (host) ne pourrait jamais atteindre la pile (D54).
+    compose = load_compose("docker-compose.prod.yml")
+    for name in ("dashboard", "authelia"):
+        ports = compose["services"][name].get("ports", [])
+        assert ports, f"docker-compose.prod.yml:{name} n'expose aucun port loopback"
+        assert all(str(p).startswith("127.0.0.1:") for p in ports), name
+
+
+def test_prod_compose_uses_no_external_network():
+    # D54 : plus de réseau Docker externe (NPM est en network_mode: host).
+    compose = load_compose("docker-compose.prod.yml")
+    for net_name, net in compose.get("networks", {}).items():
+        assert not net.get("external"), f"réseau externe interdit en prod : {net_name}"
 
 
 def test_local_override_binds_every_port_to_localhost():

@@ -45,7 +45,7 @@ session:
 
 storage:
   postgres:
-    # Nom unique (alias réseau) : Authelia est aussi sur le réseau partagé de NPM.
+    # Nom unique (alias réseau) sur le réseau interne de la pile (D53).
     address: 'tcp://investia-postgres:5432'
     database: 'authelia'
     username: 'authelia'

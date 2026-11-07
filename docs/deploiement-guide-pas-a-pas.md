@@ -1,34 +1,38 @@
 # Guide de mise en ligne (4 bis) — à exécuter sur le VPS
 
-> **Qui fait quoi (D48)** : les fichiers sont prêts dans le dépôt, **tu** lances les commandes ci-dessous sur le VPS. Spec : `docs/specs/4bis-mise-en-ligne.md`. Décisions : `docs/09-decisions.md` (D48 à D52).
+> **Qui fait quoi (D48)** : les fichiers sont prêts dans le dépôt, **tu** lances les commandes ci-dessous sur le VPS. Spec : `docs/specs/4bis-mise-en-ligne.md`. Décisions : `docs/09-decisions.md` (D48 à D54).
 >
 > **Avant de commencer** : la revue de sécurité (`security-review`) doit être faite et sans point 🔴 ni 🟠 ouvert. Une mise en ligne est difficile à annuler : on avance phase par phase et on vérifie à chaque phase.
+>
+> **Particularité de ton VPS (D54, constaté le 07/11/2026)** : NPM tourne en `network_mode: host`. Il voit le `localhost` du VPS, mais **pas** les noms des conteneurs Docker. Conséquence : notre pile publie deux ports **liés à `127.0.0.1` uniquement** (invisibles d'Internet et des autres conteneurs) et NPM y accède en `localhost`.
 
 Légende : ✅ = résultat attendu. ⚠️ = piège connu.
 
 ## Ce qu'on met en place
 
 ```text
-Internet ──HTTPS──> NPM (déjà sur le VPS) ──> /auth  ──> authelia   (connexion mot de passe + TOTP)
-                       │  chaque requête est d'abord vérifiée par Authelia
-                       └──────────────────> /      ──> dashboard (nginx) ──> /api/ ──> backend ──> postgres, redis, litellm
+Internet ──HTTPS──> NPM (network_mode: host, déjà sur le VPS, ports 80/443)
+                       │   chaque requête est d'abord vérifiée par Authelia via 127.0.0.1:9092
+                       └─── localhost:8080 ──> dashboard (nginx, port loopback 127.0.0.1)
+                                                        └── /api/ ──> backend ──> postgres, redis, litellm
+                       (postgres, redis, backend, litellm : réseau Docker interne, aucun port publié)
 ```
 
-> **NPM** (Nginx Proxy Manager) est le « portier » du VPS : il gère déjà le HTTPS et les ports 80/443. **Authelia** est le « vigile » : NPM lui demande « cette personne est-elle connectée ? » avant de laisser passer. Seuls `dashboard` et `authelia` sont visibles par NPM. La base, Redis et le backend restent cachés dans le réseau interne.
+> **NPM** (Nginx Proxy Manager) est le « portier » du VPS : il gère déjà le HTTPS et les ports 80/443. **Authelia** est le « vigile » : NPM lui demande « cette personne est-elle connectée ? » avant de laisser passer. Seuls `dashboard` et `authelia` sont visibles par NPM, et seulement depuis le VPS lui-même (`127.0.0.1`). La base, Redis, le backend et LiteLLM restent cachés dans le réseau interne.
 
 ---
 
 ## Phase A — Préparer le VPS
 
-1. Récupère le code (branche à confirmer avec moi avant le déploiement) :
+1. Récupère le code (branche `feat/get-portfolio` : elle contient tout le 4 bis) :
    ```bash
-   git clone https://github.com/ValMtp3/investia.git && cd investia
+   git clone --branch feat/get-portfolio https://github.com/ValMtp3/investia.git && cd investia
    ```
-2. Cherche le nom du réseau Docker de NPM :
+2. Vérifie que les ports loopback prévus sont libres sur le VPS :
    ```bash
-   docker network ls
+   ss -tlnp | grep -E ':(8080|9092) '
    ```
-   ✅ Tu repères celui de NPM (souvent `proxy`, `npm_default` ou `nginxproxymanager_default`). Note-le : c'est `NPM_NETWORK_NAME`.
+   ✅ Aucune ligne ne sort. ⚠️ Si un port est pris ou bloqué : choisis-en un autre et note-le — il faudra le reporter dans `.env` (`DASHBOARD_LOOPBACK_PORT` / `AUTHELIA_LOOPBACK_PORT`, étape 4) **et** dans le bloc nginx de la phase C (remplacer `8080` / `9092`). Exemple : 8081 et 9093.
 3. Crée ton fichier de secrets. `.env` n'est jamais commité (dépôt public, D42) :
    ```bash
    cp .env.example .env && chmod 600 .env
@@ -37,7 +41,7 @@ Internet ──HTTPS──> NPM (déjà sur le VPS) ──> /auth  ──> authe
    ```bash
    openssl rand -hex 32
    ```
-   Il faut : `POSTGRES_PASSWORD`, `APP_SECRET_KEY` (c'est aussi le jeton `X-Admin-Token`, D51 : **32 caractères minimum**, sinon le backend refuse de démarrer, D53), `LITELLM_MASTER_KEY`, `AUTHELIA_DB_PASSWORD`, `AUTHELIA_SESSION_SECRET`, `AUTHELIA_STORAGE_ENCRYPTION_KEY`, `AUTHELIA_JWT_SECRET`, `EDGE_SECRET` (secret partagé avec NPM, étape C4), `NPM_NETWORK_NAME`, puis tes clés de fournisseurs (OpenRouter, Mistral, Finnhub, EODHD...).
+   Il faut : `POSTGRES_PASSWORD`, `APP_SECRET_KEY` (c'est aussi le jeton `X-Admin-Token`, D51 : **32 caractères minimum**, sinon le backend refuse de démarrer, D53), `LITELLM_MASTER_KEY`, `AUTHELIA_DB_PASSWORD`, `AUTHELIA_SESSION_SECRET`, `AUTHELIA_STORAGE_ENCRYPTION_KEY`, `AUTHELIA_JWT_SECRET`, `EDGE_SECRET` (secret partagé avec NPM, étape C4), puis tes clés de fournisseurs (OpenRouter, Mistral, Finnhub, EODHD...). `DASHBOARD_LOOPBACK_PORT` et `AUTHELIA_LOOPBACK_PORT` gardent leurs défauts (8080 / 9092) sauf collision à l'étape 2.
    ⚠️ Dans `DATABASE_URL` et `LITELLM_DATABASE_URL`, remplace `CHANGE_ME` par le **même** `POSTGRES_PASSWORD`.
 5. Crée ton utilisateur Authelia **avant tout démarrage** :
    ```bash
@@ -67,7 +71,7 @@ Internet ──HTTPS──> NPM (déjà sur le VPS) ──> /auth  ──> authe
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env ps
    ```
-   ✅ `postgres`, `redis`, `backend`, `litellm`, `dashboard`, `authelia` : `healthy`. `backup` : démarre, puis `healthy` après sa première sauvegarde (quelques secondes).
+   ✅ `postgres`, `redis`, `backend`, `litellm`, `dashboard`, `authelia` : `healthy`. `backup` : démarre, puis `healthy` après sa première sauvegarde (quelques secondes). Dans la colonne PORTS, tu dois voir `127.0.0.1:8080->80/tcp` (dashboard) et `127.0.0.1:9092->9091/tcp` (authelia), et **rien d'autre**.
 5. Note la RAM utilisée (`docker stats --no-stream`). La spec attend ~2-3 Go pour toute la pile.
 
 ⚠️ **Si le volume PostgreSQL existait déjà avant ce déploiement** : le script d'init ne rejoue pas, la base `authelia` n'existe pas. Crée-la à la main (remplace le mot de passe par ta valeur `AUTHELIA_DB_PASSWORD`) :
@@ -81,13 +85,15 @@ Puis `docker compose ... restart authelia`.
 ## Phase C — Brancher NPM
 
 > ⚠️ **Ce bloc nginx n'a pas été testé avec ton NPM réel** : il suit la documentation d'Authelia pour nginx. La phase D sert à le vérifier. Si un test échoue, ne force rien : donne-moi le message et la sortie de `docker logs <conteneur NPM>`.
+>
+> NPM est en `network_mode: host` (D54) : on lui donne des **IP littérales** (`127.0.0.1`), donc **pas de `resolver 127.0.0.11`** (le DNS interne de Docker n'est pas joignable depuis le réseau du host).
 
 1. Dans NPM → *Hosts* → *Proxy Hosts* → *Add* :
    - Domain : `investia.valentin-fiess.fr`
-   - Scheme `http`, Forward Hostname : `investia-dashboard`, Port : `80`
+   - Scheme `http`, Forward Hostname : `127.0.0.1`, Port : `8080` (ou ton `DASHBOARD_LOOPBACK_PORT`)
    - Block Common Exploits : activé. Websockets : inutile (on utilise SSE, pas WebSocket).
 2. Onglet *SSL* : certificat Let's Encrypt, *Force SSL*, *HTTP/2* et *HSTS Enabled* activés (HSTS dit au navigateur de n'utiliser que HTTPS pour ce site).
-3. Onglet *Advanced* → *Custom Nginx Configuration* : colle ceci.
+3. Onglet *Advanced* → *Custom Nginx Configuration* : colle ceci (si tu as changé le port à l'étape A2, remplace `9092` par ton `AUTHELIA_LOOPBACK_PORT`) :
    ```nginx
    # Chaque requête est d'abord vérifiée par Authelia.
    auth_request /internal/authelia/authz;
@@ -101,9 +107,7 @@ Puis `docker compose ... restart authelia`.
    # Le portail de connexion est lui-même ouvert, sinon on ne pourrait jamais se connecter.
    location /auth {
        auth_request off;
-       resolver 127.0.0.11 valid=10s ipv6=off;
-       set $upstream_authelia http://investia-authelia:9091;
-       proxy_pass $upstream_authelia;
+       proxy_pass http://127.0.0.1:9092;
        proxy_http_version 1.1;
        proxy_set_header Host $host;
        proxy_set_header X-Forwarded-Proto $scheme;
@@ -116,9 +120,7 @@ Puis `docker compose ... restart authelia`.
    location /internal/authelia/authz {
        internal;
        auth_request off;   # sans cette ligne, le contrôle se rappellerait lui-même en boucle
-       resolver 127.0.0.11 valid=10s ipv6=off;
-       set $upstream_authelia http://investia-authelia:9091;
-       proxy_pass $upstream_authelia/auth/api/authz/auth-request;
+       proxy_pass http://127.0.0.1:9092/auth/api/authz/auth-request;
        proxy_pass_request_body off;
        proxy_http_version 1.1;
        proxy_set_header Content-Length "";
@@ -129,12 +131,18 @@ Puis `docker compose ... restart authelia`.
        proxy_set_header X-Forwarded-For $remote_addr;
    }
    ```
-4. **Secret partagé NPM → dashboard (D53).** Sans lui, un autre conteneur du réseau Docker partagé pourrait appeler le dashboard directement, sans passer par Authelia. Dans l'onglet *Custom locations* du même Proxy Host : *Add location* → *Define location* : `/`, Scheme `http`, Forward Hostname `investia-dashboard`, Port `80` ; clique sur l'icône d'engrenage et colle (avec la valeur de `EDGE_SECRET` de ton `.env`) :
+4. **Secret partagé NPM → dashboard (D53).** Sans lui, tout processus du VPS pourrait appeler le dashboard en `127.0.0.1:8080` directement, sans passer par Authelia. Dans l'onglet *Custom locations* du même Proxy Host : *Add location* → *Define location* : `/`, Scheme `http`, Forward Hostname `127.0.0.1`, Port `8080` (ton `DASHBOARD_LOOPBACK_PORT`) ; clique sur l'icône d'engrenage et colle (avec la valeur de `EDGE_SECRET` de ton `.env`) :
    ```nginx
    proxy_set_header X-Edge-Secret "COLLE_ICI_LA_VALEUR_DE_EDGE_SECRET";
    ```
    Pourquoi dans cet emplacement et pas dans l'onglet *Advanced* : nginx n'hérite pas des `proxy_set_header` du serveur dès qu'un emplacement en définit lui-même, et NPM en définit. ⚠️ Non testé avec ton NPM : si cela échoue, **le site répond 403 à tout le monde** (le test D1 le montre tout de suite). C'est le comportement voulu en cas d'erreur, rien n'est exposé.
-5. Enregistre. ✅ NPM affiche « Online ». ⚠️ Si NPM refuse (« host not found in upstream » ou erreur nginx) : la pile de la phase B n'est pas démarrée ou n'est pas sur le réseau `NPM_NETWORK_NAME`. Vérifie avec `docker network inspect <réseau NPM>`, on doit y voir `investia-dashboard` et `investia-authelia`.
+5. Enregistre. ✅ NPM affiche « Online ». ⚠️ Si NPM refuse (erreur nginx) : vérifie que la pile tourne et que les ports loopback écoutent bien :
+   ```bash
+   cd deploy
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env ps
+   ss -tlnp | grep -E ':(8080|9092) '      # doit montrer 127.0.0.1:8080 et 127.0.0.1:9092
+   curl -s http://127.0.0.1:8080/healthz     # doit répondre "ok" depuis le VPS (/healthz est ouvert sans secret)
+   ```
 
 ## Phase D — Vérifier (critères de la spec)
 
@@ -162,11 +170,11 @@ Depuis ton Mac (pas besoin du VPS) :
    ```
    ✅ `HTTP/1.1 401 Unauthorized` (le capital n'est pas modifié).
 
-Ensuite : vérifie qu'**aucun port** n'est ouvert vers l'extérieur par notre pile (`docker compose ... ps` ne montre aucune colonne `0.0.0.0:`), et note le résultat dans `docs/STATUS.md`.
+Ensuite : vérifie qu'**aucun port n'est ouvert vers l'extérieur** par notre pile — `docker compose ... ps` ne montre que `127.0.0.1:8080->80/tcp` et `127.0.0.1:9092->9091/tcp`, **aucune** colonne `0.0.0.0:` — et note le résultat dans `docs/STATUS.md`.
 
 ### Tests de contournement (à faire avant de déclarer la mise en ligne terminée)
 
-On vérifie que les raccourcis évidents sont fermés. Tous depuis ton Mac, sans connexion.
+On vérifie que les raccourcis évidents sont fermés. Tests 1 à 3 depuis ton Mac, sans connexion ; test 4 depuis le VPS.
 
 1. Le point de contrôle interne n'est pas joignable de l'extérieur :
    ```bash
@@ -183,11 +191,15 @@ On vérifie que les raccourcis évidents sont fermés. Tous depuis ton Mac, sans
    curl -s --path-as-is -o /dev/null -w "%{http_code}\n" "https://investia.valentin-fiess.fr/auth/../api/portfolio"
    ```
    ✅ `302` ou `404` (jamais `200`).
-4. Un autre conteneur du réseau NPM ne contourne pas Authelia. Sur le VPS, depuis n'importe quel conteneur de ce réseau (ici un conteneur jetable) :
+4. **Le port loopback du dashboard est fermé sans secret, et injoignable depuis un autre conteneur.** Depuis le VPS :
    ```bash
-   docker run --rm --network <NPM_NETWORK_NAME> busybox wget -qS -O- http://investia-dashboard/api/portfolio 2>&1 | head -3
+   curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/portfolio
    ```
-   ✅ `HTTP/1.1 403 Forbidden` (sans le secret partagé).
+   ✅ `403` (pas de `X-Edge-Secret`). Puis, depuis un conteneur jetable, avec l'IP du VPS (`hostname -I | awk '{print $1}'`) :
+   ```bash
+   docker run --rm busybox wget -qS -O- "http://$(hostname -I | awk '{print $1}'):8080/api/portfolio" 2>&1 | head -3
+   ```
+   ✅ « Connection refused » : le port est lié à `127.0.0.1`, un autre conteneur ne peut pas y arriver.
 5. **Le renouvellement du certificat fonctionne.** `auth_request` est posé sur tout le serveur : il pourrait bloquer le challenge Let's Encrypt (la vérification que tu possèdes le domaine) et le certificat expirerait en silence au bout de 90 jours. Dans NPM → *SSL Certificates* → ton certificat → *Renew now*. ✅ Le renouvellement réussit. ⚠️ S'il échoue : utilise le challenge DNS dans NPM, ou dis-le-moi avant d'aller plus loin.
 
 ## Phase E — Sauvegardes : le test de restauration est obligatoire
