@@ -8,13 +8,13 @@
 
 | Service | Rôle |
 |---|---|
-| `authelia` | Connexion par session, léger (~50 Mo de RAM), forward-auth demandé par NPM. Il lui faut son propre sous-domaine pour le portail de connexion (Q13) |
+| `authelia` | Connexion par session, léger (~50 Mo de RAM), forward-auth demandé par NPM. Portail sur le chemin `/auth` du même domaine (Q13, D39) |
 | `backend` | API Python + harness |
 | `dashboard` | Pages web |
 | `postgres` | **Un seul** PostgreSQL 17 : base de l'app (+ base Authelia si besoin, même serveur) |
 | `redis` | Cache données de marché (TTL) + cache sémantique LLM |
 
-**NPM (hors notre compose, déjà sur le VPS)** : point d'entrée de `investia.valentin-fiess.fr`. On y ajoute **un seul Proxy Host** vers le conteneur `dashboard` (D49 : son nginx sert les pages et aiguille `/api/` vers `backend:8000` en retirant le préfixe, donc une seule origine, pas de CORS) plus le chemin `/auth` vers Authelia (D39), avec en « Advanced » la config nginx de forward-auth vers `http://authelia:9091/api/authz/auth-request` (pattern Authelia 4.39 + NPM). Aucune page ni API accessible sans session Authelia. ⚠️ Pour le SSE, ajouter dans l'« Advanced » du proxy host : `proxy_buffering off;` et un `proxy_read_timeout` long, sinon nginx garde les messages en mémoire et le flux se bloque. À tester à l'étape 4 bis.
+**NPM (hors notre compose, déjà sur le VPS)** : point d'entrée de `investia.valentin-fiess.fr`. On y ajoute **un seul Proxy Host** vers le conteneur `dashboard` (D49 : son nginx sert les pages et aiguille `/api/` vers `investia-backend:8000` en retirant le préfixe, donc une seule origine, pas de CORS) plus le chemin `/auth` vers Authelia (D39), avec en « Advanced » la config nginx de forward-auth vers `http://investia-authelia:9091/auth/api/authz/auth-request` (pattern Authelia 4.39 + NPM). Aucune page ni API accessible sans session Authelia. Les noms `investia-*` sont des alias Docker uniques : le réseau de NPM est partagé avec d'autres piles, un nom court (`backend`, `postgres`) pourrait désigner le service d'un autre projet. NPM envoie aussi un secret partagé (en-tête `X-Edge-Secret`, D53) pour qu'un autre conteneur du réseau ne puisse pas appeler le dashboard sans passer par Authelia. SSE : le réglage (`proxy_buffering off`, délai long) vit dans `dashboard/nginx.conf` (propriétaire du fait) ; le bloc à coller dans NPM est dans `docs/deploiement-guide-pas-a-pas.md`.
 
 Un seul serveur PostgreSQL héberge plusieurs bases de données si besoin : on sépare logiquement, pas en conteneurs. C'est comme un seul frigo avec plusieurs compartiments.
 

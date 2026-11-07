@@ -37,7 +37,7 @@ Internet ──HTTPS──> NPM (déjà sur le VPS) ──> /auth  ──> authe
    ```bash
    openssl rand -hex 32
    ```
-   Il faut : `POSTGRES_PASSWORD`, `APP_SECRET_KEY` (c'est aussi le jeton `X-Admin-Token`, D51), `LITELLM_MASTER_KEY`, `AUTHELIA_DB_PASSWORD`, `AUTHELIA_SESSION_SECRET`, `AUTHELIA_STORAGE_ENCRYPTION_KEY`, `AUTHELIA_JWT_SECRET`, `NPM_NETWORK_NAME`, puis tes clés de fournisseurs (OpenRouter, Mistral, Finnhub, EODHD...).
+   Il faut : `POSTGRES_PASSWORD`, `APP_SECRET_KEY` (c'est aussi le jeton `X-Admin-Token`, D51 : **32 caractères minimum**, sinon le backend refuse de démarrer, D53), `LITELLM_MASTER_KEY`, `AUTHELIA_DB_PASSWORD`, `AUTHELIA_SESSION_SECRET`, `AUTHELIA_STORAGE_ENCRYPTION_KEY`, `AUTHELIA_JWT_SECRET`, `EDGE_SECRET` (secret partagé avec NPM, étape C4), `NPM_NETWORK_NAME`, puis tes clés de fournisseurs (OpenRouter, Mistral, Finnhub, EODHD...).
    ⚠️ Dans `DATABASE_URL` et `LITELLM_DATABASE_URL`, remplace `CHANGE_ME` par le **même** `POSTGRES_PASSWORD`.
 5. Crée ton utilisateur Authelia **avant tout démarrage** :
    ```bash
@@ -86,7 +86,7 @@ Puis `docker compose ... restart authelia`.
    - Domain : `investia.valentin-fiess.fr`
    - Scheme `http`, Forward Hostname : `investia-dashboard`, Port : `80`
    - Block Common Exploits : activé. Websockets : inutile (on utilise SSE, pas WebSocket).
-2. Onglet *SSL* : certificat Let's Encrypt, *Force SSL* et *HTTP/2* activés.
+2. Onglet *SSL* : certificat Let's Encrypt, *Force SSL*, *HTTP/2* et *HSTS Enabled* activés (HSTS dit au navigateur de n'utiliser que HTTPS pour ce site).
 3. Onglet *Advanced* → *Custom Nginx Configuration* : colle ceci.
    ```nginx
    # Chaque requête est d'abord vérifiée par Authelia.
@@ -129,7 +129,12 @@ Puis `docker compose ... restart authelia`.
        proxy_set_header X-Forwarded-For $remote_addr;
    }
    ```
-4. Enregistre. ✅ NPM affiche « Online ». ⚠️ Si NPM refuse (« host not found in upstream » ou erreur nginx) : la pile de la phase B n'est pas démarrée ou n'est pas sur le réseau `NPM_NETWORK_NAME`. Vérifie avec `docker network inspect <réseau NPM>`, on doit y voir `investia-dashboard` et `investia-authelia`.
+4. **Secret partagé NPM → dashboard (D53).** Sans lui, un autre conteneur du réseau Docker partagé pourrait appeler le dashboard directement, sans passer par Authelia. Dans l'onglet *Custom locations* du même Proxy Host : *Add location* → *Define location* : `/`, Scheme `http`, Forward Hostname `investia-dashboard`, Port `80` ; clique sur l'icône d'engrenage et colle (avec la valeur de `EDGE_SECRET` de ton `.env`) :
+   ```nginx
+   proxy_set_header X-Edge-Secret "COLLE_ICI_LA_VALEUR_DE_EDGE_SECRET";
+   ```
+   Pourquoi dans cet emplacement et pas dans l'onglet *Advanced* : nginx n'hérite pas des `proxy_set_header` du serveur dès qu'un emplacement en définit lui-même, et NPM en définit. ⚠️ Non testé avec ton NPM : si cela échoue, **le site répond 403 à tout le monde** (le test D1 le montre tout de suite). C'est le comportement voulu en cas d'erreur, rien n'est exposé.
+5. Enregistre. ✅ NPM affiche « Online ». ⚠️ Si NPM refuse (« host not found in upstream » ou erreur nginx) : la pile de la phase B n'est pas démarrée ou n'est pas sur le réseau `NPM_NETWORK_NAME`. Vérifie avec `docker network inspect <réseau NPM>`, on doit y voir `investia-dashboard` et `investia-authelia`.
 
 ## Phase D — Vérifier (critères de la spec)
 
@@ -153,11 +158,37 @@ Depuis ton Mac (pas besoin du VPS) :
 5. Route admin protégée par son propre jeton (D51). Depuis le VPS, sans jeton, on veut un refus :
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env exec dashboard \
-     wget -qS -O- --post-data='{"amount": 1, "reason": "test"}' --header='Content-Type: application/json' http://backend:8000/portfolio/adjust
+     wget -qS -O- --post-data='{"amount": 1, "reason": "test"}' --header='Content-Type: application/json' http://investia-backend:8000/portfolio/adjust
    ```
    ✅ `HTTP/1.1 401 Unauthorized` (le capital n'est pas modifié).
 
 Ensuite : vérifie qu'**aucun port** n'est ouvert vers l'extérieur par notre pile (`docker compose ... ps` ne montre aucune colonne `0.0.0.0:`), et note le résultat dans `docs/STATUS.md`.
+
+### Tests de contournement (à faire avant de déclarer la mise en ligne terminée)
+
+On vérifie que les raccourcis évidents sont fermés. Tous depuis ton Mac, sans connexion.
+
+1. Le point de contrôle interne n'est pas joignable de l'extérieur :
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" https://investia.valentin-fiess.fr/internal/authelia/authz
+   ```
+   ✅ `404`.
+2. Des en-têtes falsifiés n'ouvrent rien :
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" -H 'X-Original-URL: https://investia.valentin-fiess.fr/auth/' -H 'Remote-User: valentin' -H 'X-Forwarded-User: valentin' https://investia.valentin-fiess.fr/api/portfolio
+   ```
+   ✅ `302` (jamais `200`).
+3. Une adresse déguisée en chemin du portail n'ouvre rien :
+   ```bash
+   curl -s --path-as-is -o /dev/null -w "%{http_code}\n" "https://investia.valentin-fiess.fr/auth/../api/portfolio"
+   ```
+   ✅ `302` ou `404` (jamais `200`).
+4. Un autre conteneur du réseau NPM ne contourne pas Authelia. Sur le VPS, depuis n'importe quel conteneur de ce réseau (ici un conteneur jetable) :
+   ```bash
+   docker run --rm --network <NPM_NETWORK_NAME> busybox wget -qS -O- http://investia-dashboard/api/portfolio 2>&1 | head -3
+   ```
+   ✅ `HTTP/1.1 403 Forbidden` (sans le secret partagé).
+5. **Le renouvellement du certificat fonctionne.** `auth_request` est posé sur tout le serveur : il pourrait bloquer le challenge Let's Encrypt (la vérification que tu possèdes le domaine) et le certificat expirerait en silence au bout de 90 jours. Dans NPM → *SSL Certificates* → ton certificat → *Renew now*. ✅ Le renouvellement réussit. ⚠️ S'il échoue : utilise le challenge DNS dans NPM, ou dis-le-moi avant d'aller plus loin.
 
 ## Phase E — Sauvegardes : le test de restauration est obligatoire
 

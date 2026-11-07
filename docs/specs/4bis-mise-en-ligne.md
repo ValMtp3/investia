@@ -18,6 +18,7 @@ Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 
 - Ne rien casser en local : `docker-compose.yml` + `override.yml` continuent de fonctionner (`cd deploy && docker compose --env-file ../.env up`).
 - SSE (`/agent/run`, `/market/stream`) : pas de buffering, timeout long, dans le nginx du dashboard **et** dans NPM.
 - Sauvegardes sur le VPS seulement (D52, risque assumé).
+- Durcissements issus de la revue de sécurité du 05/11/2026 : D53 (alias Docker uniques, secret partagé NPM -> dashboard, variables explicites pour backend/LiteLLM, jeton admin >= 32 caractères).
 
 ## Critères d'acceptation
 
