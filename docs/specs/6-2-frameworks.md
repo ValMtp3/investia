@@ -1,6 +1,6 @@
 # Spec — 6.2 : Le même harness reconstruit avec LangGraph, Pydantic AI, OpenAI Agents SDK
 
-*Écrite le : 2026-11-07 | Étape roadmap : 6.2 | Statut : brouillon (à valider)*
+*Écrite le : 2026-11-07 | Étape roadmap : 6.2 | Statut : terminée le 2026-11-07 (branche `feat/comparaison-frameworks`)*
 
 ## Objectif
 
@@ -21,12 +21,12 @@ D17/D41 : le harness cœur est écrit à la main pour apprendre ; on mesure ensu
 
 ## Critères d'acceptation
 
-- [ ] `comparisons/` existe avec `pyproject.toml` (dépendances épinglées : langgraph, pydantic-ai, openai-agents), README expliquant le but.
-- [ ] `comparisons/langgraph_impl.py`, `comparisons/pydantic_ai_impl.py`, `comparisons/openai_agents_impl.py` : chacune expose `async def run(question, llm, tools) -> result` avec la même signature que le harness maison.
-- [ ] `comparisons/run_evals.py` : lance les 4 approches sur `evals/cases.yaml` (mode mock, LLM fake identique) → `comparisons/results.json` (scores par approche + coût + latence).
-- [ ] Tests : chaque impl passe les cas mock d'evals (mêmes assertions que le harness maison) ; `cd comparisons && uv run pytest -q` vert.
-- [ ] Le harness maison reste inchangé : `cd backend && uv run pytest -q -m "not integration"` toujours vert.
-- [ ] Doc `comparisons/README.md` : comment lancer, quelles métriques, premiers résultats.
+- [x] `comparisons/` existe avec `pyproject.toml` (dépendances épinglées : langgraph, pydantic-ai, openai-agents), README expliquant le but.
+- [x] `comparisons/langgraph_impl.py`, `comparisons/pydantic_ai_impl.py`, `comparisons/openai_agents_impl.py` : chacune expose `async def run(question, llm, tools) -> result` avec la même signature que le harness maison.
+- [x] `comparisons/run_evals.py` : lance les 4 approches sur `evals/cases.yaml` (mode mock, LLM fake identique) → `comparisons/results.json` (scores par approche + coût + latence).
+- [x] Tests : chaque impl passe les cas mock d'evals (mêmes assertions que le harness maison) ; `cd comparisons && uv run pytest -q` vert.
+- [x] Le harness maison reste inchangé : `cd backend && uv run pytest -q -m "not integration"` toujours vert.
+- [x] Doc `comparisons/README.md` : comment lancer, quelles métriques, premiers résultats.
 
 ## Fichiers touchés
 
