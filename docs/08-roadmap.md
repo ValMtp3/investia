@@ -24,6 +24,7 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 | **6.1 — Multi-agents A2A** ✅ faite le 07/11/2026 | 3 agents spécialisés (analyste, risque, rédacteur) en A2A v1.0 réel via `a2a-sdk`, exposés comme 3 endpoints dans le backend (D60) | Les agents se découvrent (agent cards), se délèguent des tâches et produisent une réponse combinée |
 | **6.2 — Harness reconstruit avec 3 frameworks** ✅ faite le 07/11/2026 | Le même harness dans `comparisons/` avec LangGraph, Pydantic AI, OpenAI Agents SDK (D61) | Chaque implémentation passe les mêmes evals que le harness maison |
 | **6.3 — Comparaison chiffrée** ✅ faite le 07/11/2026 | Mêmes evals sur les 4 approches (maison + 3 frameworks), mock + ~2 € de réels (D62) ; métriques qualité/coût/latence ; + P7 : composant en Go comparé à Python | Rapport `docs/comparaison-etape-6.md` : chaque approche a son gain (ou non) chiffré |
+| **7 — Dashboard v2** ✅ faite le 07/11/2026 | Thème sombre « salle de contrôle » (D64, zéro dépendance npm) + `GET /orders`, `GET /portfolio/adjustments`, `initial_capital` (read-only) ; 4 pages restylées, a11y (skip link, focus, 44px) | Spec `docs/specs/7-dashboard-v2.md` 15/15 critères cochés, captures des 4 pages relues |
 
 ## Règles pour chaque étape
 
