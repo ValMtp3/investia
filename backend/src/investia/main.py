@@ -183,6 +183,26 @@ def create_app(
         title="Investia", lifespan=combine_lifespans(lifespan, mcp_app.lifespan)
     )
     app.mount("/mcp", mcp_app)
+
+    # Agents A2A (étape 6.1, D60) : 3 sous-apps montées sous /api/agents/<nom>.
+    # Les cards annoncent l'URL absolue (base A2A) pour que les clients A2A
+    # puissent appeler les agents en HTTP interne.
+    from investia.agents import mount_agents
+    from investia.agents.executors import (
+        AnalysteExecutor,
+        RedacteurExecutor,
+        RisqueExecutor,
+    )
+    from investia.agents.orchestrator import default_base_url
+    from investia.tools import build_tools as _build_tools
+
+    _tools = _build_tools(market_service, portfolio_service=portfolio_service)
+    executors = {
+        "analyste": AnalysteExecutor(llm, _tools),
+        "risque": RisqueExecutor(),
+        "redacteur": RedacteurExecutor(llm, _tools),
+    }
+    mount_agents(app, executors, base_url=default_base_url())
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
     app.add_middleware(
         CORSMiddleware,
@@ -315,6 +335,54 @@ def create_app(
                 while True:
                     # Pendant une validation humaine, aucun événement n'est émis
                     # jusqu'à la décision : le timeout d'attente couvre ça.
+                    kind, payload = await asyncio.wait_for(
+                        queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
+                    )
+                    yield format_sse(kind, payload)
+                    if kind == "done":
+                        break
+            except asyncio.CancelledError:
+                task.cancel()
+                raise
+            except Exception as error:
+                yield format_sse("error", {"message": str(error)})
+                yield format_sse("done", {"status": "error"})
+            finally:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.post("/api/agents/run")
+    async def agents_run(body: AgentRunBody) -> Any:
+        """Stream SSE du mode multi-agents A2A (6.1) : start/a2a_delegate/.../done."""
+        import asyncio
+
+        from fastapi.responses import StreamingResponse
+
+        from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
+        from investia.agents import run_multi_agent
+        from investia.sse import format_sse
+        from investia.tools import build_tools
+
+        queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+
+        async def sink(kind: str, payload: dict[str, Any]) -> None:
+            await queue.put((kind, payload))
+
+        async def generate():
+            task = asyncio.create_task(
+                run_multi_agent(
+                    body.question,
+                    llm,
+                    build_tools(market, portfolio_service=portfolio_service),
+                    trace_store=trace_store,
+                    event_sink=sink,
+                )
+            )
+            try:
+                while True:
                     kind, payload = await asyncio.wait_for(
                         queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
                     )

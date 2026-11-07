@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import {
   respondApproval,
   streamAgentRun,
+  streamMultiAgentRun,
   usePortfolio,
   type AgentEvent,
   type Portfolio,
@@ -70,6 +71,18 @@ function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
         }`,
         ok: event.payload.ok,
       };
+    case "a2a_delegate": {
+      const status =
+        event.payload.status === "ok"
+          ? "ok"
+          : event.payload.status === "error"
+            ? "erreur"
+            : "en cours…";
+      return {
+        text: `Délégation A2A → ${event.payload.agent} (${status})`,
+        ok: event.payload.status === "ok" ? true : event.payload.status === "error" ? false : undefined,
+      };
+    }
     default:
       return null;
   }
@@ -80,6 +93,8 @@ export default function Agent() {
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Mode d'exécution : agent seul (défaut) ou chaîne multi-agents A2A (6.1).
+  const [mode, setMode] = useState<"solo" | "multi">("solo");
   const abortRef = useRef<AbortController | null>(null);
   const stepIdRef = useRef(0);
   // Résumé du portefeuille simulé (l'agent y a accès via l'outil get_portfolio).
@@ -112,7 +127,8 @@ export default function Agent() {
       { role: "assistant", steps: [] },
     ]);
     try {
-      await streamAgentRun(
+      const stream = mode === "multi" ? streamMultiAgentRun : streamAgentRun;
+      await stream(
         question,
         (evt) => {
           const step = stepText(evt);
@@ -257,6 +273,27 @@ export default function Agent() {
       </Module>
 
       <Module title="Demande à l'agent" className="mb-3">
+        <fieldset className="mb-2 flex gap-4">
+          <legend className="sr-only">Mode d'exécution</legend>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="mode"
+              checked={mode === "solo"}
+              onChange={() => setMode("solo")}
+            />
+            Agent seul
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="mode"
+              checked={mode === "multi"}
+              onChange={() => setMode("multi")}
+            />
+            Multi-agents (A2A)
+          </label>
+        </fieldset>
         <form onSubmit={send} className="flex gap-2">
           <div className="min-w-0 flex-1">
             <label htmlFor="agent-question" className="sr-only">

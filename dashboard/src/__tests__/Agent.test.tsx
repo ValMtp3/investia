@@ -313,3 +313,41 @@ describe("Page Agent — validation humaine d'un ordre (5.1)", () => {
     expect(await screen.findByText("Ordre exécuté.")).toBeInTheDocument();
   });
 });
+
+const MULTI_RUN = [
+  'event: start\ndata: {"question":"analyse AAPL","mode":"multi-agent","run_id":"run-multi-1"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"analyste","status":"running"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"analyste","status":"ok"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"risque","status":"running"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"risque","status":"ok"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"redacteur","status":"running"}\n\n',
+  'event: a2a_delegate\ndata: {"agent":"redacteur","status":"ok"}\n\n',
+  'event: answer\ndata: {"text":"Réponse multi-agents."}\n\n',
+  'event: done\ndata: {"status":"ok","agents":["analyste","risque","redacteur"]}\n\n',
+].join("");
+
+describe("Page Agent — mode multi-agents A2A (6.1)", () => {
+  it("le sélecteur multi-agents envoie vers /api/agents/run et affiche les délégations", async () => {
+    const fetchMock = stubAgentFetch({ sse: [MULTI_RUN] });
+    await renderAgent();
+
+    await userEvent.click(screen.getByRole("radio", { name: /multi-agents/i }));
+    await userEvent.type(screen.getByLabelText(/question/i), "analyse AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    // Les 3 délégations A2A apparaissent dans les étapes
+    const steps = await screen.findByLabelText(/étapes de l'agent/i);
+    await waitFor(() => {
+      expect(steps).toHaveTextContent(/analyste/);
+      expect(steps).toHaveTextContent(/risque/);
+      expect(steps).toHaveTextContent(/redacteur/);
+    });
+    expect(await screen.findByText("Réponse multi-agents.")).toBeInTheDocument();
+
+    // Le POST est parti vers /api/agents/run (pas /agent/run)
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/api/agents/run"),
+    );
+    expect(call).toBeDefined();
+  });
+});

@@ -1,6 +1,6 @@
 # Spec — 6.1 : Multi-agents en A2A (analyste / risque / rédacteur)
 
-*Écrite le : 2026-11-07 | Étape roadmap : 6.1 | Statut : brouillon (à valider)*
+*Écrite le : 2026-11-07 | Étape roadmap : 6.1 | Statut : terminée le 2026-11-07 (branche `feat/a2a-multi-agents`)*
 
 ## Objectif
 
@@ -22,14 +22,14 @@ Roadmap étape 6 + `docs/03-harness.md` §10 : plusieurs agents spécialisés qu
 
 ## Critères d'acceptation
 
-- [ ] `uv add a2a-sdk==<version>` ; `pyproject.toml`/`uv.lock` à jour.
-- [ ] `backend/src/investia/agents/` : `analyste.py`, `risque.py`, `redacteur.py` + agent cards servies sur `/api/agents/{nom}/.well-known/agent-card.json`.
-- [ ] `POST /api/agents/run` (orchestrateur) : question → délégation A2A analyste → risque → rédacteur → réponse finale ; chaque étape tracée en base (kind `a2a_delegate` avec agent + statut).
-- [ ] Test avec LLM fake : le flux complet produit une réponse au format garde-fous (4 sections + disclaimer) ; un refus du risque bloque la réponse (comme aujourd'hui).
-- [ ] Les 3 agent cards listent les bons outils/capacités.
-- [ ] `cd backend && uv run pytest -q -m "not integration" && uv run ruff check . && uv run ruff format --check . && uv run ty check` passent (nouveau `test_agents_a2a.py`).
-- [ ] Dashboard : la page `/agent` peut envoyer vers le mode multi-agents (sélecteur ou URL) et affiche les délégations en direct (événements SSE `a2a_delegate`) ; `npx vitest run && npm run lint && npm run build` passent.
-- [ ] Vérification réelle : lancer le backend (base scratch), appeler l'orchestrateur avec LLM fictif, voir les 3 délégations dans la trace (`GET /traces/{id}`).
+- [x] `uv add a2a-sdk==<version>` ; `pyproject.toml`/`uv.lock` à jour.
+- [x] `backend/src/investia/agents/` : `analyste.py`, `risque.py`, `redacteur.py` + agent cards servies sur `/api/agents/{nom}/.well-known/agent-card.json`.
+- [x] `POST /api/agents/run` (orchestrateur) : question → délégation A2A analyste → risque → rédacteur → réponse finale ; chaque étape tracée en base (kind `a2a_delegate` avec agent + statut).
+- [x] Test avec LLM fake : le flux complet produit une réponse au format garde-fous (4 sections + disclaimer) ; un refus du risque bloque la réponse (comme aujourd'hui).
+- [x] Les 3 agent cards listent les bons outils/capacités.
+- [x] `cd backend && uv run pytest -q -m "not integration" && uv run ruff check . && uv run ruff format --check . && uv run ty check` passent (nouveau `test_agents_a2a.py`).
+- [x] Dashboard : la page `/agent` peut envoyer vers le mode multi-agents (sélecteur ou URL) et affiche les délégations en direct (événements SSE `a2a_delegate`) ; `npx vitest run && npm run lint && npm run build` passent.
+- [x] Vérification réelle : lancer le backend (base scratch), appeler l'orchestrateur avec LLM fictif, voir les 3 délégations dans la trace (`GET /traces/{id}`).
 
 ## Fichiers touchés
 

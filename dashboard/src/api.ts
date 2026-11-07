@@ -122,7 +122,12 @@ export function useMarketHistory(symbol: string) {
 export type AgentEvent =
   | {
       kind: "start";
-      payload: { question: string; max_turns: number; run_id?: string | null };
+      payload: {
+        question: string;
+        max_turns?: number;
+        run_id?: string | null;
+        mode?: string;
+      };
     }
   | {
       kind: "llm_call";
@@ -146,8 +151,9 @@ export type AgentEvent =
       kind: "guardrail";
       payload: { turn: number; check: string; ok: boolean; detail: string };
     }
-  | { kind: "answer"; payload: { turn: number; text: string } }
+  | { kind: "answer"; payload: { turn?: number; text: string } }
   | { kind: "error"; payload: { message: string } }
+  | { kind: "a2a_delegate"; payload: { agent: string; status: string } }
   | {
       kind: "approval_request";
       payload: {
@@ -177,6 +183,20 @@ export function streamAgentRun(
   signal?: AbortSignal,
 ): Promise<void> {
   return streamSse(`${API_URL}/agent/run`, {
+    method: "POST",
+    body: { question },
+    signal,
+    onEvent: (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+  });
+}
+
+/** Stream SSE du mode multi-agents A2A (étape 6.1) : POST /api/agents/run. */
+export function streamMultiAgentRun(
+  question: string,
+  onEvent: (event: AgentEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse(`${API_URL}/api/agents/run`, {
     method: "POST",
     body: { question },
     signal,

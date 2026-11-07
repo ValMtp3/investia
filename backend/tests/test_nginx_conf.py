@@ -50,3 +50,16 @@ def test_mcp_location_is_proxied_unbuffered_and_edge_protected():
     assert "investia-backend:8000" in body
     assert "proxy_buffering off" in body
     assert "if ($edge_authorized = 0)" in body, "EDGE_SECRET requis aussi sur /mcp/"
+
+
+def test_agents_location_keeps_prefix_and_is_edge_protected():
+    """Les agents A2A (étape 6.1) : /api/agents/ vers le backend AVEC le préfixe
+    (pas de rewrite, sinon le backend recevrait /agents/... en 404), EDGE_SECRET."""
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    block = re.search(r"location\s+/api/agents/\s*\{(.*?)\n    \}", conf, re.S)
+    assert block, "bloc location /api/agents/ manquant dans dashboard/nginx.conf"
+    body = block.group(1)
+    assert "investia-backend:8000" in body
+    assert "rewrite" not in body, "pas de rewrite sur /api/agents/ (préfixe conservé)"
+    assert "proxy_buffering off" in body
+    assert "if ($edge_authorized = 0)" in body

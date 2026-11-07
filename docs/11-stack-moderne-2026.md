@@ -28,7 +28,7 @@ Tu veux tester ce qui est moderne en 2026 autour des agents et harness IA, pas u
 | Protocole | Couche | État oct. 2026 | Usage dans le projet |
 |---|---|---|---|
 | **MCP** | agent → outils | Spec **2026-07-28** : sessions/handshake supprimés (scale horizontal), MRTR (SEP-2322), lifecycle de dépréciation (SEP-2596). SDK TS sur Web Standards (Bun/Deno/Workers) | ✅ **Étape 5.2 faite le 07/11/2026** : serveur MCP **FastMCP 4.1.6** (Python, officiel) monté dans FastAPI sur `/mcp` (streamable HTTP, D58), 6 outils exposés (quote/history/indicators/news/portfolio/simulate_order) |
-| **A2A** | agent → agent | **v1.0 stable** mars 2026, 22k★, 150+ orgs, dans l'Agentic AI Foundation. Extensions x402 (paiements), AP2 (commerce) | Étape 6 : multi-agents |
+| **A2A** | agent → agent | **v1.0 stable** mars 2026, 22k★, 150+ orgs, dans l'Agentic AI Foundation. Extensions x402 (paiements), AP2 (commerce) | ✅ **Étape 6.1 faite le 07/11/2026** : `a2a-sdk` 1.3.0, 3 agents (analyste/risque/rédacteur) exposés en JSON-RPC sur `/api/agents/<nom>` dans le backend, orchestrateur A2A (D60) |
 | **AG-UI** (CopilotKit) | agent → frontend | 14.2k★, ~17 event types, transport SSE, STATE_DELTA, interrupts human-in-the-loop. Intégré Microsoft Agent Framework, Google ADK, AWS Strands, Bedrock AgentCore | Étape 4 : chat du dashboard en streaming |
 | **A2UI** | generative UI | 1.0, catalogs/surfaces (oct. 2026) | À explorer, optionnel |
 

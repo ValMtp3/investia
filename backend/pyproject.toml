@@ -10,6 +10,7 @@ name = "investia"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "a2a-sdk>=1.3.0",
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
     "fastapi>=0.162.0",
