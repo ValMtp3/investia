@@ -8,13 +8,13 @@
 
 | Service | Rôle |
 |---|---|
-| `authelia` | Connexion par session, léger (~50 Mo de RAM), forward-auth demandé par NPM. Il lui faut son propre sous-domaine pour le portail de connexion (Q13) |
+| `authelia` | Connexion par session, léger (~50 Mo de RAM), forward-auth demandé par NPM. Portail sur le chemin `/auth` du même domaine (Q13, D39) |
 | `backend` | API Python + harness |
 | `dashboard` | Pages web |
 | `postgres` | **Un seul** PostgreSQL 17 : base de l'app (+ base Authelia si besoin, même serveur) |
 | `redis` | Cache données de marché (TTL) + cache sémantique LLM |
 
-**NPM (hors notre compose, déjà sur le VPS)** : point d'entrée de `investia.valentin-fiess.fr`. On y ajoute des *Proxy Hosts* vers nos conteneurs (`backend:8000`, `dashboard:3000`) avec en « Advanced » la config nginx de forward-auth vers `http://authelia:9091/api/authz/auth-request` (pattern Authelia 4.39 + NPM). Aucune page ni API accessible sans session Authelia. ⚠️ Pour le SSE, ajouter dans l'« Advanced » du proxy host : `proxy_buffering off;` et un `proxy_read_timeout` long, sinon nginx garde les messages en mémoire et le flux se bloque. À tester à l'étape 4 bis.
+**NPM (hors notre compose, déjà sur le VPS, en `network_mode: host` — D54)** : point d'entrée de `investia.valentin-fiess.fr`. Comme il voit le `localhost` du VPS mais pas les noms Docker, on y ajoute **un seul Proxy Host** vers `127.0.0.1:8080` (le conteneur `dashboard`, port loopback ; D49 : son nginx sert les pages et aiguille `/api/` vers `investia-backend:8000` en retirant le préfixe, donc une seule origine, pas de CORS) plus le chemin `/auth` vers Authelia (`127.0.0.1:9092`, D39), avec en « Advanced » la config nginx de forward-auth vers `http://127.0.0.1:9092/auth/api/authz/auth-request` (pattern Authelia 4.39 + NPM, IP littérale donc sans `resolver`). Aucune page ni API accessible sans session Authelia. NPM envoie aussi un secret partagé (en-tête `X-Edge-Secret`, D53) pour que rien sur le VPS ne puisse appeler le dashboard sans passer par Authelia. SSE : le réglage (`proxy_buffering off`, délai long) vit dans `dashboard/nginx.conf` (propriétaire du fait) ; le bloc à coller dans NPM est dans `docs/deploiement-guide-pas-a-pas.md`. Le serveur MCP (étape 5.2, D58) est servi sur `/mcp/` par le même nginx du dashboard (streamable HTTP, `proxy_buffering off`) : **aucune configuration NPM supplémentaire**, il est derrière la même session Authelia + `X-Edge-Secret`.
 
 Un seul serveur PostgreSQL héberge plusieurs bases de données si besoin : on sépare logiquement, pas en conteneurs. C'est comme un seul frigo avec plusieurs compartiments.
 
@@ -25,10 +25,10 @@ Trois fichiers : `docker-compose.yml` (base commune), `docker-compose.override.y
 ## Préparation du VPS (checklist)
 
 1. ✅ Sous-domaine `investia.valentin-fiess.fr` pointant vers le VPS (DNS déjà chez toi, HTTPS géré par NPM).
-2. Pare-feu : NPM a besoin de 80/443 (déjà ouverts) ; nos conteneurs ne publient **aucun port** en dehors du réseau Docker interne.
+2. Pare-feu : NPM a besoin de 80/443 (déjà ouverts) ; nos conteneurs ne publient **aucun port sur `0.0.0.0`** — seuls `dashboard` et `authelia` écoutent sur `127.0.0.1` (D54, règle testée par `backend/tests/test_compose.py`).
 3. Connexion SSH par clé, mot de passe désactivé (déjà en place a priori — à vérifier).
 4. Mises à jour de sécurité automatiques.
-5. Sauvegardes régulières des bases PostgreSQL, avec test de restauration.
+5. Sauvegardes : `pg_dump` quotidien, 7 jours gardés **sur le VPS seulement** (D52, remplace D40), avec test de restauration. ⚠️ Si le VPS tombe, base et dumps partent ensemble : risque assumé, à revoir si la perte devient coûteuse.
 
 ## Ressources (VPS partagé)
 
@@ -36,7 +36,7 @@ Trois fichiers : `docker-compose.yml` (base commune), `docker-compose.override.y
 
 ## Mise en ligne
 
-Pas avant l'étape 4 de la roadmap, et seulement après la revue de sécurité (voir `06-securite-et-legal.md`). Le déploiement est une action difficile à annuler : chaque mise en ligne est validée avec toi.
+Pas avant l'étape 4 de la roadmap, et seulement après la revue de sécurité (voir `06-securite-et-legal.md`). Le déploiement est une action difficile à annuler : chaque mise en ligne est validée avec toi. Tu lances les commandes sur le VPS (`git pull` puis `docker compose build`), je prépare les fichiers et le guide (D48). Spec : `docs/specs/4bis-mise-en-ligne.md`.
 
 ## À prévoir plus tard
 

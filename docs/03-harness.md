@@ -24,19 +24,19 @@ Règles :
 
 | Niveau | Rôle | Exemples de tâches | Modèle (oct. 2026) | Prix (par M tokens) |
 |---|---|---|---|---|
-| **Décision** | Décisions binaires/catégorielles, ultra-rapide et quasi gratuites | Router gros/petit, classer la question, garde-fou « la réponse est-elle sûre ? », juge d'eval simple | **Jev** (TypeSafe AI) | $0.042 input, **output gratuit** |
+| **Décision** | Décisions binaires/catégorielles, ultra-rapide et quasi gratuites | Router gros/petit, classer la question, garde-fou « la réponse est-elle sûre ? », juge d'eval simple | **elephant-1** (Baseten, D44) | gratuit via OpenRouter (`baseten/elephant-1:free`) |
 | Petit | Tâches simples et rapides | Résumer une actualité, extraire des entités | **GPT-6 Luna** (OpenAI) | $0.10 input / $0.50 output (cached $0.01) |
 | Gros | Raisonner, synthétiser | Analyse d'un actif, recommandation finale | **Mistral Large 4** (Mistral — appelé rarement) | $1.36 input / $4.18 output (cached $0.14) |
 
-> **Multi-provider** : deux fournisseurs de chat (OpenAI + Mistral) derrière le gateway **LiteLLM** (D29) : proxy self-hosté gratuit, une seule API compatible OpenAI, budget controls et cost tracking intégrés. ⚠️ Jev n'est pas un modèle de chat : on le teste en accès direct (ou via OpenRouter) à l'étape 1, avant de décider s'il passe par LiteLLM (Q10).
+> **Multi-provider** : deux fournisseurs de chat (OpenAI + Mistral) derrière le gateway **LiteLLM** (D29) : proxy self-hosté gratuit, une seule API compatible OpenAI, budget controls et cost tracking intégrés. ⚠️ Le modèle de décision n'est pas un modèle de chat : il passe par LiteLLM sur /v1/systemone (Q10 résolu, D37/D44).
 
-> **Jev** n'est pas un LLM : il ne rédige pas de texte. Tu lui envoies un état (JSON) + des questions typées (« cette réponse contient-elle un chiffre non sourcé ? »), il retourne des **probabilités calibrées** sur des réponses prédéfinies (oui/non, A/B/C) avec un score de confiance. Ton code agit directement sur le résultat. 20-200x plus rapide qu'un LLM, ~$0.042/M tokens en entrée, **sortie gratuite** (octobre 2026, via l'API TypeSafe ou OpenRouter). Si la confiance est basse, on peut escalader vers un LLM.
+> **elephant-1** n'est pas un LLM : il ne rédige pas de texte. Tu lui envoies un état (JSON) + des questions typées (« cette réponse contient-elle un chiffre non sourcé ? »), il retourne des **probabilités calibrées** sur des réponses prédéfinies (oui/non, A/B/C) avec un score de confiance. Ton code agit directement sur le résultat. 20-200x plus rapide qu'un LLM, gratuit via OpenRouter (octobre 2026). Si la confiance est basse, on peut escalader vers un LLM.
 >
-> Variante « maison » à tester : n'importe quel LLM peut faire du Jev en lisant les *logprobs* du prochain token sur des choix numériques (voir le papier « LLM-as-Jev », 2026).
+> Variante « maison » à tester : n'importe quel LLM peut faire de la décision en lisant les *logprobs* du prochain token sur des choix numériques (voir le papier « LLM-as-Jev », 2026).
 
 Les noms de modèles sont **dans un fichier de configuration**, jamais dans le code. On pourra ainsi les changer et mesurer l'effet avec les evals.
 
-Le **routeur** est assuré par Jev. Au début : questions simples en dur. Plus tard : Jev apprend du feedback + evals.
+Le **routeur** est assuré par elephant-1. Au début : questions simples en dur. Plus tard : le modèle de décision apprend du feedback + evals.
 
 **Optimisation des coûts** (budget 10-20 €/mois) :
 - Prompt caching automatique (prompts ≥ 1024 tokens, contenu statique au début) : -90 % sur le répété.

@@ -1,1 +1,31 @@
+# Secrets — jamais commités (repo public, D42)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Build
+dist/
+*.egg-info/
+
+# Outils de test et de lint
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Outils d'IA et de design (locaux, non commités)
+/.superpowers/
+
+# macOS
 .DS_Store
+
+# Authelia : fichier des utilisateurs (contient un hash de mot de passe), jamais commité
+deploy/authelia/users_database.yml
+
+# Autres fichiers d'environnement et sauvegardes : jamais commités (dépôt public, D42)
+.env.*
+!.env.example
+*.dump

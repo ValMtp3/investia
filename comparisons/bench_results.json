@@ -1,0 +1,15 @@
+{
+  "component": "portfolio.calc.apply_order (P7)",
+  "iterations": 1000000,
+  "python": {
+    "iterations": 1000000,
+    "total_ms": 559.57,
+    "ns_per_op": 559.6
+  },
+  "go": {
+    "iterations": 1000000,
+    "total_ms": 10.305,
+    "ns_per_op": 10.3
+  },
+  "speedup": 54.3
+}

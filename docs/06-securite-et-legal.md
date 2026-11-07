@@ -25,7 +25,7 @@ Dans l'interface : mention permanente « Simulation, ceci n'est pas un conseil e
 
 - Tout passe par Nginx Proxy Manager (déjà sur le VPS) puis Authelia (connexion, forward-auth). Aucune page ni API accessible sans être connecté. Les conteneurs de l'app ne publient aucun port public.
 - Un seul compte utilisateur.
-- Authentification forte (second facteur) recommandée sur le compte.
+- Second facteur : **retiré le 07/11/2026 (D63, risque assumé)** — l'enregistrement TOTP exigeait un e-mail non envoyé par le VPS. Aujourd'hui : mot de passe seul. Si un jour un relais SMTP est configuré, remettre la 2FA (remettre `policy: 'two_factor'` dans `deploy/authelia/configuration.yml`).
 
 ## Données et entrées
 

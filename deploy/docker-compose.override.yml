@@ -1,0 +1,18 @@
+# Override local — chargé automatiquement par `docker compose`.
+# Tous les ports sont liés à 127.0.0.1 : rien n'est exposé hors de la machine.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+  litellm:
+    ports:
+      - "127.0.0.1:4000:4000"
+  dashboard:
+    ports:
+      - "127.0.0.1:8080:80"

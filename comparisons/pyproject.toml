@@ -1,0 +1,33 @@
+[project]
+name = "investia-comparisons"
+version = "0.1.0"
+description = "Comparaison du harness maison avec LangGraph, Pydantic AI et OpenAI Agents SDK (étape 6.2, D61)"
+requires-python = ">=3.12"
+dependencies = [
+    "investia",
+    "langgraph>=0.2",
+    "pydantic-ai>=0.0.50",
+    "openai-agents>=0.0.10",
+    "pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+investia = { path = "../backend" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
