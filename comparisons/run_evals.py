@@ -11,7 +11,7 @@ import json
 import time
 from pathlib import Path
 
-from investia.agent.loop import AgentResult, ToolCallLog
+from investia.agent.loop import AgentResult, GuardrailDecision, ToolCallLog
 from investia.evals.metrics import compute_metrics
 from investia.evals.runner import MockMarket, load_cases
 from investia.tools import build_tools
@@ -59,8 +59,27 @@ async def run_all(cases, tools) -> dict:
                 else [],
                 total_cost_cents=outcome.cost_cents,
                 model=approach,
+                guardrails=[
+                    GuardrailDecision(check=check, ok=ok, detail="")
+                    for check, ok in outcome.extra.get("guardrails", [])
+                ],
             )
             metrics = compute_metrics(agent_result, case.expected_tool)
+            # Honnêteté : compute_metrics met True par défaut quand il n'y a pas de
+            # garde-fous. Une approche sans garde-fous en code ne « réussit » pas
+            # ces métriques : on les met à 0 et on compte guardrails_applied.
+            if not outcome.extra.get("guardrails"):
+                garde_fou_keys = (
+                    "numbers_sourced",
+                    "format_ok",
+                    "language_ok",
+                    "disclaimer_ok",
+                )
+                for key in garde_fou_keys:
+                    metrics[key] = 0.0
+                metrics["guardrails_applied"] = 0.0
+            else:
+                metrics["guardrails_applied"] = 1.0
             entries.append(
                 {
                     "case_id": case.id,
@@ -88,9 +107,10 @@ async def run_all(cases, tools) -> dict:
                 for m in (
                     "tool_used",
                     "numbers_sourced",
-                    "format",
-                    "langage",
-                    "disclaimer",
+                    "format_ok",
+                    "language_ok",
+                    "disclaimer_ok",
+                    "guardrails_applied",
                 )
             },
         }

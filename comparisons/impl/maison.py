@@ -38,4 +38,7 @@ async def run_case(
         tool_ok=tool_called == expected_tool,
         cost_cents=result.total_cost_cents,
         duration_ms=duration_ms,
+        extra={
+            "guardrails": [(g.check, g.ok) for g in result.guardrails],
+        },
     )

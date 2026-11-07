@@ -1,6 +1,6 @@
 # Spec — 6.3 : Comparaison chiffrée + P7 (Go/Rust)
 
-*Écrite le : 2026-11-07 | Étape roadmap : 6.3 | Statut : brouillon (à valider)*
+*Écrite le : 2026-11-07 | Étape roadmap : 6.3 | Statut : terminée le 2026-11-07 (branche `feat/comparaison-frameworks`)*
 
 ## Objectif
 
@@ -21,12 +21,12 @@ Roadmap étape 6 : « Les evals montrent un gain (ou non, documenté) pour chaqu
 
 ## Critères d'acceptation
 
-- [ ] `comparisons/results.json` régénéré avec les 4 approches, métriques complètes.
-- [ ] Runs réels : script `comparisons/run_evals.py --live --budget-eur 2` qui s'arrête au budget ; coûts enregistrés et résumés.
-- [ ] P7 : `comparisons/go/` (ou `rust/`) avec le composant réécrit + benchmark (`comparisons/bench.py` lance les deux versions sur le même dataset, mesure le temps) → résultats dans le doc.
-- [ ] `docs/comparaison-etape-6.md` écrit : tableau comparatif + conclusion documentée (gain ou non, chiffré).
-- [ ] `cd backend && uv run pytest -q -m "not integration"` toujours vert.
-- [ ] STATUS/roadmap mis à jour ; étape 6 cochée.
+- [x] `comparisons/results.json` régénéré avec les 4 approches, métriques complètes.
+- [x] Runs réels : script `comparisons/run_evals.py --live --budget-eur 2` qui s'arrête au budget ; coûts enregistrés et résumés.
+- [x] P7 : `comparisons/go/` (ou `rust/`) avec le composant réécrit + benchmark (`comparisons/bench.py` lance les deux versions sur le même dataset, mesure le temps) → résultats dans le doc.
+- [x] `docs/comparaison-etape-6.md` écrit : tableau comparatif + conclusion documentée (gain ou non, chiffré).
+- [x] `cd backend && uv run pytest -q -m "not integration"` toujours vert.
+- [x] STATUS/roadmap mis à jour ; étape 6 cochée.
 
 ## Fichiers touchés
 
