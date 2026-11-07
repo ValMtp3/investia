@@ -5,7 +5,8 @@ from investia.tools.base import BaseTool
 from investia.tools.history import GetHistoryTool
 from investia.tools.indicators import GetIndicatorsTool
 from investia.tools.news import GetNewsTool
-from investia.tools.portfolio import GetPortfolioTool, PortfolioReader
+from investia.tools.order import SimulateOrderTool
+from investia.tools.portfolio import GetPortfolioTool, PortfolioServiceLike
 from investia.tools.quote import GetQuoteTool
 
 __all__ = ["BaseTool", "build_tools"]
@@ -15,9 +16,9 @@ def build_tools(
     market: MarketDataService,
     memory_store=None,
     embeddings=None,
-    portfolio_service: PortfolioReader | None = None,
+    portfolio_service: PortfolioServiceLike | None = None,
 ) -> dict[str, BaseTool]:
-    """Les 4 outils marché, + mémoire si dispo, + get_portfolio si service fourni."""
+    """Les 4 outils marché, + mémoire si dispo, + portefeuille si service fourni."""
     tools: dict[str, BaseTool] = {
         "get_quote": GetQuoteTool(market),
         "get_history": GetHistoryTool(market),
@@ -31,4 +32,5 @@ def build_tools(
         tools["recall_memory"] = RecallMemoryTool(memory_store, embeddings)
     if portfolio_service is not None:
         tools["get_portfolio"] = GetPortfolioTool(portfolio_service)
+        tools["simulate_order"] = SimulateOrderTool(portfolio_service)
     return tools

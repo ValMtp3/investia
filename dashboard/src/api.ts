@@ -148,6 +148,26 @@ export type AgentEvent =
     }
   | { kind: "answer"; payload: { turn: number; text: string } }
   | { kind: "error"; payload: { message: string } }
+  | {
+      kind: "approval_request";
+      payload: {
+        run_id: string;
+        turn: number;
+        symbol: string;
+        side: "buy" | "sell";
+        quantity: number;
+      };
+    }
+  | {
+      kind: "approval";
+      payload: {
+        turn: number;
+        decision: string;
+        symbol: string;
+        side: "buy" | "sell";
+        quantity: number;
+      };
+    }
   | { kind: "done"; payload: { turns: number; cost_cents: number; status: string } };
 
 /** Stream SSE de la boucle agent : POST /agent/run. */
@@ -162,6 +182,28 @@ export function streamAgentRun(
     signal,
     onEvent: (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
   });
+}
+
+/** Décision humaine sur un ordre proposé (étape 5.1) : POST /agent/runs/:id/approval. */
+export async function respondApproval(
+  runId: string,
+  decision: "approved" | "refused",
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/agent/runs/${encodeURIComponent(runId)}/approval`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Approbation indisponible (HTTP ${response.status})`),
+    );
+  }
 }
 
 export interface LiveQuote {

@@ -6,7 +6,7 @@ import secrets
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -43,6 +43,10 @@ class AdjustBody(BaseModel):
 class AgentRunBody(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     max_turns: int = Field(8, ge=1, le=20)
+
+
+class ApprovalBody(BaseModel):
+    decision: Literal["approved", "refused"]
 
 
 MARKET_STREAM_INTERVAL = 5.0
@@ -123,6 +127,7 @@ def create_app(
     market: Any | None = None,
     trace_store: Any | None = None,
     eval_store: Any | None = None,
+    approval_registry: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -157,6 +162,10 @@ def create_app(
         from investia.llm import build_llm_client
 
         llm = build_llm_client(settings)
+    if approval_registry is None:
+        from investia.agent.approval import ApprovalRegistry
+
+        approval_registry = ApprovalRegistry()
 
     # httpx écrit l'URL complète de chaque requête au niveau INFO, donc la clé API
     # des fournisseurs qui la prennent en paramètre (EODHD, Finnhub, CoinGecko).
@@ -245,14 +254,32 @@ def create_app(
             raise HTTPException(status_code=401, detail="token admin invalide")
         return await portfolio_service.adjust_capital(body.amount, body.reason)
 
+    @app.post("/agent/runs/{run_id}/approval")
+    async def respond_approval(run_id: UUID, body: ApprovalBody) -> dict[str, Any]:
+        """Décision humaine sur un ordre proposé (D57). 404 si aucune attente,
+        409 si déjà décidé. La boucle trace le step « approval » elle-même."""
+        key = str(run_id)
+        if not approval_registry.has(key):
+            raise HTTPException(
+                status_code=404, detail=f"aucune approbation en attente pour {run_id}"
+            )
+        decided = await approval_registry.decide(key, body.decision)
+        if not decided:
+            raise HTTPException(
+                status_code=409, detail=f"décision déjà enregistrée pour {run_id}"
+            )
+        return {"status": "ok", "run_id": key, "decision": body.decision}
+
     @app.post("/agent/run")
     async def agent_run(body: AgentRunBody) -> Any:
-        """Stream SSE de la boucle : start/llm_call/tool_call/guardrail/answer/done."""
+        """Stream SSE de la boucle : start/llm_call/tool_call/guardrail/answer/done
+        (+ approval_request/approval pour la validation humaine, D57)."""
         import asyncio
 
         from fastapi.responses import StreamingResponse
 
         from investia.agent import run_agent
+        from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
         from investia.tools import build_tools
 
@@ -270,11 +297,16 @@ def create_app(
                     max_turns=body.max_turns,
                     trace_store=trace_store,
                     event_sink=sink,
+                    approval_registry=approval_registry,
                 )
             )
             try:
                 while True:
-                    kind, payload = await asyncio.wait_for(queue.get(), timeout=60)
+                    # Pendant une validation humaine, aucun événement n'est émis
+                    # jusqu'à la décision : le timeout d'attente couvre ça.
+                    kind, payload = await asyncio.wait_for(
+                        queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
+                    )
                     yield format_sse(kind, payload)
                     if kind == "done":
                         break

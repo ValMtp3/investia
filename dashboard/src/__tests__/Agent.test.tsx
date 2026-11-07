@@ -81,15 +81,28 @@ const PORTFOLIO = {
   currency: "EUR",
 };
 
+// Flux SSE avec une demande de validation : pas d'événement « approval » tant que
+// le test n'a pas cliqué (comme en vrai, où le serveur attend la décision).
+const APPROVAL_RUN = [
+  'event: start\ndata: {"question":"achète 3 AAPL","max_turns":8,"run_id":"run-abc-123"}\n\n',
+  'event: llm_call\ndata: {"turn":1,"model":"gpt-6-luna","cost_cents":0.01,"tool_calls":["simulate_order"]}\n\n',
+  'event: approval_request\ndata: {"run_id":"run-abc-123","turn":1,"symbol":"AAPL","side":"buy","quantity":3}\n\n',
+  'event: tool_call\ndata: {"turn":1,"name":"simulate_order","arguments":{"symbol":"AAPL","side":"buy","quantity":3},"ok":true}\n\n',
+  'event: llm_call\ndata: {"turn":2,"model":"gpt-6-luna","cost_cents":0.02,"tool_calls":[]}\n\n',
+  'event: answer\ndata: {"turn":2,"text":"Ordre exécuté."}\n\n',
+  'event: done\ndata: {"turns":2,"cost_cents":0.03,"status":"ok"}\n\n',
+].join("");
+
 interface AgentFetchOpts {
   sse?: string[];
   status?: number; // statut de POST /agent/run (défaut 200)
   hangStart?: boolean; // flux SSE qui ne se termine jamais
   portfolioStatus?: number; // statut de GET /portfolio (défaut 200)
   portfolioBody?: unknown; // corps de GET /portfolio si 200 (défaut PORTFOLIO)
+  approvalStatus?: number; // statut de POST /agent/runs/:id/approval (défaut 200)
 }
 
-/** fetch routé : GET /portfolio → JSON, POST /agent/run → flux SSE. */
+/** fetch routé : GET /portfolio → JSON, POST /agent/run → flux SSE, POST approval → JSON. */
 function stubAgentFetch(opts: AgentFetchOpts = {}) {
   const sse = opts.hangStart
     ? new ReadableStream<Uint8Array>({
@@ -105,12 +118,18 @@ function stubAgentFetch(opts: AgentFetchOpts = {}) {
     : sseBody(opts.sse ?? [""]);
   const status = opts.status ?? 200;
   const portfolioStatus = opts.portfolioStatus ?? 200;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const approvalStatus = opts.approvalStatus ?? 200;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.pathname === "/portfolio") {
       return portfolioStatus === 200
         ? jsonResponse(opts.portfolioBody ?? PORTFOLIO)
         : jsonResponse({ detail: "portefeuille indisponible" }, portfolioStatus);
+    }
+    if (url.pathname.startsWith("/agent/runs/") && url.pathname.endsWith("/approval")) {
+      return approvalStatus === 200
+        ? jsonResponse({ status: "ok", decision: JSON.parse(String(init?.body)).decision })
+        : jsonResponse({ detail: "approbation indisponible" }, approvalStatus);
     }
     return { ok: status < 400, status, body: sse };
   });
@@ -228,5 +247,69 @@ describe("Page Agent (chat streaming SSE)", () => {
     await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
     expect(await screen.findByText("AAPL vaut 344.63 $")).toBeInTheDocument();
+  });
+});
+
+describe("Page Agent — validation humaine d'un ordre (5.1)", () => {
+  it("affiche le bloc Valider/Refuser sur approval_request et Valider envoie approved", async () => {
+    const fetchMock = stubAgentFetch({ sse: [APPROVAL_RUN] });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "achète 3 AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    // Le bloc de validation apparaît avec l'ordre proposé
+    const bloc = await screen.findByRole("group", { name: /ordre proposé/i });
+    expect(bloc).toHaveTextContent(/acheter 3 AAPL/i);
+
+    await userEvent.click(screen.getByRole("button", { name: /valider/i }));
+
+    // Le POST part vers /agent/runs/run-abc-123/approval avec approved
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("/agent/runs/run-abc-123/approval"),
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ decision: "approved" });
+    });
+
+    // Le bloc se fige avec la décision (l'événement approval du flux confirme)
+    expect(await screen.findByText(/validé/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /valider/i })).not.toBeInTheDocument();
+    // Le chat a continué jusqu'à la réponse finale
+    expect(await screen.findByText("Ordre exécuté.")).toBeInTheDocument();
+  });
+
+  it("Refuser envoie refused", async () => {
+    const fetchMock = stubAgentFetch({ sse: [APPROVAL_RUN] });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "achète 3 AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    await screen.findByRole("group", { name: /ordre proposé/i });
+    await userEvent.click(screen.getByRole("button", { name: /refuser/i }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("/agent/runs/run-abc-123/approval"),
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ decision: "refused" });
+    });
+    expect(await screen.findByText(/refusé/i)).toBeInTheDocument();
+  });
+
+  it("si le POST d'approbation échoue, le bloc affiche une erreur et le chat continue", async () => {
+    stubAgentFetch({ sse: [APPROVAL_RUN], approvalStatus: 500 });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "achète 3 AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    const bloc = await screen.findByRole("group", { name: /ordre proposé/i });
+    await userEvent.click(within(bloc).getByRole("button", { name: /valider/i }));
+
+    // Erreur lisible dans le bloc, boutons encore cliquables (réessayer possible)
+    expect(await within(bloc).findByRole("alert")).toHaveTextContent(/approbation/i);
+    // Le flux SSE, lui, a continué jusqu'au bout
+    expect(await screen.findByText("Ordre exécuté.")).toBeInTheDocument();
   });
 });

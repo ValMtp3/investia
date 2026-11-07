@@ -47,6 +47,9 @@ class FakePortfolioService:
             raise self._error
         return self._payload
 
+    async def place_order(self, symbol, side, quantity):
+        raise NotImplementedError
+
 
 async def test_get_portfolio_returns_service_state_unchanged():
     tool = GetPortfolioTool(FakePortfolioService())

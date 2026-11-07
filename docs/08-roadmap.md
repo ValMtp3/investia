@@ -19,7 +19,8 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 | **4.5 — Page Traces & evals** ✅ faite le 05/11/2026 | Lire runs/run_steps/eval_results en base et les afficher dans le dashboard, lien « voir la trace » depuis le chat | `GET /traces`, `/traces/{id}`, `/evals` répondent ; la page affiche exécutions, détail pas à pas et courbes d'evals |
 | **4.6 — Outil `get_portfolio` + résumé portefeuille page Agent** ✅ faite le 05/11/2026 | Branche le portefeuille simulé dans le harness (outil `get_portfolio`) et affiche un résumé sur `/agent` | L'agent voit l'état du portefeuille dans ses réponses (source + horodatage) ; la page Agent affiche valeur totale / cash / positions |
 | **4 bis — Mise en ligne** | Authelia derrière le NPM existant, proxy hosts sur `investia.valentin-fiess.fr`, VPS OVH VPS-1 partagé, sauvegardes, revue de sécurité | Rien n'est accessible sans connexion ; revue sans point bloquant |
-| **5 — Validation humaine + MCP** | Accord humain avant ordre simulé ; serveur ou client MCP | Aucun ordre simulé sans ton accord |
+| **5.1 — Validation humaine** | Outil `simulate_order` + événement SSE `approval_request` + bouton Valider/Refuser dans le chat `/agent` (D57 : SSE maison, timeout = refus, trace en base, ordre = symbole + achat/vente + quantité) | Aucun ordre simulé sans accord ; la trace du run montre la demande et la décision |
+| **5.2 — Serveur MCP** | Outils Investia exposés en serveur MCP (FastMCP, Streamable HTTP sur `/mcp` derrière Authelia, D58) | Un client MCP externe liste et appelle les outils (`tools/list`, `tools/call`) |
 | **6 — Multi-agents + comparaison** | Agents spécialisés en A2A, comparaison avec l'agent seul via les evals, **et** le même harness reconstruit avec LangGraph / Pydantic AI / OpenAI Agents SDK | Les evals montrent un gain (ou non, documenté) pour chaque approche |
 
 ## Règles pour chaque étape

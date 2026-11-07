@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from pydantic import ValidationError
 
+from investia.agent.approval import ApprovalRegistry
 from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
@@ -55,6 +56,8 @@ class AgentResult:
 
 DEFAULT_MAX_TURNS = 8
 DEFAULT_MAX_CORRECTIONS = 2
+# Validation humaine (D57) : pas de réponse = pas d'ordre.
+DEFAULT_APPROVAL_TIMEOUT = 300.0
 
 
 async def run_agent(
@@ -66,6 +69,8 @@ async def run_agent(
     max_corrections: int = DEFAULT_MAX_CORRECTIONS,
     trace_store: TraceStoreProtocol | None = None,
     event_sink: Any | None = None,
+    approval_registry: ApprovalRegistry | None = None,
+    approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
 ) -> AgentResult:
     """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
@@ -135,7 +140,24 @@ async def run_agent(
                 }
             )
             for call in response.tool_calls:
-                result_text = await _execute_tool(tools, call.name, call.arguments)
+                if (
+                    call.name == "simulate_order"
+                    and approval_registry is not None
+                    and run_id is not None
+                ):
+                    # Validation humaine (D57) : on s'arrête et on attend l'accord.
+                    result_text = await _request_approval(
+                        tools,
+                        call,
+                        run_id,
+                        turn,
+                        approval_registry,
+                        approval_timeout,
+                        store,
+                        emit,
+                    )
+                else:
+                    result_text = await _execute_tool(tools, call.name, call.arguments)
                 entry = ToolCallLog(
                     tool=call.name,
                     arguments=call.arguments,
@@ -313,3 +335,66 @@ async def _execute_tool(
     except ToolError as error:
         return f"erreur: {error}"
     return json.dumps(result, default=str, ensure_ascii=False)
+
+
+async def _request_approval(
+    tools: dict[str, BaseTool],
+    call: Any,
+    run_id: str,
+    turn: int,
+    registry: ApprovalRegistry,
+    timeout: float,
+    store: TraceStoreProtocol | None,
+    emit: Any,
+) -> str:
+    """Intercepte simulate_order : émet approval_request, attend la décision humaine.
+
+    « approved » → l'ordre est exécuté. « refused » ou « timeout » → aucun ordre,
+    et le modèle reçoit un message clair (pas de réponse = pas d'ordre, D57).
+    """
+    tool = tools.get("simulate_order")
+    if tool is None:
+        return f"erreur: outil inconnu {call.name!r}"
+    try:
+        args = tool.args_schema.model_validate(call.arguments)
+    except ValidationError as error:
+        msg = error.errors()[0]["msg"]
+        return f"erreur: arguments invalides pour simulate_order — {msg}"
+    symbol = args.symbol.strip().upper()
+    request = {
+        "run_id": run_id,
+        "turn": turn,
+        "symbol": symbol,
+        "side": args.side,
+        "quantity": args.quantity,
+    }
+    await emit("approval_request", request)
+    if store is not None:
+        await store.log_step(
+            run_id, turn, "approval_request", {**request, "status": "pending"}
+        )
+    registry.open(run_id)
+    try:
+        decision = await registry.wait(run_id, timeout)
+    finally:
+        registry.close(run_id)
+    if store is not None:
+        await store.log_step(run_id, turn, "approval", {"decision": decision})
+    await emit(
+        "approval",
+        {
+            "turn": turn,
+            "decision": decision,
+            "symbol": symbol,
+            "side": args.side,
+            "quantity": args.quantity,
+        },
+    )
+    if decision == "approved":
+        return await _execute_tool(tools, call.name, call.arguments)
+    if decision == "timeout":
+        return (
+            "ordre refusé (timeout : pas de réponse = pas d'ordre) — "
+            "aucun ordre exécuté"
+        )
+    return "ordre refusé par l'utilisateur — aucun ordre exécuté"

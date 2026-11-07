@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { streamAgentRun, usePortfolio, type AgentEvent, type Portfolio } from "../api";
+import {
+  respondApproval,
+  streamAgentRun,
+  usePortfolio,
+  type AgentEvent,
+  type Portfolio,
+} from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
 import { isAbortError } from "../lib/errors";
@@ -12,6 +18,16 @@ interface Step {
   ok?: boolean;
 }
 
+/** Ordre proposé par l'agent, en attente de validation humaine (étape 5.1). */
+interface PendingApproval {
+  runId: string;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: number;
+  decision?: string;
+  error?: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   text?: string;
@@ -20,6 +36,7 @@ interface ChatMessage {
   summary?: string;
   stopped?: boolean;
   runId?: string | null;
+  approval?: PendingApproval;
 }
 
 /** Garde-fou : le payload /portfolio doit avoir la forme attendue avant affichage. */
@@ -116,6 +133,24 @@ export default function Agent() {
               ...msg,
               summary: `Terminé en ${evt.payload.turns} tours · coût ${evt.payload.cost_cents} c · statut ${evt.payload.status}`,
             }));
+          } else if (evt.kind === "approval_request") {
+            // L'agent s'arrête : un ordre est proposé, à valider ou refuser (D57).
+            patchLastAssistant((msg) => ({
+              ...msg,
+              approval: {
+                runId: evt.payload.run_id,
+                symbol: evt.payload.symbol,
+                side: evt.payload.side,
+                quantity: evt.payload.quantity,
+              },
+            }));
+          } else if (evt.kind === "approval") {
+            // La décision est confirmée côté serveur : on fige le bloc.
+            patchLastAssistant((msg) =>
+              msg.approval
+                ? { ...msg, approval: { ...msg.approval, decision: evt.payload.decision } }
+                : msg,
+            );
           } else if (evt.kind === "error") {
             patchLastAssistant((msg) => ({
               ...msg,
@@ -146,6 +181,31 @@ export default function Agent() {
 
   function stop() {
     abortRef.current?.abort();
+  }
+
+  /** Envoie la décision humaine au backend (D57) et met à jour le bloc. */
+  async function decideApproval(runId: string, decision: "approved" | "refused") {
+    const patch = (msg: ChatMessage): ChatMessage =>
+      msg.approval && msg.approval.runId === runId
+        ? { ...msg, approval: { ...msg.approval, decision, error: undefined } }
+        : msg;
+    try {
+      await respondApproval(runId, decision);
+      patchLastAssistant(patch);
+    } catch (err) {
+      // Le flux SSE continue quoi qu'il arrive : on signale juste l'échec du POST.
+      patchLastAssistant((msg) =>
+        msg.approval && msg.approval.runId === runId
+          ? {
+              ...msg,
+              approval: {
+                ...msg.approval,
+                error: err instanceof Error ? err.message : "Erreur inconnue",
+              },
+            }
+          : msg,
+      );
+    }
   }
 
   return (
@@ -263,6 +323,50 @@ export default function Agent() {
                     </li>
                   ))}
                 </ul>
+              )}
+              {msg.approval && (
+                <div
+                  role="group"
+                  aria-label={`Ordre proposé : ${
+                    msg.approval.side === "buy" ? "acheter" : "vendre"
+                  } ${msg.approval.quantity} ${msg.approval.symbol}`}
+                  className="mb-2 border border-rule bg-wash p-2"
+                >
+                  <p className="font-medium">
+                    Ordre proposé : {msg.approval.side === "buy" ? "acheter" : "vendre"}{" "}
+                    {msg.approval.quantity} {msg.approval.symbol}
+                  </p>
+                  {msg.approval.decision ? (
+                    <p className="mt-1 text-muted">
+                      {msg.approval.decision === "approved" ? "Validé" : "Refusé"} —{" "}
+                      {msg.approval.decision === "approved"
+                        ? "ordre exécuté"
+                        : "aucun ordre exécuté"}
+                    </p>
+                  ) : (
+                    <div className="mt-1 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => decideApproval(msg.approval!.runId, "approved")}
+                        className="bg-ink px-3 py-1 font-medium text-paper hover:bg-signal"
+                      >
+                        Valider
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => decideApproval(msg.approval!.runId, "refused")}
+                        className="border border-signal px-3 py-1 font-medium text-signal-ink hover:bg-signal-wash"
+                      >
+                        Refuser
+                      </button>
+                    </div>
+                  )}
+                  {msg.approval.error && (
+                    <p role="alert" className="mt-1 text-signal-ink">
+                      {msg.approval.error}
+                    </p>
+                  )}
+                </div>
               )}
               {msg.answer && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{msg.answer}</div>}
               {msg.summary && <div className="mt-2 text-muted">{msg.summary}</div>}

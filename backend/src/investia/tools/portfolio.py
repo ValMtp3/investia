@@ -16,6 +16,16 @@ class PortfolioReader(Protocol):
     async def get_portfolio(self) -> dict[str, Any]: ...
 
 
+class PortfolioServiceLike(Protocol):
+    """Le service portefeuille complet : lecture + passage d'ordres simulés."""
+
+    async def get_portfolio(self) -> dict[str, Any]: ...
+
+    async def place_order(
+        self, symbol: str, side: str, quantity: float
+    ) -> dict[str, Any]: ...
+
+
 class NoArgs(BaseModel):
     """Outil sans argument : le portefeuille par défaut est unique."""
 
