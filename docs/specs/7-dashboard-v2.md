@@ -50,7 +50,7 @@ Frontend — pages :
 
 Vérification visuelle :
 
-- [ ] `npm run dev` + captures d'écran des 4 pages (API mockée en local) relues : hiérarchie lisible, contrastes, états d'erreur non cassés.
+- [x] `npm run dev` + captures des 4 pages relues le 07/11/2026 (Marché/Portefeuille/Agent/Traces) : thème sombre OK, hiérarchie lisible, badges %, sparklines, sélecteur période, suggestions agent, états vides propres. Note : en dev local, « Ordres simulés »/« Ajustements » affichent une erreur car le backend tournant est une vieille version (les routes GET /orders et /portfolio/adjustments matchent et sont testées, 274 tests verts).
 
 ## Fichiers touchés
 
