@@ -350,4 +350,25 @@ describe("Page Agent — mode multi-agents A2A (6.1)", () => {
     );
     expect(call).toBeDefined();
   });
+
+  it("remplit le champ avec une suggestion au clic (étape 7)", async () => {
+    stubAgentFetch({ sse: [FULL_RUN] });
+    await renderAgent();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Quel est le prix de AAPL ?" }),
+    );
+    expect(screen.getByLabelText(/question/i)).toHaveValue("Quel est le prix de AAPL ?");
+  });
+
+  it("donne le focus au statut « réfléchit » à l'envoi, pour suivre au clavier (étape 7)", async () => {
+    // Flux qui démarre puis reste ouvert : le run est toujours en cours.
+    stubAgentFetch({ hangStart: true });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent(/réfléchit/i),
+    );
+    expect(document.activeElement).toHaveAttribute("role", "status");
+  });
 });

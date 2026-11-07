@@ -29,6 +29,7 @@ vi.mock("lightweight-charts", () => ({
   createChart,
   ColorType: { Solid: 0 },
   LineSeries: {},
+  AreaSeries: {},
 }));
 
 beforeEach(() => {
@@ -58,14 +59,29 @@ const SAP_POINTS = [
   { time: "2026-10-30", value: 210.0 },
   { time: "2026-10-31", value: 211.25 },
 ];
+const BTC_POINTS = [
+  { time: "2026-10-30", value: 68_000 },
+  { time: "2026-10-31", value: 69_245 },
+];
+// Cours constant : variation de +0,00 %.
+const GENERIC_POINTS = [
+  { time: "2026-10-30", value: 100 },
+  { time: "2026-10-31", value: 100 },
+];
+
+const POINTS_BY_SYMBOL: Record<string, { time: string; value: number }[]> = {
+  AAPL: AAPL_POINTS,
+  "SAP.DE": SAP_POINTS,
+  "BTC-USD": BTC_POINTS,
+};
 
 /** Historique par symbole, comme le backend (route /market/history). */
 function historyRoute(url: URL) {
-  const symbol = url.searchParams.get("symbol");
-  if (symbol === "SAP.DE") {
-    return jsonResponse(historyBody("SAP.DE", "eodhd", "EUR", SAP_POINTS));
-  }
-  return jsonResponse(historyBody("AAPL", "yahoo", "USD", AAPL_POINTS));
+  const symbol = url.searchParams.get("symbol") ?? "AAPL";
+  const points = POINTS_BY_SYMBOL[symbol] ?? GENERIC_POINTS;
+  const source = symbol === "SAP.DE" ? "eodhd" : "yahoo";
+  const currency = symbol === "SAP.DE" ? "EUR" : "USD";
+  return jsonResponse(historyBody(symbol, source, currency, points));
 }
 
 const QUOTES_V1 = {
@@ -138,9 +154,48 @@ describe("Page Marché (flux SSE live)", () => {
       expect(screen.getByText("345,50")).toBeInTheDocument(),
     );
 
-    // Le GET part bien vers /market/stream avec les symboles
+    // Le GET part bien vers /market/stream avec toute la liste de suivi
     const [streamUrl] = callsTo(fetchMock, "/market/stream");
-    expect(streamUrl.searchParams.get("symbols")).toBe("AAPL,SAP.DE,BTC-USD");
+    expect(streamUrl.searchParams.get("symbols")).toBe(
+      "AAPL,SAP.DE,BTC-USD,MSFT,NVDA,ETH-USD,AIR.PA",
+    );
+  });
+
+  it("affiche la variation du jour en badge coloré et une sparkline par carte", async () => {
+    // Flux qui envoie un push puis reste ouvert (comme en vrai) : badge « en direct ».
+    const quotesThenHang = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(`event: quotes\ndata: ${JSON.stringify(QUOTES_V1)}\n\n`),
+        );
+      },
+    });
+    stubBackend({
+      stream: () => streamResponse(quotesThenHang),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    // AAPL : 340,10 → 344,63 = +1,33 % (calculée depuis l'historique, pas le flux)
+    expect(await screen.findByText("+1,33 %")).toBeInTheDocument();
+    // BTC-USD : 68 000 → 69 245 = +1,83 %
+    expect(screen.getByText("+1,83 %")).toBeInTheDocument();
+    // Une sparkline (svg) par symbole de la liste
+    expect((await screen.findAllByRole("img", { name: /tendance de .* sur 1 m/ })).length).toBe(7);
+    // Le flux a reçu des prix : badge « en direct »
+    expect(await screen.findByText("Flux en direct")).toBeInTheDocument();
+  });
+
+  it("affiche « erreur » sur la carte d'un symbole dont le prix a échoué", async () => {
+    const badQuote = { quotes: [{ symbol: "AAPL", error: "finnhub: indisponible" }] };
+    stubBackend({
+      stream: () => streamResponse(sseBody([`event: quotes\ndata: ${JSON.stringify(badQuote)}\n\n`])),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    const card = await screen.findByRole("button", { name: /AAPL/ });
+    expect(card).toHaveTextContent("erreur");
   });
 
   it("signale que le flux s'est arrêté quand le serveur ferme le flux", async () => {
@@ -312,7 +367,9 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     const symbols = callsTo(fetchMock, "/market/history").map((url) =>
       url.searchParams.get("symbol"),
     );
-    expect(symbols).toEqual(["AAPL", "SAP.DE"]);
+    // Les 7 cartes ont demandé leur historique au montage ; le clic n'en redemande pas
+    // (le cache TanStack Query sert SAP.DE déjà vu).
+    expect(symbols).toEqual(["AAPL", "SAP.DE", "BTC-USD", "MSFT", "NVDA", "ETH-USD", "AIR.PA"]);
   });
 
   it("indique le chargement de l'historique", async () => {
@@ -453,25 +510,35 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     expect(remove).toHaveBeenCalledTimes(2);
   });
 
-  it("annule la requête précédente quand on change de symbole", async () => {
+  it("annule les requêtes en cours et recharge quand on change de période", async () => {
     const signals: Record<string, AbortSignal | null | undefined> = {};
     stubBackend({
       stream: silentStreamResponse,
       history: (url, signal) => {
-        const symbol = url.searchParams.get("symbol") ?? "?";
-        signals[symbol] = signal;
-        return symbol === "AAPL"
-          ? new Promise(() => {}) // AAPL ne répond jamais
-          : jsonResponse(historyBody("SAP.DE", "eodhd", "EUR", SAP_POINTS));
+        const key = `${url.searchParams.get("symbol")}:${url.searchParams.get("days")}`;
+        signals[key] = signal;
+        const days = url.searchParams.get("days");
+        // Seule la période 90 j répond ; les autres restent en suspens.
+        return days === "90"
+          ? jsonResponse(historyBody("AAPL", "yahoo", "USD", AAPL_POINTS))
+          : new Promise(() => {});
       },
     });
     renderMarche();
-    await waitFor(() => expect(signals.AAPL).toBeDefined());
-    expect(signals.AAPL?.aborted).toBe(false);
+    await waitFor(() => expect(signals["AAPL:30"]).toBeDefined());
+    expect(signals["AAPL:30"]?.aborted).toBe(false);
 
-    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+    await userEvent.click(screen.getByRole("button", { name: "3 m" }));
 
-    await waitFor(() => expect(signals.AAPL?.aborted).toBe(true));
-    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
+    // L'ancienne requête (30 j) est annulée, la nouvelle part en days=90
+    await waitFor(() => expect(signals["AAPL:30"]?.aborted).toBe(true));
+    await waitFor(() => expect(signals["AAPL:90"]).toBeDefined());
+    await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
+    // Le graphique annonce la nouvelle période dans son texte alternatif
+    expect(
+      await screen.findByRole("img", {
+        name: "Courbe des cours de clôture de AAPL, 90 jours, source yahoo",
+      }),
+    ).toBeInTheDocument();
   });
 });

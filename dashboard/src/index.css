@@ -3,35 +3,45 @@
 @import "@fontsource/noto-sans-jp/latin-500.css";
 @import "tailwindcss";
 
-/* Direction : densité japonaise. Fond blanc, filets fins gris, onglets rouge signal. */
+/* Direction : « salle de contrôle » sombre (D63). Fond charbon profond (pas noir pur),
+   surfaces légèrement plus claires, filets fins, et un seul rouge signal qui ne
+   s'allume que pour une décision ou une erreur. Contrastes texte/fond >= 4.5:1 (AA),
+   bordures interactives (rule-strong) >= 3:1. */
 @theme {
   --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
 
-  --color-paper: #ffffff;
-  --color-ink: #1b1f23;
-  --color-muted: #55606a;
-  --color-rule: #7b858d;
-  --color-wash: #f1f3f4;
-  --color-signal: #d7261e;
-  --color-signal-wash: #fdecea;
-  --color-signal-ink: #8f1712;
-  --color-gain: #0b7a43;
-  --color-caution-wash: #fff4d6;
-  --color-caution-ink: #6b4a00;
-  --color-focus: #1a56db;
+  --color-bg: #101214; /* fond de page */
+  --color-paper: #16191d; /* surfaces : modules, cartes, champs */
+  --color-wash: #1d2126; /* hover, lignes alternées, bulles */
+  --color-rule: #2b3138; /* filets décoratifs */
+  --color-rule-strong: #5d6670; /* bordures des éléments interactifs */
+  --color-ink: #e8eaec; /* texte principal */
+  --color-muted: #9aa3ad; /* texte secondaire, axes des graphiques */
+  --color-signal: #d7261e; /* rouge signal : décisions, erreurs, action primaire */
+  --color-on-signal: #ffffff; /* texte sur fond signal */
+  --color-signal-wash: #2a1512; /* fond discret signal */
+  --color-signal-ink: #ff6b62; /* texte/liens signal sur fond sombre */
+  --color-gain: #2fbf71; /* gains, séries positives */
+  --color-caution: #e8b339; /* avertissement (texte) */
+  --color-caution-wash: #2a2113; /* fond bandeau simulation */
+  --color-caution-ink: #f0c566; /* texte sur fond caution */
+  --color-focus: #5b8def; /* :focus-visible */
+  --color-chart-grid: #23272e; /* grille des graphiques (décor) */
 }
 
 body {
-  background: var(--color-paper);
+  background: var(--color-bg);
   color: var(--color-ink);
   font: 400 0.875rem/1.45 var(--font-sans);
   font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Éléments du navigateur que le design reprend : sélection, focus, barres de défilement. */
 ::selection {
   background: var(--color-signal);
-  color: var(--color-paper);
+  color: var(--color-on-signal);
 }
 
 :focus-visible {
@@ -40,7 +50,24 @@ body {
 }
 
 * {
-  scrollbar-color: var(--color-rule) var(--color-wash);
+  scrollbar-color: var(--color-rule-strong) var(--color-bg);
+}
+
+/* Lien « Aller au contenu » : invisible tant qu'il n'a pas le focus (étape 7, a11y). */
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 20;
+  background: var(--color-signal);
+  color: var(--color-on-signal);
+  padding: 0.5rem 0.75rem;
+  font-weight: 500;
+  transition: top 150ms ease-out;
+}
+
+.skip-link:focus-visible {
+  top: 0.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

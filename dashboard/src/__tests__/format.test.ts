@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAbortError } from "../lib/errors";
-import { formatDateTime, formatMoney } from "../lib/format";
+import { formatDateTime, formatMoney, formatPercent } from "../lib/format";
 
 describe("formatMoney", () => {
   it("formate en français avec la virgule et le symbole de la devise", () => {
@@ -22,6 +22,17 @@ describe("formatDateTime", () => {
 
   it("renvoie la chaîne telle quelle si la date est illisible", () => {
     expect(formatDateTime("pas une date")).toBe("pas une date");
+  });
+});
+
+describe("formatPercent", () => {
+  it("ajoute le signe + aux hausses et garde le - des baisses", () => {
+    expect(formatPercent(1.331)).toBe("+1,33 %");
+    expect(formatPercent(-0.5)).toBe("-0,50 %");
+  });
+
+  it("formate zéro avec un +", () => {
+    expect(formatPercent(0)).toBe("+0,00 %");
   });
 });
 

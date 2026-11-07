@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import {
+  isPortfolioPayload,
   respondApproval,
   streamAgentRun,
   streamMultiAgentRun,
   usePortfolio,
   type AgentEvent,
-  type Portfolio,
 } from "../api";
+import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
+import PageHeader from "../components/PageHeader";
+import Stat from "../components/Stat";
 import { isAbortError } from "../lib/errors";
 import { formatMoney } from "../lib/format";
 
@@ -40,16 +43,12 @@ interface ChatMessage {
   approval?: PendingApproval;
 }
 
-/** Garde-fou : le payload /portfolio doit avoir la forme attendue avant affichage. */
-function isPortfolioPayload(data: Portfolio | undefined): data is Portfolio {
-  return (
-    data != null &&
-    typeof data.total_value === "number" &&
-    typeof data.cash === "number" &&
-    typeof data.positions_value === "number" &&
-    Array.isArray(data.positions)
-  );
-}
+/** Questions prêtes à l'emploi : un clic remplit le champ (l'envoi reste manuel). */
+const SUGGESTIONS = [
+  "Quel est le prix de AAPL ?",
+  "Analyse mon portefeuille simulé",
+  "Donne-moi l'historique de BTC-USD sur 90 jours",
+];
 
 function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
   switch (event.kind) {
@@ -97,11 +96,18 @@ export default function Agent() {
   const [mode, setMode] = useState<"solo" | "multi">("solo");
   const abortRef = useRef<AbortController | null>(null);
   const stepIdRef = useRef(0);
+  const statusRef = useRef<HTMLParagraphElement | null>(null);
   // Résumé du portefeuille simulé (l'agent y a accès via l'outil get_portfolio).
   const portfolio = usePortfolio();
 
   // Quitter la page coupe le flux : sinon le run continue (et coûte des appels au modèle).
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // À l'envoi, le focus part sur le statut « réfléchit » : au clavier, on suit le run
+  // au lieu de rester sur un bouton Envoyer devenu disabled.
+  useEffect(() => {
+    if (running) statusRef.current?.focus();
+  }, [running]);
 
   function patchLastAssistant(patch: (msg: ChatMessage) => ChatMessage) {
     setMessages((prev) => {
@@ -226,9 +232,11 @@ export default function Agent() {
 
   return (
     <section aria-labelledby="agent-title">
-      <h1 id="agent-title" className="mb-3 text-lg font-medium">
-        Conseils de l'agent
-      </h1>
+      <PageHeader
+        id="agent-title"
+        title="Conseils de l'agent"
+        subtitle="Réponses en streaming (SSE) — chaque étape du raisonnement est tracée, chaque ordre simulé demande ta validation."
+      />
 
       <Module title="Portefeuille simulé" className="mb-3">
         {portfolio.isLoading && (
@@ -247,24 +255,22 @@ export default function Agent() {
         )}
         {isPortfolioPayload(portfolio.data) && (
           <>
-            <dl className="flex flex-wrap gap-x-6 gap-y-1">
-              <div className="flex items-baseline gap-2">
-                <dt className="text-muted">Valeur totale</dt>
-                <dd className="font-medium">
-                  {formatMoney(portfolio.data.total_value, portfolio.data.currency)}
-                </dd>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <dt className="text-muted">Cash</dt>
-                <dd>{formatMoney(portfolio.data.cash, portfolio.data.currency)}</dd>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <dt className="text-muted">Positions</dt>
-                <dd>{formatMoney(portfolio.data.positions_value, portfolio.data.currency)}</dd>
-              </div>
-            </dl>
+            <div className="flex flex-wrap gap-x-6 gap-y-3">
+              <Stat
+                label="Valeur totale"
+                value={formatMoney(portfolio.data.total_value, portfolio.data.currency)}
+              />
+              <Stat
+                label="Cash"
+                value={formatMoney(portfolio.data.cash, portfolio.data.currency)}
+              />
+              <Stat
+                label="Positions"
+                value={formatMoney(portfolio.data.positions_value, portfolio.data.currency)}
+              />
+            </div>
             {portfolio.data.positions.length > 0 && (
-              <p className="mt-1 text-muted">
+              <p className="mt-2 text-muted">
                 {portfolio.data.positions.map((position) => position.symbol).join(", ")}
               </p>
             )}
@@ -273,9 +279,9 @@ export default function Agent() {
       </Module>
 
       <Module title="Demande à l'agent" className="mb-3">
-        <fieldset className="mb-2 flex gap-4">
+        <fieldset className="mb-2 flex flex-wrap gap-4">
           <legend className="sr-only">Mode d'exécution</legend>
-          <label className="flex items-center gap-1">
+          <label className="flex min-h-11 items-center gap-2">
             <input
               type="radio"
               name="mode"
@@ -284,7 +290,7 @@ export default function Agent() {
             />
             Agent seul
           </label>
-          <label className="flex items-center gap-1">
+          <label className="flex min-h-11 items-center gap-2">
             <input
               type="radio"
               name="mode"
@@ -294,6 +300,18 @@ export default function Agent() {
             Multi-agents (A2A)
           </label>
         </fieldset>
+        <div role="group" aria-label="Suggestions" className="mb-2 flex flex-wrap gap-2">
+          {SUGGESTIONS.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => setInput(suggestion)}
+              className="min-h-11 border border-rule-strong bg-paper px-3 py-1 text-sm hover:bg-wash"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
         <form onSubmit={send} className="flex gap-2">
           <div className="min-w-0 flex-1">
             <label htmlFor="agent-question" className="sr-only">
@@ -306,13 +324,13 @@ export default function Agent() {
               onChange={(e) => setInput(e.target.value)}
               maxLength={2000}
               placeholder="ex. : prix de AAPL ?"
-              className="w-full border border-rule bg-paper px-3 py-2 placeholder:text-muted"
+              className="min-h-11 w-full border border-rule-strong bg-bg px-3 py-2 placeholder:text-muted"
             />
           </div>
           <button
             type="submit"
             disabled={running || !input.trim()}
-            className="bg-ink px-4 py-2 font-medium text-paper hover:bg-signal disabled:opacity-50 disabled:hover:bg-ink"
+            className="min-h-11 bg-signal px-4 py-2 font-medium text-on-signal hover:bg-[#b91e17] disabled:opacity-50"
           >
             Envoyer
           </button>
@@ -320,7 +338,7 @@ export default function Agent() {
             <button
               type="button"
               onClick={stop}
-              className="border border-signal px-4 py-2 font-medium text-signal-ink hover:bg-signal-wash"
+              className="min-h-11 border border-signal px-4 py-2 font-medium text-signal-ink hover:bg-signal-wash"
             >
               Stop
             </button>
@@ -329,27 +347,36 @@ export default function Agent() {
       </Module>
 
       {running && (
-        <p role="status" className="mb-3 text-muted">
+        <p
+          ref={statusRef}
+          role="status"
+          tabIndex={-1}
+          className="mb-3 text-muted focus:outline-none"
+        >
           L'agent réfléchit…
         </p>
       )}
       {error && <ErrorNotice className="mb-3">{error}</ErrorNotice>}
 
-      <ol className="space-y-3">
+      <ol aria-label="Conversation" className="space-y-3">
         {messages.map((msg, i) =>
           msg.role === "user" ? (
             <li key={i} className="border border-rule bg-wash p-3">
-              <div className="text-xs font-medium text-muted">toi</div>
-              <div>{msg.text}</div>
+              <Badge tone="neutral" className="mb-1">
+                toi
+              </Badge>
+              <div className="[overflow-wrap:anywhere]">{msg.text}</div>
             </li>
           ) : (
-            <li key={i} className="border border-rule p-3">
-              <div className="text-xs font-medium text-muted">agent</div>
+            <li key={i} className="border border-rule bg-paper p-3">
+              <Badge tone="signal" className="mb-1">
+                agent
+              </Badge>
               {msg.steps.length > 0 && (
                 <ul
                   aria-label="Étapes de l'agent"
                   aria-live="polite"
-                  className="mb-2 mt-1 divide-y divide-rule/50 border-y border-rule/50 text-muted"
+                  className="mb-2 mt-1 divide-y divide-rule border-y border-rule text-muted"
                 >
                   {msg.steps.map((step) => (
                     <li key={step.id} className="py-1 [overflow-wrap:anywhere]">
@@ -367,7 +394,7 @@ export default function Agent() {
                   aria-label={`Ordre proposé : ${
                     msg.approval.side === "buy" ? "acheter" : "vendre"
                   } ${msg.approval.quantity} ${msg.approval.symbol}`}
-                  className="mb-2 border border-rule bg-wash p-2"
+                  className="mb-2 border border-signal bg-signal-wash p-3"
                 >
                   <p className="font-medium">
                     Ordre proposé : {msg.approval.side === "buy" ? "acheter" : "vendre"}{" "}
@@ -381,18 +408,18 @@ export default function Agent() {
                         : "aucun ordre exécuté"}
                     </p>
                   ) : (
-                    <div className="mt-1 flex gap-2">
+                    <div className="mt-2 flex gap-2">
                       <button
                         type="button"
                         onClick={() => decideApproval(msg.approval!.runId, "approved")}
-                        className="bg-ink px-3 py-1 font-medium text-paper hover:bg-signal"
+                        className="min-h-11 bg-signal px-3 py-1 font-medium text-on-signal hover:brightness-110"
                       >
                         Valider
                       </button>
                       <button
                         type="button"
                         onClick={() => decideApproval(msg.approval!.runId, "refused")}
-                        className="border border-signal px-3 py-1 font-medium text-signal-ink hover:bg-signal-wash"
+                        className="min-h-11 border border-rule-strong px-3 py-1 font-medium text-ink hover:bg-wash"
                       >
                         Refuser
                       </button>

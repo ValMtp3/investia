@@ -167,10 +167,76 @@ class PortfolioService:
             await session.commit()
             return {"cash": cash, "adjustment": amount, "reason": reason}
 
+    async def list_orders(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Historique des ordres simulés, du plus récent au plus ancien (read-only)."""
+        async with self._session_factory() as session:
+            portfolio_id = await self.ensure_default_portfolio()
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id::text, symbol, side, quantity, price, fee, "
+                        "status, created_at "
+                        "FROM orders WHERE portfolio_id = :pid "
+                        "ORDER BY created_at DESC, id DESC LIMIT :lim"
+                    ),
+                    {"pid": UUID(portfolio_id), "lim": limit},
+                )
+            ).all()
+        return [
+            {
+                "id": row[0],
+                "symbol": row[1],
+                "side": row[2],
+                "quantity": float(row[3]),
+                "price": float(row[4]),
+                "fee": float(row[5]),
+                "status": row[6],
+                "created_at": row[7].isoformat(),
+            }
+            for row in rows
+        ]
+
+    async def list_adjustments(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Historique des ajustements de capital, du plus récent au plus ancien."""
+        async with self._session_factory() as session:
+            portfolio_id = await self.ensure_default_portfolio()
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id::text, amount, reason, created_at "
+                        "FROM capital_adjustments WHERE portfolio_id = :pid "
+                        "ORDER BY created_at DESC, id DESC LIMIT :lim"
+                    ),
+                    {"pid": UUID(portfolio_id), "lim": limit},
+                )
+            ).all()
+        return [
+            {
+                "id": row[0],
+                "amount": float(row[1]),
+                "reason": row[2],
+                "created_at": row[3].isoformat(),
+            }
+            for row in rows
+        ]
+
     async def get_portfolio(self) -> dict[str, Any]:
         async with self._session_factory() as session:
             portfolio_id = await self.ensure_default_portfolio()
             cash = await self._get_cash(session, portfolio_id)
+            # Capital de départ = somme des ajustements (le capital initial de
+            # 10 000 € y est enregistré comme un ajustement « capital initial »).
+            row = await session.execute(
+                text(
+                    "SELECT COALESCE(SUM(amount), 0) FROM capital_adjustments "
+                    "WHERE portfolio_id = :pid"
+                ),
+                {"pid": UUID(portfolio_id)},
+            )
+            adjustments_total = float(row.scalar_one())
+            initial_capital = (
+                adjustments_total if adjustments_total > 0 else DEFAULT_CAPITAL_EUR
+            )
             rows = (
                 await session.execute(
                     text(
@@ -203,4 +269,5 @@ class PortfolioService:
             "positions_value": total_positions,
             "total_value": cash + total_positions,
             "currency": "EUR",
+            "initial_capital": initial_capital,
         }

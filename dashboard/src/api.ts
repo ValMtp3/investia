@@ -20,6 +20,35 @@ export interface Portfolio {
   positions_value: number;
   total_value: number;
   currency: string;
+  /** Capital de départ après ajustements admin (étape 7) : perf = total/initial − 1. */
+  initial_capital?: number;
+}
+
+function isPosition(raw: unknown): raw is Position {
+  if (!isRecord(raw)) return false;
+  return (
+    typeof raw.symbol === "string" &&
+    typeof raw.quantity === "number" &&
+    typeof raw.avg_price === "number" &&
+    typeof raw.price_eur === "number" &&
+    typeof raw.value_eur === "number" &&
+    typeof raw.source === "string" &&
+    typeof raw.price_timestamp === "string"
+  );
+}
+
+/** Garde-fou : le payload /portfolio doit avoir la forme attendue avant affichage. */
+export function isPortfolioPayload(data: unknown): data is Portfolio {
+  return (
+    isRecord(data) &&
+    typeof data.cash === "number" &&
+    Array.isArray(data.positions) &&
+    data.positions.every(isPosition) &&
+    typeof data.positions_value === "number" &&
+    typeof data.total_value === "number" &&
+    typeof data.currency === "string" &&
+    (data.initial_capital === undefined || typeof data.initial_capital === "number")
+  );
 }
 
 export async function fetchPortfolio(): Promise<Portfolio> {
@@ -94,9 +123,10 @@ function parseMarketHistory(raw: unknown): MarketHistory {
 
 export async function fetchMarketHistory(
   symbol: string,
+  days: number = HISTORY_DAYS,
   signal?: AbortSignal,
 ): Promise<MarketHistory> {
-  const params = new URLSearchParams({ symbol, days: String(HISTORY_DAYS) });
+  const params = new URLSearchParams({ symbol, days: String(days) });
   const response = await fetch(`${API_URL}/market/history?${params.toString()}`, { signal });
   if (!response.ok) {
     throw new Error(
@@ -106,10 +136,10 @@ export async function fetchMarketHistory(
   return parseMarketHistory(await response.json());
 }
 
-export function useMarketHistory(symbol: string) {
+export function useMarketHistory(symbol: string, days: number = HISTORY_DAYS) {
   return useQuery({
-    queryKey: ["market-history", symbol],
-    queryFn: ({ signal }) => fetchMarketHistory(symbol, signal),
+    queryKey: ["market-history", symbol, days],
+    queryFn: ({ signal }) => fetchMarketHistory(symbol, days, signal),
     staleTime: HISTORY_STALE_MS,
     // Le backend explique déjà l'échec (« eodhd: clé API manquante ») : on l'affiche tout
     // de suite plutôt que de réessayer 3 fois (environ 7 s sur « Chargement… »).
@@ -438,6 +468,113 @@ export function useEvals() {
   return useQuery({
     queryKey: ["evals"],
     queryFn: ({ signal }) => fetchEvals(signal),
+    retry: false,
+  });
+}
+
+// --- Historique read-only du portefeuille (étape 7) ---
+
+export interface SimulatedOrder {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  price: number;
+  fee: number;
+  status: string;
+  created_at: string;
+}
+
+export interface CapitalAdjustment {
+  id: string;
+  amount: number;
+  reason: string;
+  created_at: string;
+}
+
+function isSimulatedOrder(raw: unknown): raw is SimulatedOrder {
+  return (
+    isRecord(raw) &&
+    typeof raw.id === "string" &&
+    typeof raw.symbol === "string" &&
+    typeof raw.side === "string" &&
+    typeof raw.quantity === "number" &&
+    typeof raw.price === "number" &&
+    typeof raw.fee === "number" &&
+    typeof raw.status === "string" &&
+    typeof raw.created_at === "string"
+  );
+}
+
+function isCapitalAdjustment(raw: unknown): raw is CapitalAdjustment {
+  return (
+    isRecord(raw) &&
+    typeof raw.id === "string" &&
+    typeof raw.amount === "number" &&
+    typeof raw.reason === "string" &&
+    typeof raw.created_at === "string"
+  );
+}
+
+/** Vérifie la forme des réponses : on n'affiche jamais une donnée illisible. */
+function parseOrders(raw: unknown): { orders: SimulatedOrder[] } {
+  const orders = (raw as { orders?: unknown } | null)?.orders;
+  if (!Array.isArray(orders) || !orders.every(isSimulatedOrder)) {
+    throw new Error("Ordres reçus illisibles : réponse inattendue du serveur.");
+  }
+  return { orders };
+}
+
+function parseAdjustments(raw: unknown): { adjustments: CapitalAdjustment[] } {
+  const adjustments = (raw as { adjustments?: unknown } | null)?.adjustments;
+  if (!Array.isArray(adjustments) || !adjustments.every(isCapitalAdjustment)) {
+    throw new Error("Ajustements reçus illisibles : réponse inattendue du serveur.");
+  }
+  return { adjustments };
+}
+
+/** GET /orders?limit= — historique des ordres simulés (read-only, étape 7). */
+export async function fetchOrders(
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<{ orders: SimulatedOrder[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const response = await fetch(`${API_URL}/orders?${params.toString()}`, { signal });
+  if (!response.ok) {
+    throw new Error(await errorDetail(response, `Ordres indisponibles (HTTP ${response.status})`));
+  }
+  return parseOrders(await response.json());
+}
+
+/** GET /portfolio/adjustments?limit= — historique des ajustements de capital (read-only). */
+export async function fetchAdjustments(
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<{ adjustments: CapitalAdjustment[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const response = await fetch(`${API_URL}/portfolio/adjustments?${params.toString()}`, {
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Ajustements indisponibles (HTTP ${response.status})`),
+    );
+  }
+  return parseAdjustments(await response.json());
+}
+
+export function useOrders(limit = 50) {
+  return useQuery({
+    queryKey: ["orders", limit],
+    queryFn: ({ signal }) => fetchOrders(limit, signal),
+    retry: false,
+  });
+}
+
+export function useAdjustments(limit = 50) {
+  return useQuery({
+    queryKey: ["adjustments", limit],
+    queryFn: ({ signal }) => fetchAdjustments(limit, signal),
     retry: false,
   });
 }

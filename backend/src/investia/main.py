@@ -70,6 +70,10 @@ HISTORY_DEFAULT_DAYS = 30
 TRACES_DEFAULT_LIMIT = 50
 TRACES_MAX_LIMIT = 200
 
+# Bornes de l'historique read-only (GET /orders, GET /portfolio/adjustments, étape 7).
+HISTORY_DEFAULT_LIMIT = 50
+HISTORY_MAX_LIMIT = 200
+
 
 async def stream_quote(market: MarketDataService, symbol: str) -> dict[str, Any]:
     """Prix d'un symbole pour le flux ; s'il échoue, sa dernière clôture, étiquetée.
@@ -228,8 +232,26 @@ def create_app(
 
     @app.get("/portfolio")
     async def get_portfolio() -> dict[str, Any]:
-        """État du portefeuille simulé, valorisé au dernier prix connu."""
+        """État du portefeuille simulé, valorisé au dernier prix connu.
+
+        `initial_capital` (ajouté étape 7) = capital de départ après ajustements,
+        pour calculer la performance côté dashboard.
+        """
         return await portfolio_service.get_portfolio()
+
+    @app.get("/orders")
+    async def list_orders(
+        limit: int = Query(HISTORY_DEFAULT_LIMIT, ge=1, le=HISTORY_MAX_LIMIT),
+    ) -> dict[str, Any]:
+        """Historique des ordres simulés, du plus récent au plus ancien (read-only)."""
+        return {"orders": await portfolio_service.list_orders(limit)}
+
+    @app.get("/portfolio/adjustments")
+    async def list_adjustments(
+        limit: int = Query(HISTORY_DEFAULT_LIMIT, ge=1, le=HISTORY_MAX_LIMIT),
+    ) -> dict[str, Any]:
+        """Historique des ajustements de capital (read-only, ex. capital initial)."""
+        return {"adjustments": await portfolio_service.list_adjustments(limit)}
 
     def require_trace_store() -> Any:
         if trace_store is None:

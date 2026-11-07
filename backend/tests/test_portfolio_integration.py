@@ -103,3 +103,29 @@ async def test_full_order_scenario_on_real_db(service):
     # ajustement admin
     adj = await service.adjust_capital(500.0, "test admin")
     assert adj["cash"] == pytest.approx(portfolio2["cash"] + 500.0)
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL non défini")
+async def test_orders_adjustments_history_and_initial_capital(service):
+    """Étape 7 : historique read-only + capital de départ pour la performance."""
+    await service.place_order("AAPL", "buy", 10)
+    await service.adjust_capital(500.0, "test admin")
+
+    orders = await service.list_orders()
+    assert len(orders) == 1
+    order = orders[0]
+    assert order["symbol"] == "AAPL"
+    assert order["side"] == "buy"
+    assert order["quantity"] == 10.0
+    assert order["status"] == "simulated"
+    assert order["price"] > 0
+    assert order["fee"] > 0
+    assert order["created_at"]
+
+    adjustments = await service.list_adjustments()
+    # capital initial (10 000 €) + ajustement admin (500 €)
+    assert sorted(a["amount"] for a in adjustments) == [500.0, 10_000.0]
+    assert any(a["reason"] == "test admin" for a in adjustments)
+
+    portfolio = await service.get_portfolio()
+    assert portfolio["initial_capital"] == 10_500.0

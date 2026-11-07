@@ -9,3 +9,13 @@ export function formatDateTime(iso: string): string {
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
+
+/** Pourcentage signé au format français : « +1,33 % » / « -0,50 % ». */
+export function formatPercent(value: number): string {
+  const sign = value >= 0 ? "+" : "";
+  const formatted = value.toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}${formatted} %`;
+}

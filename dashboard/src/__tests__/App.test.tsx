@@ -33,6 +33,7 @@ vi.mock("lightweight-charts", () => ({
   }),
   ColorType: { Solid: 0 },
   LineSeries: {},
+  AreaSeries: {},
 }));
 
 function renderApp() {

@@ -243,4 +243,26 @@ describe("Page Traces & evals", () => {
     // Le graphique a un texte alternatif
     expect(screen.getByRole("img", { name: /scores des éval/i })).toBeInTheDocument();
   });
+
+  it("affiche les statuts en badges colorés (ok / bloqué) dans la liste", async () => {
+    stubFetch({
+      list: () => jsonResponse({ runs: [RUN_A, RUN_B] }),
+      detail: () => jsonResponse(DETAIL_A),
+      evals: () => jsonResponse({ runs: [] }),
+    });
+    renderTracesAt("/traces");
+    const list = await screen.findByRole("list", { name: /exécutions/i });
+    expect(list).toHaveTextContent("ok");
+    expect(list).toHaveTextContent("bloqué");
+  });
+
+  it("affiche un état vide explicite quand le run demandé est null (étape 7)", async () => {
+    stubFetch({
+      list: () => jsonResponse({ runs: [RUN_A] }),
+      detail: () => jsonResponse({ run: null, steps: [] }),
+      evals: () => jsonResponse({ runs: [] }),
+    });
+    renderTracesAt(`/traces?run=${RUN_A.id}`);
+    expect(await screen.findByText("Exécution introuvable.")).toBeInTheDocument();
+  });
 });

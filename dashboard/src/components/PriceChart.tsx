@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { createChart, LineSeries, type IChartApi } from "lightweight-charts";
-import { HISTORY_DAYS, type HistoryPoint } from "../api";
-import { chartLayoutOptions } from "../lib/chartTheme";
+import { createChart, AreaSeries, type IChartApi } from "lightweight-charts";
+import type { HistoryPoint } from "../api";
+import {
+  chartLayoutOptions,
+  priceAreaColors,
+  priceLineColor,
+} from "../lib/chartTheme";
 import ErrorNotice from "./ErrorNotice";
 
 interface PriceChartProps {
   symbol: string;
   source: string;
   points: HistoryPoint[];
+  /** Période affichée, reprise dans le texte alternatif (ex. 30 pour « 30 jours »). */
+  days: number;
 }
 
-/** Courbe des cours de clôture journaliers d'un symbole. */
-export default function PriceChart({ symbol, source, points }: PriceChartProps) {
+/** Courbe des cours de clôture journaliers d'un symbole (area, couleurs du thème). */
+export default function PriceChart({ symbol, source, points, days }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasFailed, setHasFailed] = useState(false);
 
@@ -24,7 +30,11 @@ export default function PriceChart({ symbol, source, points }: PriceChartProps) 
         autoSize: true, // prend la taille du conteneur (h-[300px] ci-dessous)
         ...chartLayoutOptions(),
       });
-      const series = chart.addSeries(LineSeries, { color: "#1b1f23", lineWidth: 2 });
+      const series = chart.addSeries(AreaSeries, {
+        lineColor: priceLineColor(),
+        lineWidth: 2,
+        ...priceAreaColors(),
+      });
       series.setData(points);
       chart.timeScale().fitContent();
       setHasFailed(false);
@@ -49,7 +59,7 @@ export default function PriceChart({ symbol, source, points }: PriceChartProps) 
       <div
         ref={containerRef}
         role="img"
-        aria-label={`Courbe des cours de clôture de ${symbol}, ${HISTORY_DAYS} jours, source ${source}`}
+        aria-label={`Courbe des cours de clôture de ${symbol}, ${days} jours, source ${source}`}
         hidden={hasFailed}
         className="h-[300px] w-full"
       />

@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import { useSearch } from "@tanstack/react-router";
 import type { UTCTimestamp } from "lightweight-charts";
 import { useEvals, useTrace, useTraces, type EvalRun } from "../api";
+import Badge from "../components/Badge";
+import EmptyState from "../components/EmptyState";
 import ErrorNotice from "../components/ErrorNotice";
 import EvalChart, { type EvalSeries } from "../components/EvalChart";
 import Module from "../components/Module";
+import PageHeader from "../components/PageHeader";
+import { evalSeriesColors } from "../lib/chartTheme";
 import { formatDateTime } from "../lib/format";
-
-const SERIES_COLORS = ["#d7261e", "#1a56db", "#0b7a43", "#6b4a00", "#1b1f23", "#55606a"];
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -24,6 +26,19 @@ function statusLabel(status: string): string {
     default:
       return status;
   }
+}
+
+/** Badge de statut : la couleur renforce le texte (ok = gain, bloqué/erreur = signal…). */
+function StatusBadge({ status }: { status: string }) {
+  const tone =
+    status === "ok"
+      ? "gain"
+      : status === "blocked" || status === "error"
+        ? "signal"
+        : status === "running" || status === "max_turns"
+          ? "caution"
+          : "neutral";
+  return <Badge tone={tone}>{statusLabel(status)}</Badge>;
 }
 
 function toUnixSeconds(iso: string): UTCTimestamp {
@@ -49,9 +64,10 @@ function aggregateEvals(runs: EvalRun[]): EvalSeries[] {
       byMetric.set(metric, list);
     }
   }
+  const colors = evalSeriesColors();
   return [...byMetric.entries()].map(([name, points], i) => ({
     name,
-    color: SERIES_COLORS[i % SERIES_COLORS.length],
+    color: colors[i % colors.length],
     points: points.map((p) => ({ time: p.at, value: p.count > 0 ? p.sum / p.count : 0 })),
   }));
 }
@@ -70,9 +86,11 @@ export default function Traces() {
 
   return (
     <section aria-labelledby="traces-title">
-      <h1 id="traces-title" className="mb-3 text-lg font-medium">
-        Traces & évaluations
-      </h1>
+      <PageHeader
+        id="traces-title"
+        title="Traces & évaluations"
+        subtitle="Chaque exécution de l'agent est rejouable pas à pas ; les courbes d'evals montrent si un changement l'améliore ou le dégrade."
+      />
       <div className="grid gap-3 lg:grid-cols-[22rem_1fr]">
         <Module title="Exécutions" className="min-w-0">
           {traces.isLoading && (
@@ -97,10 +115,10 @@ export default function Traces() {
                       type="button"
                       onClick={() => setSelectedId(run.id)}
                       aria-pressed={selectedId === run.id}
-                      className="block w-full px-2 py-2 text-left hover:bg-wash aria-pressed:bg-wash"
+                      className="block min-h-11 w-full px-2 py-2 text-left hover:bg-wash aria-pressed:bg-wash aria-pressed:shadow-[inset_2px_0_0_var(--color-signal)]"
                     >
-                      <div className="text-xs text-muted">
-                        {formatDateTime(run.created_at)} · {statusLabel(run.status)}
+                      <div className="flex items-center gap-2 text-xs text-muted">
+                        {formatDateTime(run.created_at)} · <StatusBadge status={run.status} />
                       </div>
                       <div className="font-medium [overflow-wrap:anywhere]">{run.question}</div>
                       <div className="text-xs text-muted">
@@ -128,11 +146,18 @@ export default function Traces() {
               {detail.error instanceof Error ? detail.error.message : "API indisponible"}
             </ErrorNotice>
           )}
+          {selectedId && detail.data && detail.data.run === null && (
+            <EmptyState
+              title="Exécution introuvable."
+              hint="Ce run n'existe pas (ou plus) côté serveur."
+            />
+          )}
           {selectedId && detail.data?.run && (
             <div>
-              <div className="mb-2 text-xs text-muted">
-                {formatDateTime(detail.data.run.created_at)} · {statusLabel(detail.data.run.status)}{" "}
-                · {detail.data.run.model ?? "modèle inconnu"} · {detail.data.run.turns} tours ·{" "}
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+                {formatDateTime(detail.data.run.created_at)} ·{" "}
+                <StatusBadge status={detail.data.run.status} /> ·{" "}
+                {detail.data.run.model ?? "modèle inconnu"} · {detail.data.run.turns} tours ·{" "}
                 {detail.data.run.total_cost_cents.toLocaleString("fr-FR")} c
               </div>
               <p className="mb-3 font-medium [overflow-wrap:anywhere]">
@@ -149,17 +174,17 @@ export default function Traces() {
               ) : (
                 <ol
                   aria-label="Étapes de l'exécution"
-                  className="divide-y divide-rule/50 border-y border-rule/50"
+                  className="divide-y divide-rule border-y border-rule"
                 >
                   {detail.data.steps.map((step, i) => (
                     <li key={i} className="py-1 text-sm">
                       <span className="text-muted">
                         {formatDateTime(step.created_at)} · tour {step.turn}
                       </span>{" "}
-                      <span className="font-medium">{step.kind}</span>{" "}
-                      <span className="text-muted [overflow-wrap:anywhere]">
+                      <span className="font-medium">{step.kind}</span>
+                      <pre className="mt-1 overflow-x-auto bg-bg p-2 text-xs text-muted">
                         {JSON.stringify(step.payload)}
-                      </span>
+                      </pre>
                     </li>
                   ))}
                 </ol>

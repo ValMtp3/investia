@@ -22,6 +22,7 @@ class FakePortfolioService:
             "positions_value": 0.0,
             "total_value": 9_000.0,
             "currency": "EUR",
+            "initial_capital": 10_000.0,
         }
 
     async def place_order(self, symbol, side, quantity):
@@ -34,6 +35,32 @@ class FakePortfolioService:
     async def adjust_capital(self, amount, reason):
         self.adjustments.append((amount, reason))
         return {"cash": 9_000.0 + amount, "adjustment": amount, "reason": reason}
+
+    async def list_orders(self, limit=50):
+        return [
+            {
+                "id": f"order-{i}",
+                "symbol": order["symbol"],
+                "side": order["side"],
+                "quantity": order["quantity"],
+                "price": 100.0,
+                "fee": order["fee"],
+                "status": "simulated",
+                "created_at": "2026-11-07T10:00:00+00:00",
+            }
+            for i, order in enumerate(self.orders)
+        ][:limit]
+
+    async def list_adjustments(self, limit=50):
+        return [
+            {
+                "id": f"adj-{i}",
+                "amount": amount,
+                "reason": reason,
+                "created_at": "2026-11-07T10:00:00+00:00",
+            }
+            for i, (amount, reason) in enumerate(self.adjustments)
+        ][:limit]
 
 
 ADMIN_SECRET = "test-admin-secret-0123456789abcdef"
@@ -58,6 +85,66 @@ async def test_get_portfolio(client):
     response = await client.get("/portfolio")
     assert response.status_code == 200
     assert response.json()["currency"] == "EUR"
+
+
+async def test_get_portfolio_exposes_initial_capital(client):
+    """Le dashboard calcule la performance depuis le capital de départ (étape 7)."""
+    response = await client.get("/portfolio")
+    assert response.status_code == 200
+    assert response.json()["initial_capital"] == 10_000.0
+
+
+async def test_get_orders_empty_by_default(client):
+    response = await client.get("/orders")
+    assert response.status_code == 200
+    assert response.json() == {"orders": []}
+
+
+async def test_get_orders_returns_history_after_place(client):
+    await client.post("/orders", json={"symbol": "AAPL", "side": "buy", "quantity": 2})
+    await client.post(
+        "/orders", json={"symbol": "BTC-USD", "side": "sell", "quantity": 0.5}
+    )
+    response = await client.get("/orders")
+    assert response.status_code == 200
+    orders = response.json()["orders"]
+    assert len(orders) == 2
+    for order in orders:
+        assert set(order) == {
+            "id",
+            "symbol",
+            "side",
+            "quantity",
+            "price",
+            "fee",
+            "status",
+            "created_at",
+        }
+    assert {order["symbol"] for order in orders} == {"AAPL", "BTC-USD"}
+
+
+async def test_get_orders_limit_is_validated(client):
+    for bad_limit in (0, 201):
+        response = await client.get("/orders", params={"limit": bad_limit})
+        assert response.status_code == 422, bad_limit
+
+
+async def test_get_portfolio_adjustments_history(client):
+    response = await client.get("/portfolio/adjustments")
+    assert response.status_code == 200
+    assert response.json() == {"adjustments": []}
+    response = await client.post(
+        "/portfolio/adjust",
+        json={"amount": 500, "reason": "test admin"},
+        headers={"X-Admin-Token": ADMIN_SECRET},
+    )
+    assert response.status_code == 200
+    response = await client.get("/portfolio/adjustments")
+    adjustments = response.json()["adjustments"]
+    assert len(adjustments) == 1
+    assert adjustments[0]["amount"] == 500
+    assert adjustments[0]["reason"] == "test admin"
+    assert "created_at" in adjustments[0]
 
 
 async def test_place_order_ok(client):
