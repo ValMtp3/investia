@@ -19,7 +19,7 @@ BASE_ENV = {
     "REDIS_URL": "redis://localhost:6379/0",
     "LITELLM_BASE_URL": "http://localhost:4000",
     "LITELLM_MASTER_KEY": "sk-test",
-    "APP_SECRET_KEY": "test-secret",
+    "APP_SECRET_KEY": "test-admin-secret-0123456789abcdef",
 }
 
 

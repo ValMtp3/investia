@@ -278,7 +278,6 @@ def stream_app(monkeypatch):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     market = StreamMarket()

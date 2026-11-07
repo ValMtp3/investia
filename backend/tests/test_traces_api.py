@@ -59,7 +59,6 @@ def make_client(monkeypatch, trace_store, eval_store) -> httpx.AsyncClient:
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     app = create_app(
@@ -188,7 +187,6 @@ async def test_read_routes_return_503_when_stores_are_not_injected(monkeypatch):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     app = create_app(

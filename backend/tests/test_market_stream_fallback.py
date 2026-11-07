@@ -60,7 +60,6 @@ async def first_quotes(market: FakeMarket, monkeypatch) -> dict[str, dict]:
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     app = create_app(portfolio_service=FakePortfolio(), llm=object(), market=market)
@@ -119,7 +118,6 @@ async def test_no_history_call_when_the_quote_works(monkeypatch, symbols):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     app = create_app(portfolio_service=FakePortfolio(), llm=object(), market=market)

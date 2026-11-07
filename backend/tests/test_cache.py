@@ -15,7 +15,7 @@ BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:59999/nope",
     "LITELLM_BASE_URL": "http://localhost:4000",
     "LITELLM_MASTER_KEY": "sk-test",
-    "APP_SECRET_KEY": "test-secret",
+    "APP_SECRET_KEY": "test-admin-secret-0123456789abcdef",
 }
 
 

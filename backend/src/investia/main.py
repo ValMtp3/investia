@@ -2,6 +2,7 @@
 
 import logging
 import re
+import secrets
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -107,6 +108,13 @@ def daily_closes(history: list[MarketData]) -> list[dict[str, Any]]:
     for point in sorted(history, key=lambda p: p.timestamp):
         by_day[point.timestamp.date().isoformat()] = point.value
     return [{"time": day, "value": value} for day, value in by_day.items()]
+
+
+def _is_valid_admin_token(provided: str | None, expected: str) -> bool:
+    """Compare le jeton admin en temps constant (pas de déduction par le temps)."""
+    if not provided:
+        return False
+    return secrets.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
 def create_app(
@@ -230,8 +238,10 @@ def create_app(
     async def adjust_capital(
         body: AdjustBody, x_admin_token: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        """Ajuste le capital (mode admin, avant Authelia à l'étape 4 bis)."""
-        if x_admin_token != settings.app_secret_key.get_secret_value():
+        """Ajuste le capital (mode admin : jeton exigé en plus d'Authelia, D51)."""
+        if not _is_valid_admin_token(
+            x_admin_token, settings.app_secret_key.get_secret_value()
+        ):
             raise HTTPException(status_code=401, detail="token admin invalide")
         return await portfolio_service.adjust_capital(body.amount, body.reason)
 

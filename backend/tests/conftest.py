@@ -14,7 +14,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("LITELLM_BASE_URL", "http://localhost:4000")
 os.environ.setdefault("LITELLM_MASTER_KEY", "sk-test")
-os.environ.setdefault("APP_SECRET_KEY", "test-secret")
+os.environ.setdefault("APP_SECRET_KEY", "test-admin-secret-0123456789abcdef")
 
 
 @pytest.fixture(autouse=True)

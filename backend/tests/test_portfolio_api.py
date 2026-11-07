@@ -36,6 +36,9 @@ class FakePortfolioService:
         return {"cash": 9_000.0 + amount, "adjustment": amount, "reason": reason}
 
 
+ADMIN_SECRET = "test-admin-secret-0123456789abcdef"
+
+
 @pytest.fixture
 def client(monkeypatch):
     for var in (
@@ -43,10 +46,9 @@ def client(monkeypatch):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
-    monkeypatch.setenv("APP_SECRET_KEY", "admin-secret")
+    monkeypatch.setenv("APP_SECRET_KEY", ADMIN_SECRET)
     app = create_app(portfolio_service=FakePortfolioService())
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://test")
@@ -82,7 +84,18 @@ async def test_adjust_requires_admin_token(client):
     response = await client.post(
         "/portfolio/adjust",
         json={"amount": 500, "reason": "test"},
-        headers={"X-Admin-Token": "admin-secret"},
+        headers={"X-Admin-Token": ADMIN_SECRET},
     )
     assert response.status_code == 200
     assert response.json()["cash"] == 9_500.0
+
+
+async def test_adjust_rejects_empty_and_non_ascii_tokens(client):
+    """Jeton vide ou non ASCII : refus propre (401), jamais une erreur 500."""
+    for bad_token in (b"", "é".encode()):
+        response = await client.post(
+            "/portfolio/adjust",
+            json={"amount": 500, "reason": "test"},
+            headers={"X-Admin-Token": bad_token},
+        )
+        assert response.status_code == 401, bad_token

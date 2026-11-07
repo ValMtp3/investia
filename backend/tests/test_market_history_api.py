@@ -51,7 +51,6 @@ def make_client(market: FakeMarket, monkeypatch) -> httpx.AsyncClient:
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     app = create_app(portfolio_service=FakePortfolio(), llm=object(), market=market)

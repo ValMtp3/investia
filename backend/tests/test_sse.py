@@ -157,7 +157,6 @@ def app(monkeypatch, trace_store):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     return create_app(
@@ -286,7 +285,6 @@ async def test_agent_run_offers_and_executes_get_portfolio(monkeypatch):
         "REDIS_URL",
         "LITELLM_BASE_URL",
         "LITELLM_MASTER_KEY",
-        "APP_SECRET_KEY",
     ):
         monkeypatch.setenv(var, "x")
     trace_store = RecordingTraceStore()
