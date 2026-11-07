@@ -4,14 +4,27 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 
 | Étape | Contenu | Terminé quand |
 |---|---|---|
-| **0 — Fondations** | Dépôt GitHub privé, CI/CD (GitHub Actions : uv + ruff + pytest + coverage), structure du repo, Docker Compose local, PostgreSQL + Redis, squelette API FastAPI async, gestion des clés | `cd deploy && docker compose --env-file ../.env up` démarre tout, `/health` et `/ready` répondent 200, la CI est verte sur un premier push |
-| **1 — Boucle + outils** | Boucle d'agent, outils prix / historique / indicateurs / actualités, connecteurs de données, cache Redis, routeur Jev (petit : GPT-6 Luna, gros : Mistral Large 4) | En ligne de commande, l'agent répond à une question avec des chiffres issus d'outils |
+| **0 — Fondations** | Dépôt GitHub public, CI/CD (GitHub Actions : uv + ruff + pytest + coverage), structure du repo, Docker Compose local, PostgreSQL + Redis, squelette API FastAPI async, gestion des clés | `cd deploy && docker compose --env-file ../.env up` démarre tout, `/health` et `/ready` répondent 200, la CI est verte sur un premier push |
+| **1.1 — Connecteurs données + cache** | Finnhub (quote temps réel), Stooq (historique CSV), CoinGecko Demo + Binance (crypto), Frankfurter/ECB (taux) ; cache Redis avec TTL ; tests avec fixtures (pas de réseau) | `get_quote("AAPL")` renvoie prix + source + horodatage ; le 2e appel est servi par le cache |
+| **1.2 — Outils de l'agent** | `get_quote`, `get_history`, `get_indicators` (moyennes mobiles, volatilité — calculées en code avec Polars), `get_news` ; schéma d'entrée Pydantic + description pour le LLM | Chaque outil répond avec source + horodatage, testé sans appel réseau |
+| **1.3 — Client LiteLLM + routeur** | Appels via le gateway (gpt-6-luna petit, mistral-large-4 gros), routeur en dur au début, budget max par exécution bloqué en code | Un appel au gateway répond, le coût est enregistré |
+| **1.4 — Boucle agent en CLI** | `uv run python -m investia.cli "question"` : boucle max N tours, function calling, erreurs d'outils renvoyées lisibles au modèle | En CLI, l'agent répond à une question avec des chiffres venus des outils |
+| **1.5 — Jev en test direct** | Tester l'API Jev (TypeSafe / OpenRouter) et sa compatibilité LiteLLM (Q10, D37) | On sait si Jev passe par le gateway ou en appel direct |
 | **2 — Garde-fous + traces** | Validation de format, des chiffres, du langage ; enregistrement des exécutions en base | Une réponse avec chiffre inventé est bloquée ; toute exécution est rejouable |
 | **3 — Evals + mémoire** | Jeu d'evals, commande unique, scores en base ; mémoire courte et longue | Les scores s'enregistrent, une régression se voit en chiffres |
-| **4 — Dashboards + portefeuille** | API du portefeuille simulé (10 000 €, ajustable en mode admin), 4 pages (React 19 + TanStack + AG-UI pour le chat), SSE pour le temps réel | Les 4 pages fonctionnent en local, le mode admin ajuste le capital |
+| **4.1 — Modèle portefeuille en base** | Tables `portfolios`, `positions`, `orders`, `capital_adjustments` + migrations Alembic | `alembic upgrade head` applique le schéma, tests passent |
+| **4.2 — API portefeuille** | Routes CRUD portefeuille, mode admin ajuste le capital (D27) | L'API répond, le capital est ajustable en admin |
+| **4.3 — Squelette dashboard** | React 19 + Vite + TanStack Router/Query, les 4 pages, graphiques lightweight-charts | `npm run dev` affiche les 4 pages en local |
+| **4.4 — Chat AG-UI + SSE** | Stream agent → dashboard (AG-UI/CopilotKit sur SSE, D14) | Un message de l'agent s'affiche en streaming dans le dashboard |
+| **4.5 — Page Traces & evals** ✅ faite le 05/11/2026 | Lire runs/run_steps/eval_results en base et les afficher dans le dashboard, lien « voir la trace » depuis le chat | `GET /traces`, `/traces/{id}`, `/evals` répondent ; la page affiche exécutions, détail pas à pas et courbes d'evals |
+| **4.6 — Outil `get_portfolio` + résumé portefeuille page Agent** ✅ faite le 05/11/2026 | Branche le portefeuille simulé dans le harness (outil `get_portfolio`) et affiche un résumé sur `/agent` | L'agent voit l'état du portefeuille dans ses réponses (source + horodatage) ; la page Agent affiche valeur totale / cash / positions |
 | **4 bis — Mise en ligne** | Authelia derrière le NPM existant, proxy hosts sur `investia.valentin-fiess.fr`, VPS OVH VPS-1 partagé, sauvegardes, revue de sécurité | Rien n'est accessible sans connexion ; revue sans point bloquant |
-| **5 — Validation humaine + MCP** | Accord humain avant ordre simulé ; serveur ou client MCP | Aucun ordre simulé sans ton accord |
-| **6 — Multi-agents + comparaison** | Agents spécialisés en A2A, comparaison avec l'agent seul via les evals, **et** le même harness reconstruit avec LangGraph / Pydantic AI / OpenAI Agents SDK | Les evals montrent un gain (ou non, documenté) pour chaque approche |
+| **5.1 — Validation humaine** ✅ faite le 07/11/2026 | Outil `simulate_order` + événement SSE `approval_request` + bouton Valider/Refuser dans le chat `/agent` (D57 : SSE maison, timeout = refus, trace en base, ordre = symbole + achat/vente + quantité) | Aucun ordre simulé sans accord ; la trace du run montre la demande et la décision |
+| **5.2 — Serveur MCP** ✅ faite le 07/11/2026 | Outils Investia exposés en serveur MCP (FastMCP 4.1.6, Streamable HTTP sur `/mcp` derrière Authelia, D58) | Un client MCP externe liste et appelle les outils (`tools/list`, `tools/call`) |
+| **6.1 — Multi-agents A2A** ✅ faite le 07/11/2026 | 3 agents spécialisés (analyste, risque, rédacteur) en A2A v1.0 réel via `a2a-sdk`, exposés comme 3 endpoints dans le backend (D60) | Les agents se découvrent (agent cards), se délèguent des tâches et produisent une réponse combinée |
+| **6.2 — Harness reconstruit avec 3 frameworks** ✅ faite le 07/11/2026 | Le même harness dans `comparisons/` avec LangGraph, Pydantic AI, OpenAI Agents SDK (D61) | Chaque implémentation passe les mêmes evals que le harness maison |
+| **6.3 — Comparaison chiffrée** ✅ faite le 07/11/2026 | Mêmes evals sur les 4 approches (maison + 3 frameworks), mock + ~2 € de réels (D62) ; métriques qualité/coût/latence ; + P7 : composant en Go comparé à Python | Rapport `docs/comparaison-etape-6.md` : chaque approche a son gain (ou non) chiffré |
+| **7 — Dashboard v2** ✅ faite le 07/11/2026 | Thème sombre « salle de contrôle » (D64, zéro dépendance npm) + `GET /orders`, `GET /portfolio/adjustments`, `initial_capital` (read-only) ; 4 pages restylées, a11y (skip link, focus, 44px) | Spec `docs/specs/7-dashboard-v2.md` 15/15 critères cochés, captures des 4 pages relues |
 
 ## Règles pour chaque étape
 
@@ -23,4 +36,4 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 
 ## Étape suivante
 
-Étape 0. Le plan détaillé existe : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md` (relu et corrigé le 31/10/2026). Les étapes 1 et 4 sont très grosses : à découper avant de les planifier (Q15).
+Étape 0 terminée le 31/10/2026 (branche `feat/etape-0-fondations`, CI verte). Prochaine : **1.1 — Connecteurs données + cache**, après le test D36 (couverture Europe de Finnhub). Les étapes 1 et 4 sont découpées en sous-étapes ci-dessus (D34, fait le 31/10/2026). Chaque sous-étape aura sa spec dans `docs/specs/` et son plan avant le code.

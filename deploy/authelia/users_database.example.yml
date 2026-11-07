@@ -1,0 +1,10 @@
+# Modèle. Copier en `users_database.yml` (fichier ignoré par Git) et remplacer le hash.
+# Générer le hash du mot de passe (le mot de passe n'est jamais écrit dans un fichier) :
+#   docker run --rm -it authelia/authelia:4.39.28 authelia crypto hash generate argon2
+users:
+  valentin:
+    disabled: false
+    displayname: 'Valentin'
+    password: '$argon2id$REMPLACER_PAR_LE_HASH_GENERE'
+    email: 'valentin@example.invalid'
+    groups: ['admins']

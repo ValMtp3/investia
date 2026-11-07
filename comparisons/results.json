@@ -1,0 +1,296 @@
+{
+  "mode": "mock",
+  "cases": [
+    "prix-action-us",
+    "prix-crypto",
+    "indicateur"
+  ],
+  "per_approach": {
+    "maison": [
+      {
+        "case_id": "prix-action-us",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 0.5,
+        "cost_cents": 0.02,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 1.0,
+          "format_ok": 1.0,
+          "language_ok": 1.0,
+          "disclaimer_ok": 1.0,
+          "turns": 1.0,
+          "cost_cents": 0.02,
+          "guardrails_applied": 1.0
+        }
+      },
+      {
+        "case_id": "prix-crypto",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 0.3,
+        "cost_cents": 0.02,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 1.0,
+          "format_ok": 1.0,
+          "language_ok": 1.0,
+          "disclaimer_ok": 1.0,
+          "turns": 1.0,
+          "cost_cents": 0.02,
+          "guardrails_applied": 1.0
+        }
+      },
+      {
+        "case_id": "indicateur",
+        "tool_called": "get_indicators",
+        "tool_ok": true,
+        "duration_ms": 0.3,
+        "cost_cents": 0.02,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 1.0,
+          "format_ok": 1.0,
+          "language_ok": 1.0,
+          "disclaimer_ok": 1.0,
+          "turns": 1.0,
+          "cost_cents": 0.02,
+          "guardrails_applied": 1.0
+        }
+      }
+    ],
+    "langgraph": [
+      {
+        "case_id": "prix-action-us",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 5.0,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "prix-crypto",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 3.2,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "indicateur",
+        "tool_called": "get_indicators",
+        "tool_ok": true,
+        "duration_ms": 3.0,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      }
+    ],
+    "pydantic-ai": [
+      {
+        "case_id": "prix-action-us",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 15.0,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "prix-crypto",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 3.5,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "indicateur",
+        "tool_called": "get_indicators",
+        "tool_ok": true,
+        "duration_ms": 3.6,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      }
+    ],
+    "openai-agents": [
+      {
+        "case_id": "prix-action-us",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 8.7,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "prix-crypto",
+        "tool_called": "get_quote",
+        "tool_ok": true,
+        "duration_ms": 3.3,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      },
+      {
+        "case_id": "indicateur",
+        "tool_called": "get_indicators",
+        "tool_ok": true,
+        "duration_ms": 2.7,
+        "cost_cents": 0.0,
+        "error": null,
+        "metrics": {
+          "tool_used": 1.0,
+          "numbers_sourced": 0.0,
+          "format_ok": 0.0,
+          "language_ok": 0.0,
+          "disclaimer_ok": 0.0,
+          "turns": 1.0,
+          "cost_cents": 0.0,
+          "guardrails_applied": 0.0
+        }
+      }
+    ]
+  },
+  "summary": {
+    "maison": {
+      "cases": 3,
+      "tool_ok_rate": 1.0,
+      "avg_duration_ms": 0.4,
+      "total_cost_cents": 0.06,
+      "errors": 0,
+      "metrics_avg": {
+        "tool_used": 1.0,
+        "numbers_sourced": 1.0,
+        "format_ok": 1.0,
+        "language_ok": 1.0,
+        "disclaimer_ok": 1.0,
+        "guardrails_applied": 1.0
+      }
+    },
+    "langgraph": {
+      "cases": 3,
+      "tool_ok_rate": 1.0,
+      "avg_duration_ms": 3.7,
+      "total_cost_cents": 0.0,
+      "errors": 0,
+      "metrics_avg": {
+        "tool_used": 1.0,
+        "numbers_sourced": 0.0,
+        "format_ok": 0.0,
+        "language_ok": 0.0,
+        "disclaimer_ok": 0.0,
+        "guardrails_applied": 0.0
+      }
+    },
+    "pydantic-ai": {
+      "cases": 3,
+      "tool_ok_rate": 1.0,
+      "avg_duration_ms": 7.4,
+      "total_cost_cents": 0.0,
+      "errors": 0,
+      "metrics_avg": {
+        "tool_used": 1.0,
+        "numbers_sourced": 0.0,
+        "format_ok": 0.0,
+        "language_ok": 0.0,
+        "disclaimer_ok": 0.0,
+        "guardrails_applied": 0.0
+      }
+    },
+    "openai-agents": {
+      "cases": 3,
+      "tool_ok_rate": 1.0,
+      "avg_duration_ms": 4.9,
+      "total_cost_cents": 0.0,
+      "errors": 0,
+      "metrics_avg": {
+        "tool_used": 1.0,
+        "numbers_sourced": 0.0,
+        "format_ok": 0.0,
+        "language_ok": 0.0,
+        "disclaimer_ok": 0.0,
+        "guardrails_applied": 0.0
+      }
+    }
+  }
+}

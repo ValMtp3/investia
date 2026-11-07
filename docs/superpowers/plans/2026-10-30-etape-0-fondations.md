@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Un repo GitHub privé avec une stack qui démarre en local (`cd deploy && docker compose up`) : API FastAPI async + PostgreSQL 17 + Redis + LiteLLM, test de santé passant, CI verte.
+**Goal:** Un repo GitHub public avec une stack qui démarre en local (`cd deploy && docker compose up`) : API FastAPI async + PostgreSQL 17 + Redis + LiteLLM, test de santé passant, CI verte.
 
 **Architecture:** Monorepo léger à la racine d'`Investia/` : `backend/` (Python, uv, code source + tests), `deploy/` (3 fichiers compose + init Postgres + config LiteLLM), `dashboard/` et `evals/` (vides, étapes 4 et 3), `.github/workflows/` (CI). Le backend parle à PostgreSQL (SQLAlchemy 2.0 async) et Redis (redis-py async) ; LiteLLM tourne à côté comme gateway LLM. Toute la config passe par variables d'environnement (Pydantic Settings), validée au démarrage.
 
@@ -36,7 +36,7 @@ P1 a validé la stack, pas chaque paquet. Ces paquets sont **à valider avec l'u
 - LiteLLM : image Docker **épinglée à une version précise** (incident supply chain mars 2026), jamais `latest`.
 - Docker : le backend tourne avec un **utilisateur non-root**. Un `.dockerignore` exclut `.env`, `.git`, `.venv`.
 - Santé : `/health` = « le processus tourne » (sert au healthcheck Docker, ne dépend de rien). `/ready` = « la base et Redis répondent » (503 + détail `up/down` par service, jamais le texte d'une exception).
-- Git : repo GitHub **privé**. Travail sur branche dédiée (`feat/etape-0-fondations`), jamais de push sur `main` sans validation. Chaque commit est validé avec l'utilisateur avant d'être fait.
+- Git : repo GitHub **public** (D42). Travail sur branche dédiée (`feat/etape-0-fondations`), jamais de push sur `main` sans validation. Chaque commit est validé avec l'utilisateur avant d'être fait. ⚠️ Repo public = aucun secret commité, test `test_secrets_hygiene.py` en CI.
 - Doc en français, code et noms de variables en anglais.
 - Aucune librairie ajoutée sans validation de l'utilisateur.
 
@@ -147,11 +147,11 @@ P1 a validé la stack, pas chaque paquet. Ces paquets sont **à valider avec l'u
 
 - [ ] **Step 1: Test en échec** — `test_compose.py` : parser les 3 fichiers YAML ; assert services `postgres`, `redis`, `backend`, `litellm` présents ; assert **aucun `ports:` dans `docker-compose.yml` ni `docker-compose.prod.yml`** ; assert dans l'override que chaque port est lié à `127.0.0.1` ; assert image litellm épinglée (pas `latest`) ; assert que `pgvector/pgvector` est l'image de `postgres`.
 - [ ] **Step 2: Run → FAIL**.
-- [ ] **Step 3: Implémenter** les 3 compose + `Dockerfile` (python:3.12-slim, uv installé, `uv sync --frozen`, utilisateur non-root, commande `uvicorn investia.main:app`) + `.dockerignore` + script SQL + `litellm/config.yaml` minimal.
+- [ ] **Step 3: Implémenter** les 3 compose + `Dockerfile` (python:3.12-slim, uv installé, `uv sync --frozen`, utilisateur non-root, commande `uvicorn investia.main:app`) + `.dockerignore` + script SQL + `litellm/config.yaml` minimal. ✅ Image LiteLLM épinglée à **`ghcr.io/berriai/litellm:v1.106.5`** (vérifié le 31/10/2026 : le tag existe sur ghcr.io ; il n'y a pas de suffixe `-stable` sur ghcr).
 - [ ] **Step 4: Vérification réelle** — `cp .env.example .env` (valeurs bidons), `cd deploy && docker compose --env-file ../.env up -d`, attendre les healthchecks, `curl localhost:8000/health` → 200 et `curl localhost:8000/ready` → 200 avec db + redis `up`. Vérifier aussi `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` : aucun port publié. Documenter les commandes dans le README.
 - [ ] **Step 5: Commit** (validation utilisateur).
 
-### Task 6: CI GitHub Actions + repo GitHub privé + premier push
+### Task 6: CI GitHub Actions + repo GitHub public + premier push
 
 **Files:**
 - Create: `.github/workflows/ci.yml`
@@ -165,14 +165,14 @@ P1 a validé la stack, pas chaque paquet. Ces paquets sont **à valider avec l'u
 - [ ] **Step 1: Test en échec** — `test_ci_config.py` : parser `.github/workflows/ci.yml` ; assert les 4 jobs (ruff, format, ty, pytest) et le seuil `--cov-fail-under=80`.
 - [ ] **Step 2: Run → FAIL**.
 - [ ] **Step 3: Implémenter** `ci.yml` (setup-uv, cache uv, services postgres/redis, `uv run pytest --cov --cov-fail-under=80`).
-- [ ] **Step 4: Créer le repo GitHub privé** (`gh repo create investia --private --source . --remote origin` — nom confirmé : `investia`, D32), puis pousser la branche (validation utilisateur requise).
+- [ ] **Step 4: Vérifier que le repo GitHub `investia` existe et est public** (D42 — c'est déjà le cas, `ValMtp3/investia`), puis pousser la branche (validation utilisateur requise).
 - [ ] **Step 5: Vérifier la CI** — test de config en local → PASS ; la CI du push est verte sur l'UI GitHub.
 
 ---
 
 ## Self-Review (mise à jour après la relecture du 31/10/2026)
 
-1. **Couverture spec** : étape 0 = repo GitHub privé (T6), CI (T6), structure (T1), compose local (T5), PostgreSQL+Redis (T3/T4), squelette API (T2), gestion des clés (T1/T2), healthchecks `/health` + `/ready` (T2-T4). Tout est couvert.
+1. **Couverture spec** : étape 0 = repo GitHub public (T6), CI (T6), structure (T1), compose local (T5), PostgreSQL+Redis (T3/T4), squelette API (T2), gestion des clés (T1/T2), healthchecks `/health` + `/ready` (T2-T4). Tout est couvert.
 2. **Steps** : chaque step = une action cochable (test / run / code / run / commit).
 3. **Types** : `Settings`, `get_settings()`, `create_app()`, `get_engine()`, `get_session()`, `check_db()`, `get_redis()`, `check_redis()` — cohérents entre tasks.
 4. **Review Focus** : chaque item a son test (T2 config + exit code, T3/T4 `/ready`, T1 + T6 fuite de secret, T5 compose neuf, T6 CI + couverture).

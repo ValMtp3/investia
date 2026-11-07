@@ -1,0 +1,59 @@
+# Jeu de cas d'eval (déterministes, mockés — zéro réseau).
+# Chaque cas : question, outil attendu, tool_call mocké, réponse finale mockée.
+cases:
+  - id: prix-action-us
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  - id: prix-crypto
+    question: "prix du BTC en EUR ?"
+    expected_tool: get_quote
+    mock_tool_call: { name: get_quote, arguments: { symbol: "BTC-USD" } }
+    mock_final: |
+      ## Thèse
+      BTC vaut 344.63 $ (source : mock).
+
+      ## Risques
+      forte volatilité crypto.
+
+      ## Confiance
+      70
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  - id: indicateur
+    question: "donne-moi les indicateurs de SAP.DE"
+    expected_tool: get_indicators
+    mock_tool_call: { name: get_indicators, arguments: { symbol: "SAP.DE", days: 60 } }
+    mock_final: |
+      ## Thèse
+      Indicateurs de SAP.DE calculés par l'outil (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      75
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
