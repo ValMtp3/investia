@@ -13,6 +13,8 @@ services:
     restart: unless-stopped
   dashboard:
     restart: unless-stopped
+    environment:
+      EDGE_SECRET: ${EDGE_SECRET:?EDGE_SECRET est requis en prod (secret partagé avec NPM, voir le guide)}
     networks:
       default: {}
       npm:

@@ -6,6 +6,8 @@
 #         backup.sh        -> boucle : une sauvegarde par jour à BACKUP_HOUR_UTC
 # Connexion : variables PGHOST, PGUSER, PGPASSWORD (jamais écrites dans un fichier).
 set -euo pipefail
+# Dumps lisibles par leur seul propriétaire : ils contiennent la base d'Authelia (secrets TOTP chiffrés).
+umask 077
 
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
@@ -42,25 +44,44 @@ dump_one_database() {
     log "ERREUR le dump de $database est illisible"
     return 1
   fi
-  mv "$partial_file" "$final_file"
+  if ! mv "$partial_file" "$final_file"; then
+    log "ERREUR impossible de finaliser $(basename "$final_file")"
+    return 1
+  fi
   log "OK $database -> $(basename "$final_file")"
 }
 
 run_backup() {
   local stamp database
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$BACKUP_DIR"
+  # Chaque commande qui peut échouer est testée explicitement : en mode boucle, run_backup est appelée
+  # avec « || », et bash ignore alors `set -e` à l'intérieur de la fonction.
+  if ! mkdir -p "$BACKUP_DIR"; then
+    log "ERREUR impossible de créer $BACKUP_DIR"
+    return 1
+  fi
 
   for database in $DATABASES; do
     dump_one_database "$database" "$stamp" || return 1
   done
 
   # Rotation seulement après une sauvegarde 100 % réussie : un échec ne doit jamais
-  # faire disparaître les anciennes sauvegardes.
-  find "$BACKUP_DIR" -maxdepth 1 -name '*.dump' -mtime +"$RETENTION_DAYS" -print -delete \
-    | while read -r removed_file; do log "Rotation : supprimé $(basename "$removed_file")"; done
-  find "$BACKUP_DIR" -maxdepth 1 -name '*.partial' -mtime +1 -delete
-  date -u +%Y-%m-%dT%H:%M:%SZ > "$BACKUP_DIR/last_success"
+  # faire disparaître les anciennes sauvegardes. On supprime ce qui a plus de N x 24 h.
+  local removed_files
+  if ! removed_files="$(find "$BACKUP_DIR" -maxdepth 1 -name '*.dump' \
+      -mmin +"$((RETENTION_DAYS * 24 * 60))" -print -delete)"; then
+    log "ERREUR la rotation des anciennes sauvegardes a échoué"
+    return 1
+  fi
+  if [ -n "$removed_files" ]; then
+    while read -r removed_file; do log "Rotation : supprimé $(basename "$removed_file")"; done <<<"$removed_files"
+  fi
+  find "$BACKUP_DIR" -maxdepth 1 -name '*.partial' -mtime +1 -delete \
+    || log "AVERTISSEMENT nettoyage des fichiers .partial impossible"
+  if ! date -u +%Y-%m-%dT%H:%M:%SZ > "$BACKUP_DIR/last_success"; then
+    log "ERREUR impossible d'écrire last_success"
+    return 1
+  fi
   log "Sauvegarde terminée"
 }
 

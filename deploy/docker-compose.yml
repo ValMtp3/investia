@@ -5,6 +5,11 @@ name: investia
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    networks:
+      default:
+        # Nom unique : Authelia (relié aussi au réseau partagé de NPM) ne doit pas confondre
+        # ce « postgres » avec celui d'une autre pile.
+        aliases: [investia-postgres]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-investia}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis}
@@ -32,8 +37,28 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    env_file:
-      - ../.env
+    networks:
+      default:
+        aliases: [investia-backend]
+    # Liste explicite (D53) : le backend ne voit PAS les secrets d'Authelia ni NPM_NETWORK_NAME.
+    # Un nom seul = la variable est transmise telle qu'elle est dans .env, et absente si .env
+    # ne la définit pas (le code distingue « pas de clé » de « clé vide »).
+    environment:
+      - DATABASE_URL
+      - REDIS_URL
+      - LITELLM_BASE_URL
+      - LITELLM_MASTER_KEY
+      - APP_SECRET_KEY
+      - OPENROUTER_API_KEY
+      - MISTRAL_API_KEY
+      - TYPESAFE_API_KEY
+      - FINNHUB_API_KEY
+      - EODHD_API_KEY
+      - TWELVEDATA_API_KEY
+      - MASSIVE_API_KEY
+      - COINGECKO_DEMO_API_KEY
+      - STOOQ_API_KEY
+      - FRONTEND_ORIGIN
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,8 +79,12 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:v1.106.5
-    env_file:
-      - ../.env
+    # Liste explicite (D53) : uniquement ce que deploy/litellm/config.yaml référence.
+    environment:
+      - LITELLM_MASTER_KEY
+      - LITELLM_DATABASE_URL
+      - OPENROUTER_API_KEY
+      - MISTRAL_API_KEY
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -81,11 +110,14 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: /api
+    environment:
+      # Secret partagé NPM -> dashboard (D53). Vide en local, obligatoire en prod.
+      EDGE_SECRET: ${EDGE_SECRET:-}
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5

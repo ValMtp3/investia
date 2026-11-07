@@ -24,3 +24,8 @@ htmlcov/
 
 # Authelia : fichier des utilisateurs (contient un hash de mot de passe), jamais commité
 deploy/authelia/users_database.yml
+
+# Autres fichiers d'environnement et sauvegardes : jamais commités (dépôt public, D42)
+.env.*
+!.env.example
+*.dump

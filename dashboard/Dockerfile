@@ -16,7 +16,11 @@ RUN npm run build
 
 FROM nginx:1.31-alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# L'image nginx transforme /etc/nginx/templates/*.template en /etc/nginx/conf.d/* au démarrage
+# en remplaçant les variables d'environnement. Le filtre limite ce remplacement à EDGE_* :
+# les variables propres à nginx ($host, $remote_addr...) restent intactes.
+ENV NGINX_ENVSUBST_FILTER=^EDGE_
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
