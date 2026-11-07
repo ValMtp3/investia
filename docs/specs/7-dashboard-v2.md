@@ -31,21 +31,21 @@ Backend (read-only) :
 
 Frontend — design system :
 
-- [ ] `index.css` expose la palette sombre (bg `#101214`, surface `#16191d`, wash `#1d2126`, rule `#2b3138`, rule-strong `#5d6670`, ink `#e8eaec`, muted `#9aa3ad`, signal `#d7261e`, on-signal `#ffffff`, signal-wash `#2a1512`, signal-ink `#ff6b62`, gain `#2fbf71`, caution `#e8b339`, caution-wash `#2a2113`, caution-ink `#f0c566`, focus `#5b8def`) ; `body` sur `bg`, sélection et scrollbars suivies.
-- [ ] `chartTheme.ts` lit grille/couleurs depuis les tokens CSS (plus de hex en dur dans les pages) ; `PriceChart` en courbe area.
-- [ ] Nouveaux composants testés : `PageHeader`, `Badge`, `Stat`, `EmptyState`, `Loading`, `Sparkline`.
+- [x] `index.css` expose la palette sombre (bg `#101214`, surface `#16191d`, wash `#1d2126`, rule `#2b3138`, rule-strong `#5d6670`, ink `#e8eaec`, muted `#9aa3ad`, signal `#d7261e`, on-signal `#ffffff`, signal-wash `#2a1512`, signal-ink `#ff6b62`, gain `#2fbf71`, caution `#e8b339`, caution-wash `#2a2113`, caution-ink `#f0c566`, focus `#5b8def`) ; `body` sur `bg`, sélection et scrollbars suivies.
+- [x] `chartTheme.ts` lit grille/couleurs depuis les tokens CSS (plus de hex en dur dans les pages) ; `PriceChart` en courbe area.
+- [x] Nouveaux composants testés : `PageHeader`, `Badge`, `Stat`, `EmptyState`, `Loading`, `Sparkline`.
 
 Frontend — Layout & a11y :
 
-- [ ] Skip link « Aller au contenu » vers `#main-content` ; focus déplacé dans `<main>` après chaque navigation ; liens nav, boutons et champs ≥ 44px de haut.
-- [ ] Nav active = filet signal 2px + wash (plus de bloc plein) ; sidebar `bg-surface` avec attribution des sources de données en pied ; bandeau simulation restylé (texte inchangé).
+- [x] Skip link « Aller au contenu » vers `#main-content` ; focus déplacé dans `<main>` après chaque navigation ; liens nav, boutons et champs ≥ 44px de haut.
+- [x] Nav active = filet signal 2px + wash (plus de bloc plein) ; sidebar `bg-surface` avec attribution des sources de données en pied ; bandeau simulation restylé (texte inchangé).
 
 Frontend — pages :
 
-- [ ] `/marche` : watchlist de 7 symboles (AAPL, SAP.DE, BTC-USD + MSFT, NVDA, ETH-USD), variation % du jour colorée (calculée depuis l'historique), sparkline SVG par carte, sélecteur de période (5 j / 1 m / 3 m / 6 m / max → `days` 5/30/90/180/400), badge « flux en direct / interrompu », carte sélectionnée bord signal, `aria-live` déplacé sur la cellule prix de chaque carte.
-- [ ] `/portefeuille` : perf depuis le départ vs `initial_capital` (€/%, colorée), plus-value latente par position (€/%), barre d'allocation cash/positions en CSS, modules « Ordres simulés » (`GET /orders`) et « Ajustements » (`GET /portfolio/adjustments`) avec états vides.
-- [ ] `/agent` : suggestions de questions cliquables (remplissent le champ), bulles et étapes avec badges, focus sur le statut après Envoyer. Comportements existants (Valider/Refuser, « Voir la trace », modes solo/A2A) inchangés.
-- [ ] `/traces` : badges de statut colorés, état « exécution introuvable » si `run: null`, payloads en bloc monospace, légende evals depuis les tokens.
+- [x] `/marche` : watchlist de 7 symboles (AAPL, SAP.DE, BTC-USD + MSFT, NVDA, ETH-USD), variation % du jour colorée (calculée depuis l'historique), sparkline SVG par carte, sélecteur de période (5 j / 1 m / 3 m / 6 m / max → `days` 5/30/90/180/400), badge « flux en direct / interrompu », carte sélectionnée bord signal, `aria-live` déplacé sur la cellule prix de chaque carte.
+- [x] `/portefeuille` : perf depuis le départ vs `initial_capital` (€/%, colorée), plus-value latente par position (€/%), barre d'allocation cash/positions en CSS, modules « Ordres simulés » (`GET /orders`) et « Ajustements » (`GET /portfolio/adjustments`) avec états vides.
+- [x] `/agent` : suggestions de questions cliquables (remplissent le champ), bulles et étapes avec badges, focus sur le statut après Envoyer. Comportements existants (Valider/Refuser, « Voir la trace », modes solo/A2A) inchangés.
+- [x] `/traces` : badges de statut colorés, état « exécution introuvable » si `run: null`, payloads en bloc monospace, légende evals depuis les tokens.
 - [x] `npm run lint`, `npm test`, `npm run build` verts dans `dashboard/` (62 tests existants + nouveaux, aucune régression).
 
 Vérification visuelle :
