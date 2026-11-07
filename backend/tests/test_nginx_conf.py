@@ -38,3 +38,15 @@ def test_map_hash_bucket_fits_edge_secret_key():
             f"map_hash_bucket_size={bucket.group(1)} trop juste pour une clé "
             f"de {longest} caractères"
         )
+
+
+def test_mcp_location_is_proxied_unbuffered_and_edge_protected():
+    """Le serveur MCP (étape 5.2) passe par le même nginx : /mcp/ vers le backend,
+    sans buffering (réponses SSE du streamable HTTP) et protégé par EDGE_SECRET."""
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    mcp_block = re.search(r"location\s+/mcp/\s*\{(.*?)\n    \}", conf, re.S)
+    assert mcp_block, "bloc location /mcp/ manquant dans dashboard/nginx.conf"
+    body = mcp_block.group(1)
+    assert "investia-backend:8000" in body
+    assert "proxy_buffering off" in body
+    assert "if ($edge_authorized = 0)" in body, "EDGE_SECRET requis aussi sur /mcp/"

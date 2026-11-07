@@ -171,7 +171,18 @@ def create_app(
     # des fournisseurs qui la prennent en paramètre (EODHD, Finnhub, CoinGecko).
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    app = FastAPI(title="Investia", lifespan=lifespan)
+    # Serveur MCP (étape 5.2, D58) : les outils exposés sur /mcp en streamable HTTP.
+    from fastmcp.utilities.lifespan import combine_lifespans
+
+    from investia.mcp_server import build_mcp_server
+
+    mcp_server = build_mcp_server(market_service, portfolio_service)
+    mcp_app = mcp_server.http_app(path="/")
+
+    app = FastAPI(
+        title="Investia", lifespan=combine_lifespans(lifespan, mcp_app.lifespan)
+    )
+    app.mount("/mcp", mcp_app)
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
     app.add_middleware(
         CORSMiddleware,

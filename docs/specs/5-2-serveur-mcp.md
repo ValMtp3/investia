@@ -1,6 +1,6 @@
 # Spec — 5.2 : Serveur MCP exposant les outils Investia
 
-*Écrite le : 2026-11-07 | Étape roadmap : 5.2 | Statut : brouillon (à valider)*
+*Écrite le : 2026-11-07 | Étape roadmap : 5.2 | Statut : terminée le 2026-11-07 (branche `feat/serveur-mcp`)*
 
 ## Objectif
 
@@ -22,16 +22,16 @@ Roadmap étape 5 : « serveur ou client MCP ». `docs/03-harness.md` §9 : MCP =
 
 ## Critères d'acceptation
 
-- [ ] `uv add fastmcp==<version épinglée>` ; `uv.lock` à jour ; `pyproject.toml` documente la version et le pourquoi (D58).
-- [ ] `backend/src/investia/mcp_server.py` : `build_mcp_server(market, portfolio_service)` renvoie un serveur FastMCP avec les 6 outils enregistrés (noms identiques aux outils internes).
-- [ ] Chaque outil MCP : entrée validée par le schéma Pydantic de l'outil interne ; sortie = JSON de `tool.run()` (source + horodatage présents) ; `ToolError` → erreur MCP lisible sans détail interne.
-- [ ] Montage : `create_app(...)` monte le handler Streamable HTTP sur `/mcp` ; `GET /mcp` (sans session MCP) renvoie une réponse MCP valide (initialize) ou 406 selon le transport — préciser dans le test. `POST /mcp` avec un `initialize` + `tools/list` renvoie la liste des 6 outils avec leurs schémas JSON.
-- [ ] `POST /mcp` `tools/call` `get_quote` {symbol: "AAPL"} → prix + source + horodatage (test avec faux market). `tools/call` `simulate_order` → ordre en base (faux portfolio_service) ; `get_portfolio` → portefeuille complet.
-- [ ] Schémas exposés = `args_schema.model_json_schema()` des outils existants (pas de doublon de schéma).
-- [ ] `dashboard/nginx.conf` : `location /mcp/` aiguillé vers `investia-backend:8000/mcp/` avec `proxy_buffering off` (streaming) — test `test_nginx_conf.py` mis à jour.
-- [ ] `cd backend && uv run pytest -q -m "not integration" && uv run ruff check . && uv run ruff format --check . && uv run ty check` passent (nouveau `test_mcp_server.py` : build, tools/list, tools/call quote/portfolio/simulate_order, erreur outil → message générique).
-- [ ] Test d'intégration local : client MCP (ou simple POST `initialize` + `tools/call`) contre le backend lancé sur la base scratch → `tools/list` renvoie 6 outils, `get_quote` AAPL répond.
-- [ ] Docs : `docs/11-stack-moderne-2026.md` (ligne MCP mise à jour), `docs/STATUS.md`, `docs/08-roadmap.md` cochée, `docs/07-deploiement-vps.md` (note : `/mcp` passe par le même proxy host, rien à ouvrir de plus).
+- [x] `uv add fastmcp==<version épinglée>` ; `uv.lock` à jour ; `pyproject.toml` documente la version et le pourquoi (D58).
+- [x] `backend/src/investia/mcp_server.py` : `build_mcp_server(market, portfolio_service)` renvoie un serveur FastMCP avec les 6 outils enregistrés (noms identiques aux outils internes).
+- [x] Chaque outil MCP : entrée validée par le schéma Pydantic de l'outil interne ; sortie = JSON de `tool.run()` (source + horodatage présents) ; `ToolError` → erreur MCP lisible sans détail interne.
+- [x] Montage : `create_app(...)` monte le handler Streamable HTTP sur `/mcp` ; `GET /mcp` (sans session MCP) renvoie une réponse MCP valide (initialize) ou 406 selon le transport — préciser dans le test. `POST /mcp` avec un `initialize` + `tools/list` renvoie la liste des 6 outils avec leurs schémas JSON.
+- [x] `POST /mcp` `tools/call` `get_quote` {symbol: "AAPL"} → prix + source + horodatage (test avec faux market). `tools/call` `simulate_order` → ordre en base (faux portfolio_service) ; `get_portfolio` → portefeuille complet.
+- [x] Schémas exposés = `args_schema.model_json_schema()` des outils existants (pas de doublon de schéma).
+- [x] `dashboard/nginx.conf` : `location /mcp/` aiguillé vers `investia-backend:8000/mcp/` avec `proxy_buffering off` (streaming) — test `test_nginx_conf.py` mis à jour.
+- [x] `cd backend && uv run pytest -q -m "not integration" && uv run ruff check . && uv run ruff format --check . && uv run ty check` passent (nouveau `test_mcp_server.py` : build, tools/list, tools/call quote/portfolio/simulate_order, erreur outil → message générique).
+- [x] Test d'intégration local : client MCP (ou simple POST `initialize` + `tools/call`) contre le backend lancé sur la base scratch → `tools/list` renvoie 6 outils, `get_quote` AAPL répond.
+- [x] Docs : `docs/11-stack-moderne-2026.md` (ligne MCP mise à jour), `docs/STATUS.md`, `docs/08-roadmap.md` cochée, `docs/07-deploiement-vps.md` (note : `/mcp` passe par le même proxy host, rien à ouvrir de plus).
 
 ## Fichiers touchés
 
