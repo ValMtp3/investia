@@ -32,7 +32,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pyyaml>=6.0.3",
     "ruff>=0.17.3",
-    "ty>=0.0.95",
+    "ty>=0.0.97",
 ]
 
 [tool.ruff]
