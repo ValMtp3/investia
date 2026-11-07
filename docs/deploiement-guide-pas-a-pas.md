@@ -158,10 +158,7 @@ Depuis ton Mac (pas besoin du VPS) :
    curl -s -o /dev/null -w "%{http_code}\n" https://investia.valentin-fiess.fr/api/portfolio
    ```
    ✅ `302` (jamais `200`).
-3. Dans ton navigateur : ouvre `https://investia.valentin-fiess.fr/`, connecte-toi, puis enregistre ton TOTP (appli d'authentification). Le code de vérification demandé est écrit dans un fichier (pas d'e-mail) :
-   ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env exec authelia cat /data/notification.txt
-   ```
+3. Dans ton navigateur : ouvre `https://investia.valentin-fiess.fr/` et connecte-toi avec le mot de passe seul. ⚠️ Depuis D63 (07/11/2026) il n'y a **plus de second facteur TOTP** (l'enregistrement exigeait un e-mail que le VPS n'envoie pas ; risque assumé, voir `docs/09-decisions.md`) : la connexion se fait en `one_factor`.
 4. Connecté, vérifie les 4 pages, et que la page **Agent** affiche les étapes en direct (flux SSE sans blocage) et que le graphique **Marché** se charge.
 5. Route admin protégée par son propre jeton (D51). Depuis le VPS, sans jeton, on veut un refus :
    ```bash

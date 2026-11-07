@@ -1,4 +1,5 @@
-# Authelia 4.39 — connexion unique (mot de passe + TOTP) devant investia.valentin-fiess.fr (D12, D39, D50).
+# Authelia 4.39 — connexion unique (mot de passe seul) devant investia.valentin-fiess.fr (D12, D39).
+# D63 (07/11/2026) : la 2FA TOTP a été retirée par le propriétaire (risque assumé) — voir 09-decisions.md.
 # AUCUN secret ici (dépôt public, D42) : ils arrivent par variables d'environnement depuis le .env
 # (AUTHELIA_SESSION_SECRET, AUTHELIA_STORAGE_ENCRYPTION_KEY,
 #  AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET, AUTHELIA_STORAGE_POSTGRES_PASSWORD).
@@ -22,15 +23,18 @@ authentication_backend:
   file:
     path: '/config/users_database.yml'
 
+# TOTP inactif depuis D63 (07/11/2026) : l'enregistrement exigeait un e-mail non configuré,
+# le propriétaire a retiré la 2FA (risque assumé). Bloc conservé mais non exigé (policy one_factor).
 totp:
   issuer: 'investia.valentin-fiess.fr'
 
 access_control:
-  # Tout est fermé par défaut ; le seul domaine ouvert exige mot de passe + code TOTP.
+  # Tout est fermé par défaut ; le seul domaine ouvert exige le mot de passe seul.
+  # D63 : plus de second facteur (TOTP retiré, voir 09-decisions.md).
   default_policy: 'deny'
   rules:
     - domain: 'investia.valentin-fiess.fr'
-      policy: 'two_factor'
+      policy: 'one_factor'
 
 session:
   name: 'investia_session'
@@ -51,7 +55,7 @@ storage:
     username: 'authelia'
 
 notifier:
-  # Pas d'e-mail : le code de vérification demandé lors de l'enregistrement du TOTP
-  # est écrit dans ce fichier (lisible avec `docker compose exec authelia cat /data/notification.txt`).
+  # Inactif depuis D63 (plus de TOTP à enregistrer, password_reset désactivé) : conservé car
+  # Authelia exige une section notifier valide au démarrage. Aucun e-mail n'est envoyé.
   filesystem:
     filename: '/data/notification.txt'

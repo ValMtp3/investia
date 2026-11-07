@@ -4,7 +4,7 @@
 
 ## Objectif
 
-`https://investia.valentin-fiess.fr` affiche le dashboard et ne répond **qu'après connexion Authelia** (mot de passe + TOTP). Le backend, PostgreSQL, Redis et LiteLLM ne sont joignables que depuis le réseau Docker interne.
+`https://investia.valentin-fiess.fr` affiche le dashboard et ne répond **qu'après connexion Authelia** (mot de passe seul depuis D63, 07/11/2026 ; TOTP retiré, risque assumé). Le backend, PostgreSQL, Redis et LiteLLM ne sont joignables que depuis le réseau Docker interne.
 
 ## Pourquoi
 
@@ -25,7 +25,7 @@ Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 
 - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` passe sans erreur, et **aucun** service ne publie de port sur `0.0.0.0` (seuls `dashboard`/`authelia`, liés à `127.0.0.1` — D54, testé par `test_compose.py`).
 - [ ] Le service `dashboard` (nginx) sert `/` et aiguille `/api/x` vers `backend:8000/x` ; test local : `curl localhost:<port-test>/api/health` → 200.
 - [ ] Le dashboard construit avec `VITE_API_URL=/api` ; plus aucun appel vers `127.0.0.1:8000` dans le build de prod.
-- [ ] Le service `authelia` démarre, sert le portail sur `/auth`, stocke dans la base PostgreSQL `authelia` ; un compte unique avec TOTP.
+- [ ] Le service `authelia` démarre, sert le portail sur `/auth`, stocke dans la base PostgreSQL `authelia` ; un compte unique (mot de passe seul depuis D63).
 - [ ] En ligne, sans session : `curl -I https://investia.valentin-fiess.fr/` → redirection vers `/auth` ; `curl https://investia.valentin-fiess.fr/api/portfolio` → 401/302, **jamais** 200.
 - [ ] Avec session : les 4 pages marchent ; le chat de la page Agent reçoit les événements en direct (pas de blocage du flux SSE).
 - [ ] `POST /portfolio/adjust` sans `X-Admin-Token` → refusé, même avec session Authelia (D51).
@@ -39,7 +39,7 @@ Dernière étape avant l'usage réel du projet. Décisions : D12, D13, D21, D39 
 |---|---|
 | `deploy/docker-compose.yml` / `docker-compose.prod.yml` | ajout des services `dashboard`, `authelia`, `backup` (prod) |
 | `dashboard/Dockerfile`, `dashboard/nginx.conf` | build 2 temps + routage `/api/` + SSE sans buffering |
-| `deploy/authelia/configuration.yml` (+ modèle `users_database.yml`) | portail `/auth`, TOTP, stockage PostgreSQL, **sans secret** |
+| `deploy/authelia/configuration.yml` (+ modèle `users_database.yml`) | portail `/auth`, stockage PostgreSQL, **sans secret** (TOTP retiré, D63) |
 | `deploy/postgres/init/` | création de la base et de l'utilisateur `authelia` |
 | `deploy/backup/` | script `pg_dump` quotidien + rotation 7 jours + script de restauration |
 | `.env.example` | nouvelles variables, sans valeurs |
