@@ -15,6 +15,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis}
       # Mot de passe de l'utilisateur « authelia » (D50). Facultatif en local, requis en prod.
       AUTHELIA_DB_PASSWORD: ${AUTHELIA_DB_PASSWORD:-}
+      # Mots de passe des rôles applicatifs sans SUPERUSER (D68) : investia_app (base
+      # investia, backend) et litellm_app (base litellm). Facultatifs en local, requis
+      # en prod. Le compte POSTGRES_USER reste superuser, réservé au backup (pg_dump).
+      INVESTIA_APP_DB_PASSWORD: ${INVESTIA_APP_DB_PASSWORD:-}
+      LITELLM_APP_DB_PASSWORD: ${LITELLM_APP_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
