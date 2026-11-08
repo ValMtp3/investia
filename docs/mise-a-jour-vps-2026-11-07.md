@@ -76,6 +76,19 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.e
 
 ⚠️ Note : le rollback remet la config Authelia avec TOTP (`two_factor`) — la connexion redemandera un code TOTP que tu as retiré. Si tu rollback, reste en `one_factor` (ne recrée pas authelia depuis l'ancienne branche, ou réédite la config).
 
+## Mise à jour du soir (PR #10, même jour)
+
+Retours design après déploiement : sélecteur « Solo | Multi-agents » en boutons
+segmentés sur `/agent`, et recherche d'entreprise sur `/marche` (autocomplétion
+`GET /market/search`, watchlist 100 % perso en localStorage). Même procédure :
+
+```bash
+cd ~/investia && git checkout main && git pull --ff-only origin main   # attendu: 1fd394a
+cd ~/investia/deploy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env build backend dashboard
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env up -d
+```
+
 ## À noter
 
-- La CI GitHub Actions est en panne (quota épuisé depuis le 07/11) : la PR #4 a été mergée en admin après validation locale complète (274 tests backend, 97 tests frontend, ruff/ty/lint/build verts). Le quota revient le 01/12.
+- La CI GitHub Actions est en panne (quota épuisé depuis le 07/11) : les PR #4, #9 et #10 ont été mergées en admin après validation locale complète (280 tests backend, 100 tests frontend, ruff/ty/lint/build verts). Le quota revient le 01/12.
