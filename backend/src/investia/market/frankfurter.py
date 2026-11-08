@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://api.frankfurter.dev/v1"
 
@@ -61,3 +61,6 @@ class FrankfurterConnector:
 
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         raise MarketDataError(self.name, "pas de news sur un taux de change")
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        raise MarketDataError(self.name, "recherche de symboles non supportée")

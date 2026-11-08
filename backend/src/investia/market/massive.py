@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://api.massive.com"
 # Une journée de bourse ne couvre pas un jour calendaire : on demande une fenêtre
@@ -63,3 +63,6 @@ class MassiveConnector:
             )
             for bar in results[-days:]
         ]
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        raise MarketDataError(self.name, "recherche de symboles non supportée")
