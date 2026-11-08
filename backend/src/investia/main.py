@@ -132,6 +132,7 @@ def create_app(
     trace_store: Any | None = None,
     eval_store: Any | None = None,
     approval_registry: Any | None = None,
+    backtest_service: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -154,12 +155,14 @@ def create_app(
         from investia.evals.store import EvalStore
         from investia.market import build_market_service
         from investia.portfolio import PortfolioService
+        from investia.portfolio.backtest_service import BacktestService
         from investia.tracing.otel import init_otel
         from investia.tracing.store import DbTraceStore
 
         session = get_session()
         market = market or build_market_service(settings)
         portfolio_service = portfolio_service or PortfolioService(session, market)
+        backtest_service = backtest_service or BacktestService(session, market)
         trace_store = trace_store or DbTraceStore(session)
         eval_store = eval_store or EvalStore(session)
         # Spans OTel GenAI exportés vers PostgreSQL (étape 9, D38).
@@ -255,6 +258,24 @@ def create_app(
     ) -> dict[str, Any]:
         """Historique des ajustements de capital (read-only, ex. capital initial)."""
         return {"adjustments": await portfolio_service.list_adjustments(limit)}
+
+    def require_backtest_service() -> Any:
+        if backtest_service is None:
+            raise HTTPException(status_code=503, detail="backtest non configuré")
+        return backtest_service
+
+    @app.get("/portfolio/backtest")
+    async def get_backtest() -> dict[str, Any]:
+        """Backtest du portefeuille simulé vs indice CW8.PA (étape 10, D67).
+
+        Ordres rejoués à la clôture du jour, frais 0,1 %, conversion au taux du
+        jour ; résultat caché 24 h en Redis. 503 si l'historique de l'indice
+        est indisponible (pas de comparaison possible).
+        """
+        try:
+            return await require_backtest_service().compute()
+        except MarketDataError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
     def require_trace_store() -> Any:
         if trace_store is None:
