@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://api.twelvedata.com"
 
@@ -73,3 +73,6 @@ class TwelveDataConnector:
         ]
         # Twelve Data liste le plus récent d'abord : on remet l'ordre chronologique.
         return sorted(points, key=lambda point: point.timestamp)
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        raise MarketDataError(self.name, "recherche de symboles non supportée")

@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 
@@ -72,3 +72,21 @@ class CoinGeckoConnector:
 
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         raise MarketDataError(self.name, "news crypto : endpoint à brancher plus tard")
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        """Recherche crypto par nom : GET /search?query= (gratuit)."""
+        data = await self._get("/search", {"query": query})
+        hits = []
+        for coin in (data.get("coins") or [])[:limit]:
+            symbol = str(coin.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            hits.append(
+                SymbolHit(
+                    symbol=f"{symbol}-USD",
+                    description=str(coin.get("name") or ""),
+                    type="crypto",
+                    source=self.name,
+                )
+            )
+        return hits
