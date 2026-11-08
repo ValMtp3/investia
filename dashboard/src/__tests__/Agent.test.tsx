@@ -351,6 +351,25 @@ describe("Page Agent — mode multi-agents A2A (6.1)", () => {
     expect(call).toBeDefined();
   });
 
+  it("affiche les deux modes avec leur explication, visible quel que soit le mode choisi", async () => {
+    stubAgentFetch({ sse: [FULL_RUN] });
+    await renderAgent();
+
+    // Labels explicites
+    expect(screen.getByRole("button", { name: "Agent seul" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Multi-agents (A2A)" }),
+    ).toBeInTheDocument();
+    // Explication du mode par défaut (solo) visible sans cliquer
+    expect(screen.getByText(/un seul agent/i)).toBeInTheDocument();
+
+    // En mode multi, l'explication décrit la chaîne A2A
+    await userEvent.click(screen.getByRole("button", { name: "Multi-agents (A2A)" }));
+    expect(
+      screen.getByText(/analyste → gestionnaire de risque → rédacteur/i),
+    ).toBeInTheDocument();
+  });
+
   it("remplit le champ avec une suggestion au clic (étape 7)", async () => {
     stubAgentFetch({ sse: [FULL_RUN] });
     await renderAgent();
