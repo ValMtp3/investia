@@ -63,6 +63,56 @@ def _to_langchain_tool(tool: Any) -> StructuredTool:
     )
 
 
+class _LiveChatModel(GenericFakeChatModel):
+    """Adapte le vrai client investia (LiteLLM) à l'interface langchain."""
+
+    def __init__(self, llm: Any):
+        super().__init__(messages=iter([]))
+        self._llm = llm
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_LiveChatModel":
+        return self
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        from langchain_core.messages import AIMessage as _AIMessage
+        from langchain_core.messages import HumanMessage, ToolMessage
+
+        conv = []
+        for m in messages:
+            if isinstance(m, HumanMessage):
+                conv.append({"role": "user", "content": m.content})
+            elif isinstance(m, _AIMessage):
+                conv.append({"role": "assistant", "content": m.content})
+                for tc in getattr(m, "tool_calls", []) or []:
+                    conv[-1]["tool_calls"] = [
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": str(tc.get("args", {})),
+                            },
+                        }
+                    ]
+            elif isinstance(m, ToolMessage):
+                conv.append({"role": "tool", "content": m.content})
+        response = await self._llm.chat("small", conv)
+        msg = _AIMessage(content=response.content)
+        if response.tool_calls:
+            msg.tool_calls = [
+                {
+                    "name": c.name,
+                    "args": c.arguments,
+                    "id": c.id,
+                    "type": "tool_call",
+                }
+                for c in response.tool_calls
+            ]
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        return ChatResult(generations=[ChatGeneration(message=msg)])
+
+
 async def run_case(
     approach: str,
     case_id: str,
@@ -71,8 +121,13 @@ async def run_case(
     mock_tool_call: dict[str, Any],
     mock_final: str,
     tools: dict[str, Any],
+    live_llm: Any | None = None,
 ) -> CaseOutcome:
-    model = _fake_model(mock_tool_call, mock_final)
+    model = (
+        _LiveChatModel(live_llm)
+        if live_llm is not None
+        else _fake_model(mock_tool_call, mock_final)
+    )
     lc_tools = [_to_langchain_tool(t) for t in tools.values()]
     agent = create_react_agent(model=model, tools=lc_tools)
     t0 = time.perf_counter()
