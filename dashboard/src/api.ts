@@ -361,6 +361,17 @@ export interface TraceStep {
   created_at: string;
 }
 
+/** Span OTel GenAI d'un run (étape 9) : un par appel LLM (`gen_ai.chat`) ou outil (`tool.call`). */
+export interface TraceSpan {
+  name: string;
+  start_ts: string;
+  end_ts: string | null;
+  attributes: Record<string, unknown>;
+  /** "OK" ou "ERROR" (enum OTel StatusCode). */
+  status: string;
+  error: string | null;
+}
+
 export interface TraceRunDetail extends TraceRunSummary {
   answer: string | null;
 }
@@ -368,6 +379,8 @@ export interface TraceRunDetail extends TraceRunSummary {
 export interface TraceDetail {
   run: TraceRunDetail | null;
   steps: TraceStep[];
+  /** Absent côté vieux backends (avant migration 0006) : traité comme liste vide. */
+  spans: TraceSpan[];
 }
 
 export interface EvalResult {
@@ -420,6 +433,18 @@ function isTraceStep(raw: unknown): raw is TraceStep {
   );
 }
 
+function isTraceSpan(raw: unknown): raw is TraceSpan {
+  return (
+    isRecord(raw) &&
+    typeof raw.name === "string" &&
+    typeof raw.start_ts === "string" &&
+    (raw.end_ts === null || typeof raw.end_ts === "string") &&
+    isRecord(raw.attributes) &&
+    typeof raw.status === "string" &&
+    (raw.error === null || typeof raw.error === "string")
+  );
+}
+
 function isEvalResult(raw: unknown): raw is EvalResult {
   return (
     isRecord(raw) &&
@@ -459,7 +484,12 @@ function parseTraceDetail(raw: unknown): TraceDetail {
   if (run !== null && !isTraceRunDetail(run)) {
     throw new Error("Détail de la trace illisible : réponse inattendue du serveur.");
   }
-  return { run, steps: raw.steps };
+  // `spans` peut manquer (backend avant la migration 0006) : liste vide dans ce cas.
+  const spans = raw.spans === undefined ? [] : raw.spans;
+  if (!Array.isArray(spans) || !spans.every(isTraceSpan)) {
+    throw new Error("Spans de la trace illisibles : réponse inattendue du serveur.");
+  }
+  return { run, steps: raw.steps, spans };
 }
 
 function parseEvals(raw: unknown): { runs: EvalRun[] } {

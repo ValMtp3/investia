@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.162.0",
     "fastmcp>=4.1.6",
     "httpx>=0.28.1",
+    "opentelemetry-sdk>=1.45.2",
     "polars>=2.1.0",
     "pydantic>=2.14.2",
     "pydantic-settings>=2.16.2",

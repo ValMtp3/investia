@@ -9,7 +9,7 @@
 - T1 structure + toolchain uv/Ruff/ty ✅ · T2 FastAPI + config + `/health` ✅ · T3 PostgreSQL async + Alembic + `/ready` ✅ · T4 Redis async ✅ · T5 Docker Compose (vérifié via OrbStack : 4 conteneurs healthy, `/health` 200, `/ready` 200, 0 port en prod) ✅ · T6 CI + push ✅
 - `cd deploy && docker compose --env-file ../.env up -d` démarre tout en local ; `curl localhost:8000/ready` → 200 `{"db":"up","redis":"up"}`.
 
-**Étape 4 bis — mise en ligne : TERMINÉE le 07/11/2026.** Déploiement fait et vérifié sur le VPS par le propriétaire (phases A-E du guide, D55) : site en ligne derrière Authelia, SSE en direct, test de restauration OK. (2.3 spans OTel GenAI en attente, D38.)
+**Étape 4 bis — mise en ligne : TERMINÉE le 07/11/2026.** Déploiement fait et vérifié sur le VPS par le propriétaire (phases A-E du guide, D55) : site en ligne derrière Authelia, SSE en direct, test de restauration OK. (2.3 spans OTel GenAI : livrés à l'étape 9, D66.)
 
 **Étape 5 — validation humaine + MCP : 5.1 et 5.2 TERMINÉES le 07/11/2026.** Décisions D56-D58.
 
@@ -23,6 +23,8 @@
 **Étape 6.3 — comparaison chiffrée + P7 : TERMINÉE le 07/11/2026.** Rapport `docs/comparaison-etape-6.md` : en mock, les 4 approches appellent le bon outil (1.0) mais **seul le harness maison applique les garde-fous en code** (format_ok/language_ok/disclaimer_ok/numbers_sourced = 1.0 vs 0.0 pour les frameworks nus) ; durées mock : maison 0,4 ms, langgraph 3,7 ms, pydantic-ai 7,4 ms, openai-agents 4,9 ms. Runs réels ~2 € **non faits** (clés LLM fictives en local — à refaire avec les vraies clés, D62). **P7** : `apply_order` réécrit en Go (`comparisons/go/`, mêmes 6 vecteurs de test verts) → **54x plus rapide que Python** (10,3 ns vs 559,6 ns/op sur 1M itérations, `bench_results.json`). Conclusion documentée : cœur maison confirmé (D41), Go réservé à un composant chaud si besoin.
 
 **Étape 8 — mode live : code livré le 07/11/2026** (branche `feat/mode-live`, D65) : `GET /api/live/llm` (admin token, 1 appel minimal, ok/ko+coût) ; `run_evals.py --live --budget-eur 2` (budget bloqué en code, D62) ; adapters live pour les 3 frameworks ; guide `docs/mode-live.md`. Reste à faire côté propriétaire : renseigner les vraies clés dans le `.env` du VPS, lancer `bash ~/investia/deploy/update.sh`, vérifier le live check. Backend 284 tests, comparisons 6 tests.
+
+**Étape 9 — observabilité OTel GenAI : TERMINÉE le 07/11/2026** (branche `feat/otel-genai`, spec `docs/specs/9-otel-genai.md` cochée, D66) : une seule dépendance ajoutée (`opentelemetry-sdk`) ; spans `gen_ai.chat` (modèle, usage tokens, coût) et `tool.call` (outil, arguments tronqués 200 car., ok) posés dans la boucle, exportés vers PostgreSQL (`otel_spans`, migration `0006`, `run_id UUID` FK vers `runs` — bug de type TEXT attrapé à l'application de la migration, corrigé) via un `_Dispatcher` à exporter remplaçable à chaud (sinon `set_tracer_provider` bloquait les ré-init en tests) ; `run_id` propagé par ContextVar ; sans init → no-op. `GET /traces/{id}` renvoie `spans` (tolère la table absente) ; page `/traces` : section « Spans OTel » (heure, nom, badge statut, durée, erreur, attributs JSON). Vérifié de bout en bout sur la base locale : migration `0006_otel_spans (head)`, un run réel → 3 spans en base tous liés au `run_id`. Backend 288 tests, dashboard 102 tests, ruff/format/ty/tsc/build verts.
 
 **Projet terminé selon la roadmap** (étapes 0 à 6.3 toutes livrées). ⚠️ Une autre session travaille en parallèle sur `feat/dashboard-v2` (spec `docs/specs/7-dashboard-v2.md` + modifs non commitées) : non touché ici.
 

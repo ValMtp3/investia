@@ -14,12 +14,14 @@ import { formatDateTime } from "../lib/format";
 function statusLabel(status: string): string {
   switch (status) {
     case "ok":
+    case "OK": // statut OTel StatusCode (étape 9)
       return "ok";
     case "blocked":
       return "bloqué";
     case "max_turns":
       return "tours max atteints";
     case "error":
+    case "ERROR": // statut OTel StatusCode (étape 9)
       return "erreur";
     case "running":
       return "en cours";
@@ -31,14 +33,23 @@ function statusLabel(status: string): string {
 /** Badge de statut : la couleur renforce le texte (ok = gain, bloqué/erreur = signal…). */
 function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "ok"
+    status === "ok" || status === "OK"
       ? "gain"
-      : status === "blocked" || status === "error"
+      : status === "blocked" || status === "error" || status === "ERROR"
         ? "signal"
         : status === "running" || status === "max_turns"
           ? "caution"
           : "neutral";
   return <Badge tone={tone}>{statusLabel(status)}</Badge>;
+}
+
+/** Durée d'un span OTel : « 340 ms » ou « 2 s » (rien si les horodatages sont illisibles). */
+function spanDuration(startTs: string, endTs: string | null): string | null {
+  if (!endTs) return null;
+  const ms = new Date(endTs).getTime() - new Date(startTs).getTime();
+  if (Number.isNaN(ms) || ms < 0) return null;
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`;
 }
 
 function toUnixSeconds(iso: string): UTCTimestamp {
@@ -187,6 +198,33 @@ export default function Traces() {
                       </pre>
                     </li>
                   ))}
+                </ol>
+              )}
+              <h3 className="mb-1 mt-3 text-sm font-medium">Spans OTel</h3>
+              {detail.data.spans.length === 0 ? (
+                <p className="text-muted">Aucun span enregistré.</p>
+              ) : (
+                <ol
+                  aria-label="Spans OTel de l'exécution"
+                  className="divide-y divide-rule border-y border-rule"
+                >
+                  {detail.data.spans.map((span, i) => {
+                    const duration = spanDuration(span.start_ts, span.end_ts);
+                    return (
+                      <li key={i} className="py-1 text-sm">
+                        <span className="text-muted">{formatDateTime(span.start_ts)}</span>{" "}
+                        <span className="font-medium">{span.name}</span>{" "}
+                        <StatusBadge status={span.status} />
+                        {duration && <span className="text-muted"> · {duration}</span>}
+                        {span.error && (
+                          <span className="text-signal"> · {span.error}</span>
+                        )}
+                        <pre className="mt-1 overflow-x-auto bg-bg p-2 text-xs text-muted">
+                          {JSON.stringify(span.attributes)}
+                        </pre>
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
             </div>

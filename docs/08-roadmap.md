@@ -26,6 +26,7 @@ Ordre choisi : **du cœur vers l'avancé**. Chaque étape repose sur la précéd
 | **6.3 — Comparaison chiffrée** ✅ faite le 07/11/2026 | Mêmes evals sur les 4 approches (maison + 3 frameworks), mock + ~2 € de réels (D62) ; métriques qualité/coût/latence ; + P7 : composant en Go comparé à Python | Rapport `docs/comparaison-etape-6.md` : chaque approche a son gain (ou non) chiffré |
 | **8 — Mode live** ✅ code livré le 07/11/2026 (clés VPS à renseigner) | Vraies clés API dans `.env` VPS, live check `GET /api/live/llm` (admin token), evals réelles 6.3 avec budget 2 € bloqué en code | `docs/mode-live.md` : live check ok:true, evals réelles dans `results-live.json` |
 | **7 — Dashboard v2** ✅ faite le 07/11/2026 | Thème sombre « salle de contrôle » (D64, zéro dépendance npm) + `GET /orders`, `GET /portfolio/adjustments`, `initial_capital` (read-only) ; 4 pages restylées, a11y (skip link, focus, 44px) | Spec `docs/specs/7-dashboard-v2.md` 15/15 critères cochés, captures des 4 pages relues |
+| **9 — Observabilité OTel GenAI** ✅ faite le 07/11/2026 | Spans `gen_ai.chat` / `tool.call` (attributs sémantiques `gen_ai.*`) exportés dans PostgreSQL (`otel_spans`, migration 0006, liés au `run_id`), affichés dans `/traces` (D66, une seule dépendance : `opentelemetry-sdk`) | Un run produit des spans en base liés à son `run_id` (vérifié en live) ; `/traces/{id}` renvoie les spans ; page `/traces` les affiche ; 288 tests backend + 102 dashboard verts |
 
 ## Règles pour chaque étape
 
