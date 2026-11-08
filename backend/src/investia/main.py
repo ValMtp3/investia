@@ -154,6 +154,7 @@ def create_app(
         from investia.evals.store import EvalStore
         from investia.market import build_market_service
         from investia.portfolio import PortfolioService
+        from investia.tracing.otel import init_otel
         from investia.tracing.store import DbTraceStore
 
         session = get_session()
@@ -161,6 +162,8 @@ def create_app(
         portfolio_service = portfolio_service or PortfolioService(session, market)
         trace_store = trace_store or DbTraceStore(session)
         eval_store = eval_store or EvalStore(session)
+        # Spans OTel GenAI exportés vers PostgreSQL (étape 9, D38).
+        init_otel(session_factory=session)
     market_service: MarketDataService = market  # non None : construit juste au-dessus
     if llm is None:
         from investia.llm import build_llm_client

@@ -146,7 +146,28 @@ class DbTraceStore:
                 .mappings()
                 .all()
             )
+            # Spans OTel GenAI du run (étape 9) : table absente avant la migration
+            # 0006 → on tolère l'erreur et renvoie une liste vide.
+            try:
+                spans = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT name, start_ts, end_ts, attributes, "
+                                "status, error "
+                                "FROM otel_spans WHERE run_id = :rid "
+                                "ORDER BY start_ts"
+                            ),
+                            {"rid": UUID(run_id)},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            except Exception:
+                spans = []
             return {
                 "run": dict(run) if run else None,
                 "steps": [dict(s) for s in steps],
+                "spans": [dict(s) for s in spans],
             }

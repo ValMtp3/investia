@@ -15,6 +15,7 @@ from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
 from investia.tools.base import BaseTool, ToolError
+from investia.tracing.otel import current_run_id, start_chat_span, start_tool_span
 from investia.tracing.store import TraceStoreProtocol
 
 
@@ -78,6 +79,8 @@ async def run_agent(
     model_key = model_key or choose(question)
     store = trace_store
     run_id = await store.start_run(question) if store is not None else None
+    # Les spans OTel de ce run portent ce run_id (ContextVar lu par l'exporter).
+    token = current_run_id.set(run_id)
 
     async def emit(kind: str, payload: dict[str, Any]) -> None:
         if event_sink is not None:
@@ -97,7 +100,13 @@ async def run_agent(
     corrections = 0
 
     for turn in range(1, max_turns + 1):
-        response = await llm.chat(model_key, messages, tools=tool_specs)
+        async with start_chat_span(model=model_key, model_key=model_key) as span_attrs:
+            response = await llm.chat(model_key, messages, tools=tool_specs)
+            span_attrs["gen_ai.usage.input_tokens"] = response.prompt_tokens
+            span_attrs["gen_ai.usage.output_tokens"] = response.completion_tokens
+            span_attrs["gen_ai.request.model"] = response.model
+            span_attrs["gen_ai.response.model"] = response.model
+            span_attrs["cost_cents"] = response.cost_cents
         total_cost += response.cost_cents
         if store is not None and run_id is not None:
             await store.log_step(
@@ -239,6 +248,7 @@ async def run_agent(
                     "status": "ok",
                 },
             )
+            current_run_id.reset(token)
             return result
         if corrections < max_corrections:
             corrections += 1
@@ -285,6 +295,7 @@ async def run_agent(
                 "status": "blocked",
             },
         )
+        current_run_id.reset(token)
         return result
 
     max_turns_answer = (
@@ -317,24 +328,28 @@ async def run_agent(
             "status": "max_turns",
         },
     )
+    current_run_id.reset(token)
     return result
 
 
 async def _execute_tool(
     tools: dict[str, BaseTool], name: str, arguments: dict[str, Any]
 ) -> str:
-    """Exécute un outil ; toute erreur est renvoyée au modèle sous forme lisible."""
+    """Exécute un outil (span OTel tool.call) ; l'erreur va au modèle."""
     tool = tools.get(name)
     if tool is None:
         return f"erreur: outil inconnu {name!r}"
-    try:
-        args = tool.args_schema.model_validate(arguments)
-        result = await tool.run(args)
-    except ValidationError as error:
-        return f"erreur: arguments invalides pour {name} — {error.errors()[0]['msg']}"
-    except ToolError as error:
-        return f"erreur: {error}"
-    return json.dumps(result, default=str, ensure_ascii=False)
+    async with start_tool_span(name, arguments):
+        try:
+            args = tool.args_schema.model_validate(arguments)
+            result = await tool.run(args)
+        except ValidationError as error:
+            return (
+                f"erreur: arguments invalides pour {name} — {error.errors()[0]['msg']}"
+            )
+        except ToolError as error:
+            return f"erreur: {error}"
+        return json.dumps(result, default=str, ensure_ascii=False)
 
 
 async def _request_approval(

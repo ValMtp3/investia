@@ -55,6 +55,38 @@ const RUN_B = {
   created_at: "2026-11-04T09:30:00+00:00",
 };
 
+// Spans OTel (étape 9) renvoyés par GET /traces/<id> : name/start_ts/end_ts/attributes/status/error.
+const SPANS_A = [
+  {
+    name: "gen_ai.chat",
+    start_ts: "2026-11-05T10:00:01+00:00",
+    end_ts: "2026-11-05T10:00:03+00:00",
+    attributes: {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.request.model": "gpt-6-luna",
+      "gen_ai.usage.input_tokens": 10,
+    },
+    status: "OK",
+    error: null,
+  },
+  {
+    name: "tool.call",
+    start_ts: "2026-11-05T10:00:02+00:00",
+    end_ts: "2026-11-05T10:00:02.500+00:00",
+    attributes: { "gen_ai.tool.name": "get_quote", "tool.ok": true },
+    status: "OK",
+    error: null,
+  },
+  {
+    name: "gen_ai.chat",
+    start_ts: "2026-11-05T10:00:04+00:00",
+    end_ts: "2026-11-05T10:00:04.200+00:00",
+    attributes: { "gen_ai.request.model": "gpt-6-luna" },
+    status: "ERROR",
+    error: "RuntimeError",
+  },
+];
+
 const DETAIL_A = {
   run: { ...RUN_A, answer: "AAPL vaut 344.63 $ (source : finnhub)." },
   steps: [
@@ -71,6 +103,7 @@ const DETAIL_A = {
       created_at: "2026-11-05T10:00:02+00:00",
     },
   ],
+  spans: SPANS_A,
 };
 
 const EVALS = {
@@ -254,6 +287,35 @@ describe("Page Traces & evals", () => {
     const list = await screen.findByRole("list", { name: /exécutions/i });
     expect(list).toHaveTextContent("ok");
     expect(list).toHaveTextContent("bloqué");
+  });
+
+  it("affiche les spans OTel du run (chronologique, statut, erreur) — étape 9", async () => {
+    stubFetch({
+      list: () => jsonResponse({ runs: [RUN_A] }),
+      detail: () => jsonResponse(DETAIL_A),
+      evals: () => jsonResponse({ runs: [] }),
+    });
+    renderTracesAt(`/traces?run=${RUN_A.id}`);
+    const spansList = await screen.findByRole("list", { name: /spans otel/i });
+    expect(spansList).toHaveTextContent("gen_ai.chat");
+    expect(spansList).toHaveTextContent("tool.call");
+    expect(spansList).toHaveTextContent("get_quote");
+    expect(spansList).toHaveTextContent("gpt-6-luna");
+    // Span en erreur : statut + type d'erreur visibles
+    expect(spansList).toHaveTextContent("RuntimeError");
+    // Durée affichée (2 s pour le 1er span chat)
+    expect(spansList).toHaveTextContent(/2\s?s/);
+  });
+
+  it("tolère un détail sans champ spans (vieux backend) : aucun span, pas d'erreur", async () => {
+    const { spans: _spans, ...detailSansSpans } = DETAIL_A;
+    stubFetch({
+      list: () => jsonResponse({ runs: [RUN_A] }),
+      detail: () => jsonResponse(detailSansSpans),
+      evals: () => jsonResponse({ runs: [] }),
+    });
+    renderTracesAt(`/traces?run=${RUN_A.id}`);
+    expect(await screen.findByText(/aucun span/i)).toBeInTheDocument();
   });
 
   it("affiche un état vide explicite quand le run demandé est null (étape 7)", async () => {
