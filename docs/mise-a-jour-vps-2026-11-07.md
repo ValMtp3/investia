@@ -1,4 +1,14 @@
-# Guide — Mise à jour du VPS le 07/11/2026 (main = `f3dc70c`, PR #4)
+# Guide — Mise à jour du VPS (procédure standard, versionnée dans le repo)
+
+> **La procédure ne change plus** : elle vit dans `deploy/update.sh` (versionné).
+> Sur le VPS, une mise à jour = une seule commande :
+>
+> ```bash
+> bash ~/investia/deploy/update.sh
+> ```
+>
+> Le script fait : `git checkout main && git pull --ff-only` → affiche le commit →
+> `build backend dashboard` → `up -d` → `ps`. Rien d'autre à retenir.
 
 > **Mode opératoire (D55)** : c'est toi (propriétaire) qui exécutes ces commandes sur le VPS,
 > je te les prépare. Règles : jamais de secret affiché, jamais de `docker compose down -v`,
