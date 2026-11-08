@@ -1,11 +1,13 @@
 import {
   isPortfolioPayload,
   useAdjustments,
+  useBacktest,
   useOrders,
   usePortfolio,
   type Portfolio,
   type Position,
 } from "../api";
+import BacktestChart from "../components/BacktestChart";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
 import ErrorNotice from "../components/ErrorNotice";
@@ -20,6 +22,12 @@ function unrealizedPnL(position: Position): { eur: number; pct: number } {
   const cost = position.quantity * position.avg_price;
   const eur = position.value_eur - cost;
   return { eur, pct: cost !== 0 ? (eur / cost) * 100 : 0 };
+}
+
+/** Date AAAA-MM-JJ → « 30/10/2026 » (sans passer par le fuseau horaire). */
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 /** Barre de répartition cash / positions (CSS pur, zéro dépendance). */
@@ -51,6 +59,7 @@ export default function Portefeuille() {
   const { data, isLoading, isError, error } = usePortfolio();
   const orders = useOrders();
   const adjustments = useAdjustments();
+  const backtest = useBacktest();
 
   // Garde-fou : on n'affiche un portefeuille que si le payload a la forme attendue.
   const portfolio = data != null && isPortfolioPayload(data) ? data : null;
@@ -185,6 +194,59 @@ export default function Portefeuille() {
               )}
             </Module>
           </div>
+
+          <Module title="Backtest vs indice" className="mt-3 min-w-0">
+            {backtest.isPending && <Loading label="Calcul du backtest…" />}
+            {backtest.isError && (
+              <ErrorNotice>
+                Erreur :{" "}
+                {backtest.error instanceof Error ? backtest.error.message : "API indisponible"}
+              </ErrorNotice>
+            )}
+            {backtest.data &&
+              (backtest.data.points.length === 0 ? (
+                <EmptyState
+                  title="Aucun ordre simulé pour l'instant."
+                  hint="Le backtest démarre au premier ordre : demande à l'agent d'en simuler un depuis la page Agent."
+                />
+              ) : (
+                <div>
+                  <ul
+                    aria-label="Performances du backtest"
+                    className="mb-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+                  >
+                    <li className="flex items-center gap-2">
+                      Portefeuille
+                      <Badge tone={backtest.data.perf_portfolio_pct >= 0 ? "gain" : "signal"}>
+                        {formatPercent(backtest.data.perf_portfolio_pct)}
+                      </Badge>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      {backtest.data.benchmark_symbol} (buy &amp; hold)
+                      <Badge tone={backtest.data.perf_benchmark_pct >= 0 ? "gain" : "signal"}>
+                        {formatPercent(backtest.data.perf_benchmark_pct)}
+                      </Badge>
+                    </li>
+                  </ul>
+                  <p className="mb-2 text-xs text-muted">
+                    depuis le{" "}
+                    {backtest.data.start_date ? formatDay(backtest.data.start_date) : "—"} ·
+                    capital de départ : {formatMoney(backtest.data.initial_capital, "EUR")}
+                  </p>
+                  <BacktestChart
+                    points={backtest.data.points}
+                    benchmarkSymbol={backtest.data.benchmark_symbol}
+                  />
+                  {backtest.data.warnings.length > 0 && (
+                    <ul className="mt-2 list-disc pl-5 text-xs text-muted">
+                      {backtest.data.warnings.map((warning, i) => (
+                        <li key={i}>{warning}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+          </Module>
 
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <Module title="Ordres simulés" className="min-w-0">

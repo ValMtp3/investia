@@ -665,3 +665,72 @@ export function useAdjustments(limit = 50) {
     retry: false,
   });
 }
+
+// --- Backtest du portefeuille vs indice de référence (étape 10, D67) ---
+
+export interface BacktestPoint {
+  date: string; // AAAA-MM-JJ
+  portfolio_value: number;
+  benchmark_value: number;
+}
+
+export interface BacktestResult {
+  start_date: string | null;
+  initial_capital: number;
+  benchmark_symbol: string;
+  points: BacktestPoint[];
+  perf_portfolio_pct: number;
+  perf_benchmark_pct: number;
+  warnings: string[];
+  generated_at: string;
+}
+
+function isBacktestPoint(raw: unknown): raw is BacktestPoint {
+  return (
+    isRecord(raw) &&
+    typeof raw.date === "string" &&
+    typeof raw.portfolio_value === "number" &&
+    typeof raw.benchmark_value === "number"
+  );
+}
+
+/** Vérifie la forme de la réponse : on n'affiche jamais une donnée illisible. */
+function parseBacktest(raw: unknown): BacktestResult {
+  if (
+    !isRecord(raw) ||
+    (raw.start_date !== null && typeof raw.start_date !== "string") ||
+    typeof raw.initial_capital !== "number" ||
+    typeof raw.benchmark_symbol !== "string" ||
+    !Array.isArray(raw.points) ||
+    !raw.points.every(isBacktestPoint) ||
+    typeof raw.perf_portfolio_pct !== "number" ||
+    typeof raw.perf_benchmark_pct !== "number" ||
+    !Array.isArray(raw.warnings) ||
+    !raw.warnings.every((w) => typeof w === "string") ||
+    typeof raw.generated_at !== "string"
+  ) {
+    throw new Error("Backtest reçu illisible : réponse inattendue du serveur.");
+  }
+  return raw as unknown as BacktestResult;
+}
+
+/** GET /portfolio/backtest — courbes portefeuille vs indice + perfs (caché 24 h côté serveur). */
+export async function fetchBacktest(signal?: AbortSignal): Promise<BacktestResult> {
+  const response = await fetch(`${API_URL}/portfolio/backtest`, { signal });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Backtest indisponible (HTTP ${response.status})`),
+    );
+  }
+  return parseBacktest(await response.json());
+}
+
+export function useBacktest() {
+  return useQuery({
+    queryKey: ["backtest"],
+    queryFn: ({ signal }) => fetchBacktest(signal),
+    retry: false,
+    // Le serveur cache le calcul 24 h : on resynchronise toutes les 5 min.
+    staleTime: 5 * 60 * 1000,
+  });
+}

@@ -5,6 +5,25 @@ import Portefeuille from "../pages/Portefeuille";
 import type { Portfolio } from "../api";
 import { jsonResponse } from "./fakeBackend";
 
+// jsdom n'a pas de canvas : on mocke lightweight-charts et on espionne setData
+const { setDataCalls, createChart } = vi.hoisted(() => {
+  const setDataCalls: { options: unknown; points: unknown }[] = [];
+  const createChart = vi.fn(() => ({
+    addSeries: (_seriesType: unknown, options: unknown) => ({
+      setData: (points: unknown) => setDataCalls.push({ options, points }),
+    }),
+    timeScale: () => ({ fitContent: () => {} }),
+    remove: () => {},
+  }));
+  return { setDataCalls, createChart };
+});
+vi.mock("lightweight-charts", () => ({
+  createChart,
+  ColorType: { Solid: 0 },
+  LineSeries: {},
+  AreaSeries: {},
+}));
+
 const MOCK_PORTFOLIO: Portfolio = {
   cash: 6_900.0,
   positions: [
@@ -50,14 +69,41 @@ const MOCK_ADJUSTMENTS = {
   ],
 };
 
+const EMPTY_BACKTEST = {
+  start_date: null,
+  initial_capital: 0,
+  benchmark_symbol: "CW8.PA",
+  points: [],
+  perf_portfolio_pct: 0,
+  perf_benchmark_pct: 0,
+  warnings: ["Aucun ordre ni ajustement de capital pour l'instant."],
+  generated_at: "2026-11-08T10:00:00+00:00",
+};
+
+const MOCK_BACKTEST = {
+  start_date: "2026-10-30",
+  initial_capital: 10_000,
+  benchmark_symbol: "CW8.PA",
+  points: [
+    { date: "2026-10-30", portfolio_value: 10_000, benchmark_value: 10_000 },
+    { date: "2026-10-31", portfolio_value: 10_099, benchmark_value: 11_000 },
+  ],
+  perf_portfolio_pct: 0.99,
+  perf_benchmark_pct: 10,
+  warnings: ["AAPL: pas de clôture le 2026-10-31, dernier prix connu utilisé"],
+  generated_at: "2026-11-08T10:00:00+00:00",
+};
+
 interface FetchOpts {
   portfolio?: unknown;
   portfolioStatus?: number;
   orders?: unknown;
   adjustments?: unknown;
+  backtest?: unknown;
+  backtestStatus?: number;
 }
 
-/** fetch routé : /portfolio, /orders, /portfolio/adjustments. */
+/** fetch routé : /portfolio, /orders, /portfolio/adjustments, /portfolio/backtest. */
 function stubFetch(opts: FetchOpts = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
@@ -69,6 +115,11 @@ function stubFetch(opts: FetchOpts = {}) {
     if (url.pathname === "/orders") return jsonResponse(opts.orders ?? MOCK_ORDERS);
     if (url.pathname === "/portfolio/adjustments") {
       return jsonResponse(opts.adjustments ?? MOCK_ADJUSTMENTS);
+    }
+    if (url.pathname === "/portfolio/backtest") {
+      return opts.backtestStatus && opts.backtestStatus >= 400
+        ? jsonResponse({ detail: "historique de l'indice indisponible" }, opts.backtestStatus)
+        : jsonResponse(opts.backtest ?? EMPTY_BACKTEST);
     }
     throw new Error(`appel inattendu : ${url.pathname}`);
   });
@@ -87,6 +138,8 @@ function renderWithQueryClient(ui: React.ReactElement) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setDataCalls.length = 0;
+  createChart.mockClear();
 });
 
 describe("Page Portefeuille", () => {
@@ -165,7 +218,8 @@ describe("Page Portefeuille", () => {
     });
     renderWithQueryClient(<Portefeuille />);
     expect(await screen.findByText("Aucune position pour l'instant.")).toBeInTheDocument();
-    expect(screen.getByText("Aucun ordre simulé pour l'instant.")).toBeInTheDocument();
+    // Présent dans le module Ordres simulés et dans le module Backtest (étape 10)
+    expect(screen.getAllByText("Aucun ordre simulé pour l'instant.").length).toBe(2);
     expect(screen.getByText("Aucun ajustement pour l'instant.")).toBeInTheDocument();
   });
 
@@ -176,5 +230,58 @@ describe("Page Portefeuille", () => {
     expect(await within(ordersModule).findByRole("alert")).toHaveTextContent(/illisible/i);
     // Le reste de la page vit toujours
     expect(screen.getByRole("heading", { name: /portefeuille/i })).toBeInTheDocument();
+  });
+});
+
+describe("Page Portefeuille — module Backtest (étape 10)", () => {
+  it("affiche les deux courbes (portefeuille vs CW8.PA) et les perfs depuis le départ", async () => {
+    stubFetch({ backtest: MOCK_BACKTEST });
+    renderWithQueryClient(<Portefeuille />);
+
+    const backtestModule = await screen.findByRole("region", { name: /backtest/i });
+    // Légende + perfs lisibles
+    expect(backtestModule).toHaveTextContent("Portefeuille");
+    expect(backtestModule).toHaveTextContent("CW8.PA");
+    expect(backtestModule).toHaveTextContent("+0,99 %");
+    expect(backtestModule).toHaveTextContent("+10,00 %");
+    expect(backtestModule).toHaveTextContent(/depuis le 30\/10\/2026/);
+    // Avertissements du moteur affichés
+    expect(backtestModule).toHaveTextContent(/dernier prix connu/i);
+
+    // Graphique : 2 séries tracées (portefeuille + indice), avec texte alternatif
+    await waitFor(() => expect(setDataCalls.length).toBe(2));
+    const values = setDataCalls.map((c) => c.points as { time: string; value: number }[]);
+    expect(values[0].map((p) => p.value)).toEqual([10_000, 10_099]);
+    expect(values[1].map((p) => p.value)).toEqual([10_000, 11_000]);
+    expect(
+      screen.getByRole("img", { name: /portefeuille.*indice de référence CW8\.PA/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("affiche un état vide clair quand il n'y a aucun point de backtest", async () => {
+    stubFetch({ backtest: EMPTY_BACKTEST });
+    renderWithQueryClient(<Portefeuille />);
+    const backtestModule = await screen.findByRole("region", { name: /backtest/i });
+    expect(
+      await within(backtestModule).findByText(/aucun ordre simulé pour l'instant/i),
+    ).toBeInTheDocument();
+  });
+
+  it("affiche une erreur lisible dans le module si le backtest tombe (503)", async () => {
+    stubFetch({ backtestStatus: 503 });
+    renderWithQueryClient(<Portefeuille />);
+    const backtestModule = await screen.findByRole("region", { name: /backtest/i });
+    expect(await within(backtestModule).findByRole("alert")).toHaveTextContent(
+      /indice indisponible|503/,
+    );
+    // Le reste de la page vit toujours
+    expect(screen.getByText("Valeur totale")).toBeInTheDocument();
+  });
+
+  it("affiche une erreur lisible si le payload backtest est malformé", async () => {
+    stubFetch({ backtest: { points: "pas-une-liste", benchmark_symbol: 42 } });
+    renderWithQueryClient(<Portefeuille />);
+    const backtestModule = await screen.findByRole("region", { name: /backtest/i });
+    expect(await within(backtestModule).findByRole("alert")).toHaveTextContent(/illisible/i);
   });
 });
