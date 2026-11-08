@@ -12,6 +12,8 @@ import {
 
 // La page Marché ouvre un flux SSE et charge un historique au montage : faux backend (API non dispo en test).
 beforeEach(() => {
+  // Watchlist perso (étape 7 fix) : on pré-remplit pour que la page ait un symbole à afficher.
+  localStorage.setItem("investia.watchlist.v1", JSON.stringify(["AAPL"]));
   stubBackend({
     stream: silentStreamResponse,
     history: () =>

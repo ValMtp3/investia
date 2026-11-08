@@ -376,6 +376,46 @@ def create_app(
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
+    @app.get("/api/live/llm")
+    async def live_llm(
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Live check LLM (étape 8) : UN appel minimal sur le modèle le moins cher.
+
+        Protégé par X-Admin-Token (D51) : personne ne déclenche d'appels payants
+        sans le jeton. Renvoie ok/ko + modèle + coût + durée, jamais de contenu LLM.
+        """
+        import time
+
+        if not _is_valid_admin_token(
+            x_admin_token, settings.app_secret_key.get_secret_value()
+        ):
+            raise HTTPException(status_code=401, detail="token admin invalide")
+        # Sans clé fournisseur LLM, inutile d'appeler le gateway.
+        if not (
+            settings.openrouter_api_key or settings.mistral_api_key
+        ) and not getattr(settings, "typesafe_api_key", None):
+            return {
+                "ok": False,
+                "error": (
+                    "clé LLM manquante (OPENROUTER_API_KEY / MISTRAL_API_KEY dans .env)"
+                ),
+            }
+        start = time.perf_counter()
+        try:
+            response = await llm.chat(
+                "small", [{"role": "user", "content": "Réponds juste OK."}]
+            )
+        except Exception as error:
+            return {"ok": False, "error": str(error)}
+        duration_ms = (time.perf_counter() - start) * 1000
+        return {
+            "ok": True,
+            "model": response.model,
+            "cost_cents": response.cost_cents,
+            "duration_ms": round(duration_ms, 1),
+        }
+
     @app.post("/api/agents/run")
     async def agents_run(body: AgentRunBody) -> Any:
         """Stream SSE du mode multi-agents A2A (6.1) : start/a2a_delegate/.../done."""
@@ -471,6 +511,23 @@ def create_app(
                 raise
 
         return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.get("/market/search")
+    async def market_search(
+        q: str = Query(..., min_length=2, max_length=30),
+        limit: int = Query(10, ge=1, le=20),
+    ) -> dict[str, Any]:
+        """Recherche de symboles par nom (autocomplétion), multi-sources."""
+        search = getattr(market, "search_symbols", None)
+        if search is None:
+            raise HTTPException(
+                status_code=503, detail="recherche non disponible sur ce service"
+            )
+        try:
+            hits = await search(q, limit=limit)
+        except MarketDataError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        return {"results": [hit.to_dict() for hit in hits]}
 
     @app.get("/market/history")
     async def market_history(

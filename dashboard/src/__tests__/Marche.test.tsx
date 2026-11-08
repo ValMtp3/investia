@@ -127,6 +127,15 @@ const QUOTES_V2 = {
 };
 
 describe("Page Marché (flux SSE live)", () => {
+  // Comportement changé (étape 7 fix) : watchlist 100 % perso. Les tests historiques
+  // pré-remplissent le localStorage avec l'ancienne liste fixe.
+  beforeEach(() => {
+    localStorage.setItem(
+      "investia.watchlist.v1",
+      JSON.stringify(["AAPL", "SAP.DE", "BTC-USD", "MSFT", "NVDA", "ETH-USD", "AIR.PA"]),
+    );
+  });
+
   it("affiche les prix reçus par le stream avec source et badge différé, puis les met à jour", async () => {
     const fetchMock = stubBackend({
       stream: () =>
@@ -194,7 +203,7 @@ describe("Page Marché (flux SSE live)", () => {
     });
     renderMarche();
 
-    const card = await screen.findByRole("button", { name: /AAPL/ });
+    const card = await screen.findByRole("button", { name: /^AAPL/ });
     expect(card).toHaveTextContent("erreur");
   });
 
@@ -235,7 +244,7 @@ describe("Page Marché (flux SSE live)", () => {
     renderMarche();
 
     expect(await screen.findByText("189,40")).toBeInTheDocument();
-    const card = screen.getByRole("button", { name: /SAP\.DE/ });
+    const card = screen.getByRole("button", { name: /^SAP\.DE/ });
     expect(card).toHaveTextContent("clôture du 30/10");
     expect(card).toHaveTextContent("eodhd");
     expect(card).not.toHaveTextContent("00:00");
@@ -266,7 +275,7 @@ describe("Page Marché (flux SSE live)", () => {
     renderMarche();
 
     await screen.findByText("189,40");
-    expect(screen.getByRole("button", { name: /SAP\.DE/ })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: /^SAP\.DE/ })).toHaveTextContent(
       "clôture du 30/10",
     );
   });
@@ -292,7 +301,7 @@ describe("Page Marché (flux SSE live)", () => {
     renderMarche();
 
     await screen.findByText("344,63");
-    expect(screen.getByRole("button", { name: /AAPL/ })).toHaveTextContent("hier soir");
+    expect(screen.getByRole("button", { name: /^AAPL/ })).toHaveTextContent("hier soir");
   });
 
   it("garde l'heure pour un prix en direct normal", async () => {
@@ -306,7 +315,7 @@ describe("Page Marché (flux SSE live)", () => {
     renderMarche();
 
     await screen.findByText("345,50");
-    const card = screen.getByRole("button", { name: /AAPL/ });
+    const card = screen.getByRole("button", { name: /^AAPL/ });
     expect(card).not.toHaveTextContent(/clôture du/);
     expect(card).toHaveTextContent(/\d{2}:\d{2}/);
   });
@@ -358,7 +367,7 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     renderMarche();
     await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
 
-    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^SAP\.DE/ }));
 
     await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
     expect(
@@ -502,7 +511,7 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
     await waitFor(() => expect(setData).toHaveBeenLastCalledWith(AAPL_POINTS));
     expect(remove).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: /SAP\.DE/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^SAP\.DE/ }));
     await waitFor(() => expect(setData).toHaveBeenLastCalledWith(SAP_POINTS));
     expect(remove).toHaveBeenCalledTimes(1);
 
@@ -540,5 +549,75 @@ describe("Page Marché (graphique : vrais cours de clôture)", () => {
         name: "Courbe des cours de clôture de AAPL, 90 jours, source yahoo",
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Page Marché — recherche et watchlist perso (étape 7 fix)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function searchRoute(url: URL) {
+    const q = url.searchParams.get("q") ?? "";
+    return jsonResponse({
+      results: [
+        { symbol: "AAPL", description: "Apple Inc.", type: "EQUITY", source: "finnhub" },
+        { symbol: "SAP.DE", description: "SAP SE", type: "EQUITY", source: "yahoo" },
+      ].filter((r) => r.description.toLowerCase().includes(q.toLowerCase()) || r.symbol.toLowerCase().includes(q.toLowerCase())),
+    });
+  }
+
+  it("état vide au premier chargement, puis recherche + ajout d'un symbole persisté", async () => {
+    const fetchMock = stubBackend({
+      stream: () => silentStreamResponse(),
+      search: searchRoute,
+      history: historyRoute,
+    });
+    renderMarche();
+
+    // État vide : aucun symbole suivi
+    expect(await screen.findByText(/aucun symbole suivi/i)).toBeInTheDocument();
+
+    // Recherche « apple » → suggestions
+    const input = screen.getByLabelText(/rechercher/i);
+    await userEvent.type(input, "apple");
+    const suggestion = await screen.findByRole("button", { name: /Apple Inc\./i });
+    await userEvent.click(suggestion);
+
+    // La carte AAPL apparaît et est persistée
+    expect(await screen.findByRole("button", { name: /^AAPL/ })).toBeInTheDocument();
+    expect(localStorage.getItem("investia.watchlist.v1")).toContain("AAPL");
+    // Le stream a été relancé avec la watchlist
+    await waitFor(() => {
+      const streamCalls = callsTo(fetchMock, "/market/stream");
+      expect(streamCalls.at(-1)?.searchParams.get("symbols")).toContain("AAPL");
+    });
+  });
+
+  it("retire un symbole via le bouton de la carte", async () => {
+    localStorage.setItem("investia.watchlist.v1", JSON.stringify(["AAPL", "SAP.DE"]));
+    stubBackend({
+      stream: () => silentStreamResponse(),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    expect(await screen.findByRole("button", { name: /^AAPL/ })).toBeInTheDocument();
+    const removeBtn = screen.getAllByRole("button", { name: /retirer/i })[0];
+    await userEvent.click(removeBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /^AAPL/ })).not.toBeInTheDocument();
+    });
+    expect(localStorage.getItem("investia.watchlist.v1")).toBe(JSON.stringify(["SAP.DE"]));
+  });
+
+  it("recharge la watchlist depuis localStorage au chargement", async () => {
+    localStorage.setItem("investia.watchlist.v1", JSON.stringify(["BTC-USD"]));
+    stubBackend({
+      stream: () => silentStreamResponse(),
+      history: historyRoute,
+    });
+    renderMarche();
+    expect(await screen.findByRole("button", { name: /^BTC-USD/ })).toBeInTheDocument();
   });
 });

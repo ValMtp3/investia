@@ -136,13 +136,70 @@ export async function fetchMarketHistory(
   return parseMarketHistory(await response.json());
 }
 
-export function useMarketHistory(symbol: string, days: number = HISTORY_DAYS) {
+export function useMarketHistory(
+  symbol: string,
+  days: number = HISTORY_DAYS,
+  enabled = true,
+) {
   return useQuery({
     queryKey: ["market-history", symbol, days],
     queryFn: ({ signal }) => fetchMarketHistory(symbol, days, signal),
+    enabled: enabled && symbol !== "",
     staleTime: HISTORY_STALE_MS,
     // Le backend explique déjà l'échec (« eodhd: clé API manquante ») : on l'affiche tout
     // de suite plutôt que de réessayer 3 fois (environ 7 s sur « Chargement… »).
+    retry: false,
+  });
+}
+
+// --- Recherche de symboles (autocomplétion /marche, étape 7 fix) ---
+
+export interface SymbolHit {
+  symbol: string;
+  description: string;
+  type: string;
+  source: string;
+}
+
+function isSymbolHit(raw: unknown): raw is SymbolHit {
+  if (!isRecord(raw)) return false;
+  return (
+    typeof raw.symbol === "string" &&
+    typeof raw.description === "string" &&
+    typeof raw.type === "string" &&
+    typeof raw.source === "string"
+  );
+}
+
+/** GET /market/search?q= — recherche multi-sources (finnhub/yahoo/coingecko). */
+export async function fetchMarketSearch(
+  query: string,
+  limit = 8,
+  signal?: AbortSignal,
+): Promise<SymbolHit[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const response = await fetch(`${API_URL}/market/search?${params.toString()}`, { signal });
+  if (!response.ok) {
+    throw new Error(
+      await errorDetail(response, `Recherche indisponible (HTTP ${response.status})`),
+    );
+  }
+  const raw = await response.json();
+  const results = (raw as { results?: unknown } | null)?.results;
+  if (!Array.isArray(results) || !results.every(isSymbolHit)) {
+    throw new Error("Résultats de recherche illisibles : réponse inattendue du serveur.");
+  }
+  return results;
+}
+
+/** Autocomplétion : activée seulement pour une requête de 2+ caractères. */
+export function useMarketSearch(query: string) {
+  const enabled = query.trim().length >= 2;
+  return useQuery({
+    queryKey: ["market-search", query.trim().toLowerCase()],
+    queryFn: ({ signal }) => fetchMarketSearch(query.trim(), 8, signal),
+    enabled,
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 }

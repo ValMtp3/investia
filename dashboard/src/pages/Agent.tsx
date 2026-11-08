@@ -279,27 +279,39 @@ export default function Agent() {
       </Module>
 
       <Module title="Demande à l'agent" className="mb-3">
-        <fieldset className="mb-2 flex flex-wrap gap-4">
-          <legend className="sr-only">Mode d'exécution</legend>
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "solo"}
-              onChange={() => setMode("solo")}
-            />
-            Agent seul
-          </label>
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "multi"}
-              onChange={() => setMode("multi")}
-            />
-            Multi-agents (A2A)
-          </label>
-        </fieldset>
+        <div
+          role="group"
+          aria-label="Mode d'exécution"
+          className="mb-2 flex overflow-hidden border border-rule-strong"
+        >
+          {(
+            [
+              { value: "solo" as const, label: "Solo" },
+              { value: "multi" as const, label: "Multi-agents" },
+            ]
+          ).map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={mode === option.value}
+              onClick={() => setMode(option.value)}
+              className={`min-h-11 flex-1 px-3 py-1 font-medium ${
+                index === 0 ? "border-r border-rule-strong" : ""
+              } ${
+                mode === option.value
+                  ? "bg-wash text-signal-ink"
+                  : "bg-paper text-muted hover:bg-wash"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {mode === "multi" && (
+          <p className="mb-2 text-xs text-muted">
+            Chaîne A2A : analyste → gestionnaire de risque → rédacteur.
+          </p>
+        )}
         <div role="group" aria-label="Suggestions" className="mb-2 flex flex-wrap gap-2">
           {SUGGESTIONS.map((suggestion) => (
             <button

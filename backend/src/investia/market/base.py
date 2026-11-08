@@ -46,6 +46,24 @@ class MarketData:
         )
 
 
+@dataclass(frozen=True)
+class SymbolHit:
+    """Un résultat de recherche de symbole (autocomplétion /marche)."""
+
+    symbol: str
+    description: str
+    type: str
+    source: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "description": self.description,
+            "type": self.type,
+            "source": self.source,
+        }
+
+
 class MarketDataConnector(Protocol):
     """Interface commune : un connecteur par source de données."""
 
@@ -62,6 +80,9 @@ class MarketDataConnector(Protocol):
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         """Actualités récentes sur un symbole."""
         ...
+
+    # `search_symbols` est une capacité optionnelle (pas dans le Protocol) : un
+    # connecteur qui la fournit l'implémente, les autres sont sautés par le service.
 
 
 class MarketDataService(Protocol):

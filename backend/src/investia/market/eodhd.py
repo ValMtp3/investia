@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://eodhd.com/api"
 
@@ -76,3 +76,6 @@ class EodhdConnector:
 
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         raise MarketDataError(self.name, "news non disponible via l'endpoint EOD free")
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        raise MarketDataError(self.name, "recherche de symboles non supportée")

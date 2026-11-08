@@ -51,6 +51,7 @@ export function historyBody(
 interface Routes {
   stream: () => unknown;
   history: (url: URL, signal?: AbortSignal | null) => unknown;
+  search?: (url: URL) => unknown;
 }
 
 /** Remplace `fetch` : chaque route du backend a sa réponse simulée. */
@@ -59,6 +60,7 @@ export function stubBackend(routes: Routes) {
     const url = new URL(String(input));
     if (url.pathname === "/market/stream") return routes.stream();
     if (url.pathname === "/market/history") return routes.history(url, init?.signal);
+    if (url.pathname === "/market/search" && routes.search) return routes.search(url);
     throw new Error(`appel inattendu : ${url.pathname}`);
   });
   vi.stubGlobal("fetch", fetchMock);
