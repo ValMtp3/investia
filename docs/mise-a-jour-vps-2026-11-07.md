@@ -102,3 +102,32 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.e
 ## À noter
 
 - La CI GitHub Actions est en panne (quota épuisé depuis le 07/11) : les PR #4, #9 et #10 ont été mergées en admin après validation locale complète (280 tests backend, 100 tests frontend, ruff/ty/lint/build verts). Le quota revient le 01/12.
+
+## Appliquer les rôles applicatifs PostgreSQL (étape 11, D68) — À FAIRE UNE FOIS SUR LE VPS
+
+Le backend et LiteLLM ne doivent plus se connecter en superuser. Deux rôles sans
+SUPERUSER sont créés (`investia_app` pour la base `investia`, `litellm_app` pour
+`litellm`) ; le compte `POSTGRES_USER` reste superuser mais n'est plus utilisé que
+par le conteneur `backup` (pg_dump). Les scripts d'init PostgreSQL ne tournent qu'à
+la création du volume : sur le VPS (volume existant), procédure manuelle :
+
+```bash
+cd ~/investia && git checkout main && git pull --ff-only origin main
+# 1. Deux mots de passe neufs dans le .env du VPS (jamais affichés, jamais commités) :
+#    INVESTIA_APP_DB_PASSWORD=$(openssl rand -hex 32)
+#    LITELLM_APP_DB_PASSWORD=$(openssl rand -hex 32)
+#    (les écrire dans ~/investia/.env à la main, valeurs vides aujourd'hui)
+# 2. URLs de connexion vers les rôles applicatifs dans le même .env :
+#    DATABASE_URL=postgresql+asyncpg://investia_app:<INVESTIA_APP_DB_PASSWORD>@postgres:5432/investia
+#    LITELLM_DATABASE_URL=postgresql://litellm_app:<LITELLM_APP_DB_PASSWORD>@postgres:5432/litellm
+# 3. Appliquer les rôles dans le conteneur postgres existant (script idempotent) :
+cd ~/investia && sh deploy/postgres/apply-app-roles.sh
+# 4. Redéployer : migrations Alembic en tant qu'investia_app, puis la stack
+cd ~/investia/deploy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env exec backend uv run alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env build backend litellm 2>/dev/null || true
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file ../.env ps
+```
+
+Vérifications attendues : `backend` et `litellm` healthy, `curl -s http://127.0.0.1:8080/api/health` → `{"status":"ok"}` (avec `X-Edge-Secret`), connexion refusée pour `investia_app` sur la base `postgres` (`psql -U investia_app -d postgres` → « permission denied »), sauvegarde du lendemain toujours OK (healthcheck `backup`).
