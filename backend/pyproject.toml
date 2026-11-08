@@ -27,7 +27,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "deepeval>=4.3.2",
+    "deepeval>=4.3.3",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
     "pytest-cov>=7.1.0",
