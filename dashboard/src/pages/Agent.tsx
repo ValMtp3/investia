@@ -50,6 +50,20 @@ const SUGGESTIONS = [
   "Donne-moi l'historique de BTC-USD sur 90 jours",
 ];
 
+/** Modes d'exécution avec leur explication, affichée sous le sélecteur quel que soit le mode. */
+const MODES = [
+  {
+    value: "solo" as const,
+    label: "Agent seul",
+    hint: "Un seul agent répond, avec les outils marché et portefeuille.",
+  },
+  {
+    value: "multi" as const,
+    label: "Multi-agents (A2A)",
+    hint: "Chaîne A2A : analyste → gestionnaire de risque → rédacteur.",
+  },
+];
+
 function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
   switch (event.kind) {
     case "llm_call": {
@@ -282,14 +296,9 @@ export default function Agent() {
         <div
           role="group"
           aria-label="Mode d'exécution"
-          className="mb-2 flex overflow-hidden border border-rule-strong"
+          className="mb-1 flex overflow-hidden border border-rule-strong"
         >
-          {(
-            [
-              { value: "solo" as const, label: "Solo" },
-              { value: "multi" as const, label: "Multi-agents" },
-            ]
-          ).map((option, index) => (
+          {MODES.map((option, index) => (
             <button
               key={option.value}
               type="button"
@@ -307,11 +316,9 @@ export default function Agent() {
             </button>
           ))}
         </div>
-        {mode === "multi" && (
-          <p className="mb-2 text-xs text-muted">
-            Chaîne A2A : analyste → gestionnaire de risque → rédacteur.
-          </p>
-        )}
+        <p className="mb-2 text-xs text-muted">
+          {MODES.find((option) => option.value === mode)?.hint}
+        </p>
         <div role="group" aria-label="Suggestions" className="mb-2 flex flex-wrap gap-2">
           {SUGGESTIONS.map((suggestion) => (
             <button

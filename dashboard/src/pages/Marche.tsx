@@ -21,6 +21,9 @@ import { formatPercent } from "../lib/format";
 const WATCHLIST_KEY = "investia.watchlist.v1";
 const MAX_SYMBOLS = 20;
 
+/** Symbole saisi à la main : lettres/chiffres + séparateurs usuels (SAP.DE, BTC-USD, ^GSPC, BRK-B). */
+const SYMBOL_RE = /^[A-Z0-9.^\-=]{1,30}$/;
+
 function loadWatchlist(): string[] {
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY);
@@ -270,8 +273,16 @@ export default function Marche() {
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
+          // Des résultats d'autocomplétion : Entrée prend le premier (comportement historique).
           const first = search.data?.[0];
-          if (first) addSymbol(first.symbol);
+          if (first) {
+            addSymbol(first.symbol);
+            return;
+          }
+          // Sinon, on ajoute le texte tapé comme symbole manuel (ex. « air.pa » → AIR.PA) :
+          // permet de suivre n'importe quel ticker même absent des suggestions.
+          const manual = searchInput.trim().toUpperCase();
+          if (SYMBOL_RE.test(manual)) addSymbol(manual);
         }}
       >
         <label htmlFor="market-search" className="sr-only">
@@ -282,7 +293,7 @@ export default function Marche() {
           type="search"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Rechercher une entreprise (ex. Apple, SAP, Bitcoin)…"
+          placeholder="Rechercher une entreprise (Apple, SAP, Bitcoin)… ou taper un symbole (AIR.PA) + Entrée"
           maxLength={30}
           autoComplete="off"
           className="min-h-11 w-full border border-rule-strong bg-paper px-3 py-2 placeholder:text-muted"

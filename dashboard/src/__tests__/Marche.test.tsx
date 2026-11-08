@@ -594,6 +594,55 @@ describe("Page Marché — recherche et watchlist perso (étape 7 fix)", () => {
     });
   });
 
+  it("ajoute un symbole tapé à la main avec Entrée quand l'autocomplétion ne trouve rien", async () => {
+    stubBackend({
+      stream: () => silentStreamResponse(),
+      search: () => jsonResponse({ results: [] }),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    const input = screen.getByLabelText(/rechercher/i);
+    await userEvent.type(input, "air.pa{Enter}");
+
+    // Le symbole tapé (normalisé en majuscules) devient une carte de la watchlist
+    expect(await screen.findByRole("button", { name: /^AIR\.PA/ })).toBeInTheDocument();
+    expect(localStorage.getItem("investia.watchlist.v1")).toContain("AIR.PA");
+  });
+
+  it("avec Entrée et des résultats, ajoute le premier résultat (pas le texte tapé)", async () => {
+    stubBackend({
+      stream: () => silentStreamResponse(),
+      search: searchRoute,
+      history: historyRoute,
+    });
+    renderMarche();
+
+    const input = screen.getByLabelText(/rechercher/i);
+    await userEvent.type(input, "apple");
+    // attendre que l'autocomplétion ait répondu avant d'appuyer sur Entrée
+    await screen.findByRole("button", { name: /Apple Inc\./i });
+    await userEvent.keyboard("{Enter}");
+
+    expect(await screen.findByRole("button", { name: /^AAPL/ })).toBeInTheDocument();
+    expect(localStorage.getItem("investia.watchlist.v1")).toContain("AAPL");
+  });
+
+  it("ignore à l'Entrée un texte qui n'est pas un symbole valide", async () => {
+    stubBackend({
+      stream: () => silentStreamResponse(),
+      search: () => jsonResponse({ results: [] }),
+      history: historyRoute,
+    });
+    renderMarche();
+
+    const input = screen.getByLabelText(/rechercher/i);
+    await userEvent.type(input, "!!!{Enter}");
+
+    expect(screen.queryByText(/aucun symbole suivi/i)).toBeInTheDocument();
+    expect(localStorage.getItem("investia.watchlist.v1")).toBeNull();
+  });
+
   it("retire un symbole via le bouton de la carte", async () => {
     localStorage.setItem("investia.watchlist.v1", JSON.stringify(["AAPL", "SAP.DE"]));
     stubBackend({
