@@ -17,15 +17,19 @@ async def run_case(
     mock_tool_call: dict[str, Any],
     mock_final: str,
     tools: dict[str, Any],
+    live_llm: Any | None = None,
 ) -> CaseOutcome:
-    case = EvalCase(
-        id=case_id,
-        question=question,
-        expected_tool=expected_tool,
-        mock_tool_call=mock_tool_call,
-        mock_final=mock_final,
-    )
-    llm = MockLlm(case)
+    if live_llm is not None:
+        llm = live_llm
+    else:
+        case = EvalCase(
+            id=case_id,
+            question=question,
+            expected_tool=expected_tool,
+            mock_tool_call=mock_tool_call,
+            mock_final=mock_final,
+        )
+        llm = MockLlm(case)
     t0 = time.perf_counter()
     result = await run_agent(question, llm, tools)
     duration_ms = (time.perf_counter() - t0) * 1000

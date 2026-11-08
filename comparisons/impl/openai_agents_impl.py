@@ -104,8 +104,14 @@ async def run_case(
     mock_tool_call: dict[str, Any],
     mock_final: str,
     tools: dict[str, Any],
+    live_llm: Any | None = None,
 ) -> CaseOutcome:
-    model = FakeModel(mock_tool_call, mock_final)
+    if live_llm is not None:
+        from impl.live_models import AgentsLiveModel
+
+        model = AgentsLiveModel(live_llm)
+    else:
+        model = FakeModel(mock_tool_call, mock_final)
     agent = Agent(
         name="analyste",
         instructions="Tu es un analyste financier simulé.",
