@@ -6,7 +6,12 @@ from typing import Any
 
 import httpx
 
-from investia.market.base import MarketData, MarketDataConnector, MarketDataError
+from investia.market.base import (
+    MarketData,
+    MarketDataConnector,
+    MarketDataError,
+    SymbolHit,
+)
 from investia.market.cache import (
     cached,
     is_paused,
@@ -28,6 +33,11 @@ TTL_FAILURE = 300
 PAUSE_SECONDS = 600
 TTL_NEWS = 900
 TTL_FX = 86400
+# Les résultats de recherche changent peu : 24 h de cache ménage les quotas.
+TTL_SEARCH = 86400
+# Sources interrogées pour la recherche par nom, dans l'ordre (les autres lèvent
+# « non supportée » et sont sautées).
+SEARCH_SOURCES = ("finnhub", "yahoo", "coingecko")
 
 # Erreurs qu'un connecteur peut laisser passer sans les convertir : réseau coupé,
 # délai dépassé, JSON invalide, champ absent. Elles ne doivent pas casser la cascade.
@@ -161,3 +171,60 @@ class MarketService:
             ttl=TTL_NEWS,
             factory=lambda: connector.get_news(symbol, limit),
         )
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        """Recherche par nom, multi-sources : fusionne et dédoublonne par symbole.
+
+        Les sources sans support lèvent MarketDataError « non supportée » et sont
+        sautées ; si toutes échouent, une seule erreur qui liste les tentatives.
+        """
+        q = query.strip()
+        if not self._use_cache:
+            return await self._search_from_sources(q, limit)
+        raw = await cached(
+            f"search:{q.lower()}:{limit}",
+            ttl=TTL_SEARCH,
+            factory=lambda: self._search_uncached(q, limit),
+        )
+        return [SymbolHit(**item) for item in raw]
+
+    async def _search_uncached(self, query: str, limit: int) -> list[dict[str, Any]]:
+        return [hit.to_dict() for hit in await self._search_from_sources(query, limit)]
+
+    async def _search_from_sources(self, query: str, limit: int) -> list[SymbolHit]:
+        ordered = [s for s in SEARCH_SOURCES if s in self._connectors]
+        ordered += [s for s in self._connectors if s not in SEARCH_SOURCES]
+        attempts: list[str] = []
+        seen: set[str] = set()
+        merged: list[SymbolHit] = []
+        for source in ordered:
+            connector = self._connectors[source]
+            search_fn = getattr(connector, "search_symbols", None)
+            if search_fn is None:
+                attempts.append(f"{source}: recherche non supportée")
+                continue
+            try:
+                hits = await self._guarded(source, lambda: search_fn(query, limit))
+            except MarketDataError as error:
+                attempts.append(str(error))
+                continue
+            except UNEXPECTED_SOURCE_ERRORS as error:
+                logger.warning("%s : erreur inattendue (search)", source, exc_info=True)
+                attempts.append(
+                    f"{source}: erreur réseau ou format ({type(error).__name__})"
+                )
+                continue
+            for hit in hits:
+                key = hit.symbol.upper()
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(hit)
+                if len(merged) >= limit:
+                    return merged
+        if not merged:
+            raise MarketDataError(
+                "recherche",
+                f"aucun résultat pour {query!r} — " + " · ".join(attempts),
+            )
+        return merged

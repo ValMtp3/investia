@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://finnhub.io/api/v1"
 
@@ -59,3 +59,21 @@ class FinnhubConnector:
             },
         )
         return list(data[:limit])
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        """Recherche par nom : GET /search?q= (gratuit, global)."""
+        data = await self._get("/search", {"q": query})
+        hits = []
+        for item in (data.get("result") or [])[:limit]:
+            symbol = str(item.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            hits.append(
+                SymbolHit(
+                    symbol=symbol,
+                    description=str(item.get("description") or ""),
+                    type=str(item.get("type") or ""),
+                    source=self.name,
+                )
+            )
+        return hits

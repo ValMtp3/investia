@@ -472,6 +472,23 @@ def create_app(
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
+    @app.get("/market/search")
+    async def market_search(
+        q: str = Query(..., min_length=2, max_length=30),
+        limit: int = Query(10, ge=1, le=20),
+    ) -> dict[str, Any]:
+        """Recherche de symboles par nom (autocomplétion), multi-sources."""
+        search = getattr(market, "search_symbols", None)
+        if search is None:
+            raise HTTPException(
+                status_code=503, detail="recherche non disponible sur ce service"
+            )
+        try:
+            hits = await search(q, limit=limit)
+        except MarketDataError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        return {"results": [hit.to_dict() for hit in hits]}
+
     @app.get("/market/history")
     async def market_history(
         symbol: str = Query(..., pattern=SYMBOL_PATTERN),
