@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ErrorNotice from "../components/ErrorNotice";
 import Badge from "../components/Badge";
+import EmptyState from "../components/EmptyState";
 import Loading from "../components/Loading";
 import Module from "../components/Module";
 import PageHeader from "../components/PageHeader";
@@ -9,14 +10,36 @@ import Sparkline from "../components/Sparkline";
 import {
   streamMarket,
   useMarketHistory,
+  useMarketSearch,
   type HistoryPoint,
   type LiveQuote,
 } from "../api";
 import { isAbortError } from "../lib/errors";
 import { formatPercent } from "../lib/format";
 
-/** Liste de suivi (max 20 côté backend). Les 3 premiers symboles restent ceux d'avant. */
-const SYMBOLS = ["AAPL", "SAP.DE", "BTC-USD", "MSFT", "NVDA", "ETH-USD", "AIR.PA"];
+/** Watchlist 100 % perso, persistée en localStorage (étape 7 fix). Max 20 symboles côté backend. */
+const WATCHLIST_KEY = "investia.watchlist.v1";
+const MAX_SYMBOLS = 20;
+
+function loadWatchlist(): string[] {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s): s is string => typeof s === "string").slice(0, MAX_SYMBOLS);
+  } catch {
+    return [];
+  }
+}
+
+function saveWatchlist(symbols: string[]): void {
+  try {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(symbols));
+  } catch {
+    // localStorage indisponible (navigation privée…) : la watchlist reste en mémoire.
+  }
+}
 
 /** Périodes du graphique : `days` est borné à 5–400 côté backend. */
 const PERIODS = [
@@ -68,22 +91,31 @@ interface SymbolCardProps {
   days: number;
   periodLabel: string;
   onSelect: () => void;
+  onRemove: () => void;
 }
 
-/** Carte d'un symbole : prix live, variation du jour, sparkline de la période. */
-function SymbolCard({ symbol, quote, selected, days, periodLabel, onSelect }: SymbolCardProps) {
+/** Carte d'un symbole : prix live, variation du jour, sparkline, bouton retirer. */
+function SymbolCard({
+  symbol,
+  quote,
+  selected,
+  days,
+  periodLabel,
+  onSelect,
+  onRemove,
+}: SymbolCardProps) {
   const history = useMarketHistory(symbol, days);
   const points = history.data?.points ?? [];
   const changes = pctChanges(points);
   const sparkTone =
     changes.period === null ? "neutral" : changes.period >= 0 ? "gain" : "signal";
   return (
-    <li>
+    <li className="relative">
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        className="min-h-11 w-full border border-rule-strong bg-paper p-3 text-left hover:bg-wash aria-pressed:border-signal aria-pressed:shadow-[inset_0_0_0_1px_var(--color-signal)]"
+        className="min-h-11 w-full border border-rule-strong bg-paper p-3 pr-9 text-left hover:bg-wash aria-pressed:border-signal aria-pressed:shadow-[inset_0_0_0_1px_var(--color-signal)]"
       >
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium">{symbol}</span>
@@ -132,23 +164,61 @@ function SymbolCard({ symbol, quote, selected, days, periodLabel, onSelect }: Sy
           />
         </div>
       </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Retirer ${symbol} de la liste`}
+        className="absolute right-1 top-1 flex min-h-11 min-w-11 items-center justify-center text-muted hover:text-signal-ink"
+      >
+        ×
+      </button>
     </li>
   );
 }
 
 export default function Marche() {
-  const [selected, setSelected] = useState(SYMBOLS[0]);
+  const [watchlist, setWatchlist] = useState<string[]>(loadWatchlist);
+  const [selected, setSelected] = useState<string | null>(null);
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
   const [hasReceived, setHasReceived] = useState(false);
-  const history = useMarketHistory(selected, period.days);
+  const [searchInput, setSearchInput] = useState("");
+  const search = useMarketSearch(searchInput);
 
+  // Sélection par défaut : premier symbole de la watchlist.
   useEffect(() => {
+    if (selected === null && watchlist.length > 0) setSelected(watchlist[0]);
+  }, [watchlist, selected]);
+  const activeSymbol = selected ?? watchlist[0] ?? null;
+  const history = useMarketHistory(activeSymbol ?? "", period.days, activeSymbol !== null);
+
+  function addSymbol(symbol: string) {
+    setWatchlist((prev) => {
+      if (prev.includes(symbol) || prev.length >= MAX_SYMBOLS) return prev;
+      const next = [...prev, symbol];
+      saveWatchlist(next);
+      return next;
+    });
+    setSearchInput("");
+  }
+
+  function removeSymbol(symbol: string) {
+    setWatchlist((prev) => {
+      const next = prev.filter((s) => s !== symbol);
+      saveWatchlist(next);
+      if (selected === symbol) setSelected(next[0] ?? null);
+      return next;
+    });
+  }
+
+  // Le flux SSE suit la watchlist : on le relance à chaque changement.
+  useEffect(() => {
+    if (watchlist.length === 0) return;
     const controller = new AbortController();
     setStreamError(null);
     streamMarket(
-      SYMBOLS,
+      watchlist,
       (received) => {
         setHasReceived(true);
         setQuotes((prev) => {
@@ -173,7 +243,7 @@ export default function Marche() {
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [watchlist]);
 
   const streamState = streamError ? "interrupted" : hasReceived ? "live" : "connecting";
 
@@ -194,19 +264,80 @@ export default function Marche() {
         }
       />
       {streamError && <ErrorNotice className="mb-3">{streamError}</ErrorNotice>}
-      <ul className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {SYMBOLS.map((symbol) => (
-          <SymbolCard
-            key={symbol}
-            symbol={symbol}
-            quote={quotes[symbol]}
-            selected={selected === symbol}
-            days={period.days}
-            periodLabel={period.label}
-            onSelect={() => setSelected(symbol)}
-          />
-        ))}
-      </ul>
+
+      <form
+        className="mb-3"
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const first = search.data?.[0];
+          if (first) addSymbol(first.symbol);
+        }}
+      >
+        <label htmlFor="market-search" className="sr-only">
+          Rechercher une entreprise ou un symbole
+        </label>
+        <input
+          id="market-search"
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Rechercher une entreprise (ex. Apple, SAP, Bitcoin)…"
+          maxLength={30}
+          autoComplete="off"
+          className="min-h-11 w-full border border-rule-strong bg-paper px-3 py-2 placeholder:text-muted"
+        />
+        {searchInput.trim().length >= 2 && (
+          <ul aria-label="Suggestions" className="mt-1 border border-rule bg-paper">
+            {search.isPending && (
+              <li className="px-3 py-2 text-muted">Recherche…</li>
+            )}
+            {search.isError && (
+              <li className="px-3 py-2 text-signal-ink">{search.error.message}</li>
+            )}
+            {search.data?.map((hit) => (
+              <li key={`${hit.source}:${hit.symbol}`}>
+                <button
+                  type="button"
+                  onClick={() => addSymbol(hit.symbol)}
+                  className="flex min-h-11 w-full items-baseline justify-between gap-2 px-3 py-2 text-left hover:bg-wash"
+                >
+                  <span className="font-medium">{hit.symbol}</span>
+                  <span className="text-xs text-muted">
+                    {hit.description} · {hit.source}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {search.data && search.data.length === 0 && (
+              <li className="px-3 py-2 text-muted">Aucun résultat.</li>
+            )}
+          </ul>
+        )}
+      </form>
+
+      {watchlist.length === 0 ? (
+        <EmptyState
+          className="mb-3"
+          title="Aucun symbole suivi"
+          hint="Cherche une entreprise ci-dessus pour l'ajouter à ta liste."
+        />
+      ) : (
+        <ul className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {watchlist.map((symbol) => (
+            <SymbolCard
+              key={symbol}
+              symbol={symbol}
+              quote={quotes[symbol]}
+              selected={activeSymbol === symbol}
+              days={period.days}
+              periodLabel={period.label}
+              onSelect={() => setSelected(symbol)}
+              onRemove={() => removeSymbol(symbol)}
+            />
+          ))}
+        </ul>
+      )}
       <div role="group" aria-label="Période du graphique" className="mb-3 flex flex-wrap gap-2">
         {PERIODS.map((onePeriod) => (
           <button
@@ -220,28 +351,30 @@ export default function Marche() {
           </button>
         ))}
       </div>
-      <Module title={selected}>
-        {history.isPending && <Loading label="Chargement de l'historique…" />}
-        {history.isError && <ErrorNotice>{history.error.message}</ErrorNotice>}
-        {history.data && history.data.points.length === 0 && (
-          <p className="text-muted">Aucun historique disponible pour ce symbole.</p>
-        )}
-        {history.data && history.data.points.length > 0 && (
-          <>
-            <PriceChart
-              symbol={selected}
-              source={history.data.source ?? "inconnue"}
-              points={history.data.points}
-              days={period.days}
-            />
-            <p className="mt-2 text-xs text-muted">
-              Cours de clôture journaliers · source : {history.data.source ?? "inconnue"} ·
-              devise : {history.data.currency ?? "inconnue"}
-              {history.data.delayed ? " · différé" : ""}
-            </p>
-          </>
-        )}
-      </Module>
+      {activeSymbol !== null && (
+        <Module title={activeSymbol}>
+          {history.isPending && <Loading label="Chargement de l'historique…" />}
+          {history.isError && <ErrorNotice>{history.error.message}</ErrorNotice>}
+          {history.data && history.data.points.length === 0 && (
+            <p className="text-muted">Aucun historique disponible pour ce symbole.</p>
+          )}
+          {history.data && history.data.points.length > 0 && (
+            <>
+              <PriceChart
+                symbol={activeSymbol}
+                source={history.data.source ?? "inconnue"}
+                points={history.data.points}
+                days={period.days}
+              />
+              <p className="mt-2 text-xs text-muted">
+                Cours de clôture journaliers · source : {history.data.source ?? "inconnue"} ·
+                devise : {history.data.currency ?? "inconnue"}
+                {history.data.delayed ? " · différé" : ""}
+              </p>
+            </>
+          )}
+        </Module>
+      )}
     </section>
   );
 }

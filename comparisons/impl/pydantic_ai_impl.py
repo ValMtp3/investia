@@ -53,11 +53,17 @@ async def run_case(
     mock_tool_call: dict[str, Any],
     mock_final: str,
     tools: dict[str, Any],
+    live_llm: Any | None = None,
 ) -> CaseOutcome:
-    model = TestModel(
-        call_tools=[expected_tool] if expected_tool else [],
-        custom_output_text=mock_final,
-    )
+    if live_llm is not None:
+        from impl.live_models import PydanticAiLiveModel
+
+        model = PydanticAiLiveModel(live_llm)
+    else:
+        model = TestModel(
+            call_tools=[expected_tool] if expected_tool else [],
+            custom_output_text=mock_final,
+        )
     agent = Agent(
         model=model,
         system_prompt="Tu es un analyste financier simulé.",

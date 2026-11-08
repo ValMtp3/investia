@@ -10,9 +10,10 @@ from typing import Any
 
 import httpx
 
-from investia.market.base import MarketData, MarketDataError
+from investia.market.base import MarketData, MarketDataError, SymbolHit
 
 BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
+SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
@@ -83,3 +84,28 @@ class YahooConnector:
 
     async def get_news(self, symbol: str, limit: int = 5) -> list[dict[str, Any]]:
         raise MarketDataError(self.name, "news non disponible via l'API chart")
+
+    async def search_symbols(self, query: str, limit: int = 10) -> list[SymbolHit]:
+        """Recherche par nom : v1/finance/search (non officiel, comme le chart)."""
+        response = await self._client.get(
+            SEARCH_URL, params={"q": query, "quotesCount": limit}
+        )
+        if response.status_code != 200:
+            raise MarketDataError(self.name, f"HTTP {response.status_code} pour search")
+        quotes = (response.json().get("quotes") or [])[:limit]
+        hits = []
+        for item in quotes:
+            symbol = str(item.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            hits.append(
+                SymbolHit(
+                    symbol=symbol,
+                    description=str(
+                        item.get("shortname") or item.get("longname") or ""
+                    ),
+                    type=str(item.get("quoteType") or ""),
+                    source=self.name,
+                )
+            )
+        return hits

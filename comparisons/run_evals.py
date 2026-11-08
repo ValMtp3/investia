@@ -30,12 +30,28 @@ APPROACHES = [
 ]
 
 
-async def run_all(cases, tools) -> dict:
-    """Lance chaque approche sur chaque cas, agrège les métriques."""
+async def run_all(
+    cases,
+    tools,
+    mode: str = "mock",
+    llm_factory=None,
+    budget_cents: float | None = None,
+) -> dict:
+    """Lance chaque approche sur chaque cas, agrège les métriques.
+
+    mode="mock" : LLM fake déterministe (gratuit). mode="live" : vrai LLM via
+    llm_factory ; budget_cents bloque l'exécution dès que le cumul dépasse le
+    budget (D62) — results["budget_exceeded"] est alors true.
+    """
     per_approach: dict[str, list[dict]] = {}
+    spent_cents = 0.0
+    budget_exceeded = False
+    live_llm = llm_factory() if (mode == "live" and llm_factory) else None
     for approach, run_case in APPROACHES:
         entries = []
         for case in cases:
+            if budget_exceeded:
+                break
             t0 = time.perf_counter()
             outcome = await run_case(
                 approach,
@@ -45,7 +61,11 @@ async def run_all(cases, tools) -> dict:
                 case.mock_tool_call,
                 case.mock_final,
                 tools,
+                live_llm=live_llm,
             )
+            spent_cents += outcome.cost_cents
+            if budget_cents is not None and spent_cents > budget_cents:
+                budget_exceeded = True
             wall_ms = (time.perf_counter() - t0) * 1000
             agent_result = AgentResult(
                 answer=outcome.answer,
@@ -96,6 +116,10 @@ async def run_all(cases, tools) -> dict:
     summary = {}
     for approach, entries in per_approach.items():
         n = len(entries)
+        if n == 0:
+            # Approche arrêtée par le budget avant le moindre cas.
+            summary[approach] = {"cases": 0, "stopped_by_budget": True}
+            continue
         summary[approach] = {
             "cases": n,
             "tool_ok_rate": round(sum(1 for e in entries if e["tool_ok"]) / n, 3),
@@ -115,10 +139,13 @@ async def run_all(cases, tools) -> dict:
             },
         }
     return {
-        "mode": "mock",
+        "mode": mode,
         "cases": [c.id for c in cases],
         "per_approach": per_approach,
         "summary": summary,
+        "spent_cents": round(spent_cents, 3),
+        "budget_cents": budget_cents,
+        "budget_exceeded": budget_exceeded,
     }
 
 
@@ -127,21 +154,44 @@ async def main() -> None:
     parser.add_argument(
         "--live",
         action="store_true",
-        help="runs LLM réels (non implémenté ici : mock uniquement)",
+        help="runs LLM réels via LiteLLM (vraies clés requises, D62)",
+    )
+    parser.add_argument(
+        "--budget-eur",
+        type=float,
+        default=2.0,
+        help="budget max en € pour le mode live, bloqué en code (défaut 2, D62)",
     )
     args = parser.parse_args()
-    if args.live:
-        raise SystemExit(
-            "mode --live : à faire en 6.3 avec budget 2 € (D62), pas en mock"
-        )
     cases = load_cases(CASES_PATH)
     tools = build_tools(MockMarket())
-    results = await run_all(cases, tools)
-    RESULTS_PATH.write_text(
-        json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    if args.live:
+        from investia.config import get_settings
+        from investia.llm import build_llm_client
+
+        settings = get_settings()
+        if not (settings.openrouter_api_key or settings.mistral_api_key):
+            raise SystemExit("mode --live : aucune clé LLM (voir .env.example)")
+        llm_factory = lambda: build_llm_client(settings)  # noqa: E731
+        results = await run_all(
+            cases,
+            tools,
+            mode="live",
+            llm_factory=llm_factory,
+            budget_cents=args.budget_eur * 100,
+        )
+        out = RESULTS_PATH.with_name("results-live.json")
+    else:
+        results = await run_all(cases, tools, mode="mock")
+        out = RESULTS_PATH
+    out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(results["summary"], indent=2, ensure_ascii=False))
-    print(f"\n→ {RESULTS_PATH}")
+    if results["mode"] == "live":
+        print(
+            f"\ncoût total : {results['spent_cents']} cts · "
+            f"budget dépassé : {results['budget_exceeded']}"
+        )
+    print(f"\n→ {out}")
 
 
 if __name__ == "__main__":

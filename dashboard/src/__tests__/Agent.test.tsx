@@ -331,7 +331,7 @@ describe("Page Agent — mode multi-agents A2A (6.1)", () => {
     const fetchMock = stubAgentFetch({ sse: [MULTI_RUN] });
     await renderAgent();
 
-    await userEvent.click(screen.getByRole("radio", { name: /multi-agents/i }));
+    await userEvent.click(screen.getByRole("button", { name: /multi-agents/i }));
     await userEvent.type(screen.getByLabelText(/question/i), "analyse AAPL");
     await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
 
