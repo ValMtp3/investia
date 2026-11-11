@@ -67,9 +67,17 @@ class AgentResult:
     reflections: list[ReflectionDecision] = field(default_factory=list)
     run_id: str | None = None
     status: str = "ok"  # ok / blocked / max_turns
-    from_cache: bool = False  # étape 12e : servi par le cache sémantique, zéro appel LLM
-    consensus: float = 1.0  # étape 12c : part des k runs d'accord avec la réponse retenue
-    answers: list[str] = field(default_factory=list)  # étape 12c : les k réponses candidates
+    from_cache: bool = (
+        False  # étape 12e : servi par le cache sémantique, zéro appel LLM
+    )
+    consensus: float = (
+        1.0  # étape 12c : part des k runs d'accord avec la réponse retenue
+    )
+    answers: list[str] = field(
+        default_factory=list
+    )  # étape 12c : les k réponses candidates
+    router_source: str = "rules"  # étape 12h : explicit | learned | rules
+    model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
 
 
 DEFAULT_MAX_TURNS = 8
@@ -88,6 +96,8 @@ def _parse_reasoning_modes(reasoning: str) -> set[str]:
             "(attendu : 'none', 'plan', 'reflect' ou 'plan+reflect')"
         )
     return modes
+
+
 # Validation humaine (D57) : pas de réponse = pas d'ordre.
 DEFAULT_APPROVAL_TIMEOUT = 300.0
 
@@ -106,6 +116,7 @@ async def _run_once(
     approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
     decision_client: Any | None = None,
     logprobs_guardrail: bool = False,
+    router_source: str = "rules",
 ) -> AgentResult:
     """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c)."""
     from investia.agent.prompts import SYSTEM_PROMPT
@@ -126,7 +137,7 @@ async def _run_once(
     reflections: list[ReflectionDecision] = []
     total_cost = 0.0
     if "plan" in modes:
-        # Étape 12a : appel LLM dédié, le plan est tracé puis suivi par la métrique plan_suivi.
+        # Étape 12a : appel LLM dédié, plan tracé + métrique plan_suivi.
         plan, plan_cost = await make_plan(
             llm, model_key, question, [tool.name for tool in tools.values()]
         )
@@ -286,11 +297,17 @@ async def _run_once(
         # Étape 12d : garde-fous LLM en renfort (jamais à la place du code).
         if decision_client is not None:
             checks.append(
-                ("safety_llm", await check_safety_llm(response.content, decision_client.decide))
+                (
+                    "safety_llm",
+                    await check_safety_llm(response.content, decision_client.decide),
+                )
             )
         if logprobs_guardrail:
             checks.append(
-                ("safety_logprobs", await check_safety_logprobs(response.content, llm, model_key))
+                (
+                    "safety_logprobs",
+                    await check_safety_logprobs(response.content, llm, model_key),
+                )
             )
         guardrails.extend(
             GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
@@ -325,6 +342,8 @@ async def _run_once(
                 reflections=reflections,
                 run_id=run_id,
                 status="ok",
+                router_source=router_source,
+                model_key=model_key,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -376,6 +395,8 @@ async def _run_once(
             reflections=reflections,
             run_id=run_id,
             status="blocked",
+            router_source=router_source,
+            model_key=model_key,
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -413,6 +434,8 @@ async def _run_once(
         reflections=reflections,
         run_id=run_id,
         status="max_turns",
+        router_source=router_source,
+        model_key=model_key,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -453,21 +476,33 @@ async def run_agent(
     decision_client: Any | None = None,
     logprobs_guardrail: bool = False,
     semantic_cache: Any | None = None,
+    router: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
     consistency_k > 1 : k sous-runs en parallèle (chacun tracé en base), vote
     majoritaire sur la réponse finale, event/step « consensus » dans le run
     gagnant. Non combinable avec la validation humaine (approval_registry).
+
+    router (étape 12h) : routeur appris petit/gros modèle ; model_key explicite
+    reste prioritaire. Après chaque run (hors cache), un feedback est enregistré.
     """
     modes = _parse_reasoning_modes(reasoning)
     if consistency_k < 1:
         raise ValueError(f"consistency_k invalide : {consistency_k} (attendu >= 1)")
     if consistency_k > 1 and approval_registry is not None:
         raise ValueError(
-            "consistency_k > 1 non combinable avec approval_registry (validation humaine)"
+            "consistency_k > 1 non combinable avec approval_registry "
+            "(validation humaine)"
         )
-    resolved_model = model_key or choose(question)
+    if model_key is not None:
+        resolved_model = model_key
+        router_source = "explicit"
+    elif router is not None:
+        resolved_model, router_source = await router.choose(question)
+    else:
+        resolved_model = choose(question)
+        router_source = "rules"
 
     async def emit(kind: str, payload: dict[str, Any]) -> None:
         if event_sink is not None:
@@ -482,7 +517,16 @@ async def run_agent(
         except Exception:
             pass
 
-    # Étape 12e : cache sémantique — une question déjà répondue est servie sans appel LLM.
+    async def record_feedback(status: str) -> None:
+        """Feedback du routeur appris (12h) ; une erreur ne bloque jamais le run."""
+        if router is None:
+            return
+        try:
+            await router.record(question, resolved_model, status == "ok")
+        except Exception:
+            pass
+
+    # Étape 12e : cache sémantique — question déjà répondue = servie sans appel LLM.
     if semantic_cache is not None:
         try:
             hit = await semantic_cache.lookup(question)
@@ -500,6 +544,8 @@ async def run_agent(
                 model="cache",
                 status="ok",
                 from_cache=True,
+                router_source=router_source,
+                model_key=resolved_model,
             )
 
     if consistency_k == 1:
@@ -517,9 +563,11 @@ async def run_agent(
             approval_timeout=approval_timeout,
             decision_client=decision_client,
             logprobs_guardrail=logprobs_guardrail,
+            router_source=router_source,
         )
         if result.status == "ok":
             await store_cache(result.answer)
+        await record_feedback(result.status)
         return result
 
     await emit("start", {"question": question, "consistency_k": consistency_k})
@@ -540,6 +588,7 @@ async def run_agent(
             approval_timeout=approval_timeout,
             decision_client=decision_client,
             logprobs_guardrail=logprobs_guardrail,
+            router_source=router_source,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))
@@ -561,6 +610,7 @@ async def run_agent(
     )
     if result.status == "ok":
         await store_cache(result.answer)
+    await record_feedback(result.status)
     await emit("answer", {"turn": result.turns, "text": result.answer})
     await emit(
         "done",

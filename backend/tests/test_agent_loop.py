@@ -18,7 +18,9 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append(
             {"model": model_key, "messages": list(messages), "tools": tools}
         )
@@ -170,3 +172,90 @@ async def test_unknown_tool_is_reported():
     await run_agent("?", llm, tools)
     tool_messages = [m for m in llm.calls[1]["messages"] if m["role"] == "tool"]
     assert "inconnu" in tool_messages[0]["content"]
+
+
+# --- Étape 12h : routeur appris câblé dans run_agent ---
+
+
+class FakeRouter:
+    def __init__(
+        self, choice: tuple[str, str] = ("small", "learned"), raises: bool = False
+    ):
+        self._choice = choice
+        self._raises = raises
+        self.recorded: list[tuple[str, str, bool]] = []
+
+    async def choose(self, question: str) -> tuple[str, str]:
+        return self._choice
+
+    async def record(self, question: str, model: str, success: bool) -> None:
+        if self._raises:
+            raise RuntimeError("store indisponible")
+        self.recorded.append((question, model, success))
+
+
+async def test_router_learned_choisit_modele_source_et_record():
+    llm = FakeLlm([make_response(content=FINAL_NO_NUMBER)])
+    router = FakeRouter(("small", "learned"))
+    result = await run_agent(
+        "résume ceci vite", llm, build_tools(FakeMarket()), router=router
+    )
+    assert llm.calls[0]["model"] == "small"
+    assert result.router_source == "learned"
+    # run ok -> feedback success=True enregistré avec le modèle résolu
+    assert router.recorded == [("résume ceci vite", "small", True)]
+
+
+async def test_sans_router_source_rules_et_regles_d44():
+    llm = FakeLlm([make_response(content=FINAL_NO_NUMBER)])
+    result = await run_agent(
+        "analyse approfondie de la stratégie", llm, build_tools(FakeMarket())
+    )
+    assert result.router_source == "rules"
+    assert llm.calls[0]["model"] == "large"  # mot-clé « analyse » -> large (D44)
+
+
+async def test_model_key_explicite_prioritaire_source_explicit():
+    llm = FakeLlm([make_response(content=FINAL_NO_NUMBER)])
+    router = FakeRouter(("small", "learned"))
+    result = await run_agent(
+        "q", llm, build_tools(FakeMarket()), model_key="large", router=router
+    )
+    assert result.router_source == "explicit"
+    assert llm.calls[0]["model"] == "large"
+    assert router.recorded == [("q", "large", True)]
+
+
+async def test_record_success_false_si_run_bloque():
+    llm = FakeLlm([make_response(content="réponse sans aucun format valide")])
+    router = FakeRouter()
+    result = await run_agent(
+        "q", llm, build_tools(FakeMarket()), router=router, max_corrections=0
+    )
+    assert result.status == "blocked"
+    assert router.recorded == [("q", "small", False)]
+
+
+async def test_erreur_record_avalee_le_run_reste_ok():
+    llm = FakeLlm([make_response(content=FINAL_NO_NUMBER)])
+    router = FakeRouter(raises=True)
+    result = await run_agent("q", llm, build_tools(FakeMarket()), router=router)
+    assert result.status == "ok"
+
+
+async def test_pas_de_record_si_reponse_servie_par_cache():
+    class FakeCache:
+        async def lookup(self, question):
+            return "réponse en cache"
+
+        async def store(self, question, answer):
+            pass
+
+    llm = FakeLlm([make_response(content=FINAL_NO_NUMBER)])
+    router = FakeRouter()
+    result = await run_agent(
+        "q", llm, build_tools(FakeMarket()), router=router, semantic_cache=FakeCache()
+    )
+    assert result.from_cache is True
+    assert router.recorded == []
+    assert llm.calls == []  # aucun appel LLM

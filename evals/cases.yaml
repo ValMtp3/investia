@@ -416,3 +416,55 @@ cases:
       - sandbox (run_python)
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 12h : routeur appris — 6 voisins "small" ont réussi -> learned choisit small
+  # (les règles D44 diraient large à cause du mot « analyse »). routeur_choix = 1.0.
+  - id: routeur-learned
+    question: "analyse courte du prix de AAPL en deux lignes"
+    expected_tool: get_quote
+    expected_model: small
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_router_neighbors:
+      - { similarity: 0.95, model: small, success: true }
+      - { similarity: 0.94, model: small, success: true }
+      - { similarity: 0.93, model: small, success: true }
+      - { similarity: 0.92, model: small, success: true }
+      - { similarity: 0.91, model: small, success: true }
+      - { similarity: 0.90, model: small, success: true }
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12h : routeur — aucun feedback (< 5) -> fallback règles D44
+  # (« analyse » -> large). routeur_choix = 1.0.
+  - id: routeur-fallback
+    question: "analyse approfondie de la stratégie long terme"
+    expected_tool: get_quote
+    expected_model: large
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_router_neighbors: []
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.

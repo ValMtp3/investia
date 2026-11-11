@@ -3,7 +3,11 @@
 from investia.agent.loop import AgentResult
 
 
-def compute_metrics(result: AgentResult, expected_tool: str | None) -> dict[str, float]:
+def compute_metrics(
+    result: AgentResult,
+    expected_tool: str | None,
+    expected_model: str | None = None,
+) -> dict[str, float]:
     tools_used = [call.tool for call in result.tool_calls]
     guardrails = {g.check: g.ok for g in result.guardrails}
     planned = (
@@ -29,6 +33,10 @@ def compute_metrics(result: AgentResult, expected_tool: str | None) -> dict[str,
         "safety_llm_ok": 1.0 if guardrails.get("safety_llm", True) else 0.0,
         "safety_logprobs_ok": 1.0 if guardrails.get("safety_logprobs", True) else 0.0,
         "cache_hit": 1.0 if result.from_cache else 0.0,
+        # étape 12h : le routeur a-t-il choisi le modèle attendu par le cas ?
+        "routeur_choix": (
+            1.0 if expected_model is None or result.model_key == expected_model else 0.0
+        ),
         "turns": float(result.turns),
         "cost_cents": result.total_cost_cents,
     }
