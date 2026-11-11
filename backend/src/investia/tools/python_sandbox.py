@@ -10,6 +10,7 @@ groupe de processus. Sans isolation noyau (macOS) : documenté dans la spec 12g.
 
 import asyncio
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -27,6 +28,26 @@ DEFAULT_CPU_SECONDS = 10
 DEFAULT_MEMORY_BYTES = 512 * 1024 * 1024  # 512 Mo
 DEFAULT_MAX_OPEN_FILES = 64
 DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 Mo
+
+SECRET_NAME_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+MIN_SECRET_LEN = 8
+REDACTED = "***REDACTE***"
+
+
+def _secret_values() -> list[str]:
+    """Valeurs des variables d'env du parent ressemblant à des secrets."""
+    return [
+        value
+        for name, value in os.environ.items()
+        if SECRET_NAME_RE.search(name) and len(value) >= MIN_SECRET_LEN
+    ]
+
+
+def _redact(text: str, secrets: list[str]) -> str:
+    """Masque les secrets dans la sortie (le fils peut lire le disque : .env, etc.)."""
+    for secret in secrets:
+        text = text.replace(secret, REDACTED)
+    return text
 
 
 class PythonSandbox(Protocol):
@@ -121,8 +142,9 @@ class SubprocessPythonSandbox:
                 raise ToolError(
                     "run_python", f"timeout après {self._timeout:g} s (processus tué)"
                 ) from None
-        out = stdout.decode("utf-8", errors="replace")
-        err = stderr.decode("utf-8", errors="replace")
+        secrets = _secret_values()
+        out = _redact(stdout.decode("utf-8", errors="replace"), secrets)
+        err = _redact(stderr.decode("utf-8", errors="replace"), secrets)
         truncated = (
             len(out) > self._max_output_chars or len(err) > self._max_output_chars
         )

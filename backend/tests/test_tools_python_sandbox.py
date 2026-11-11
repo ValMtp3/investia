@@ -140,3 +140,17 @@ async def test_tool_run_renvoie_source_timestamp_exit_code():
     assert out["exit_code"] == 0
     assert out["source"] == "sandbox"
     assert "timestamp" in out
+
+
+async def test_sortie_masque_les_secrets_lus_sur_disque(monkeypatch, tmp_path):
+    """Même si le code lit un fichier contenant un secret, la sortie est masquée."""
+    secret = "sk-test-1234567890abcdef"
+    monkeypatch.setenv("BRAVE_API_KEY", secret)
+    fichier_secret = tmp_path / "faux.env"
+    fichier_secret.write_text(f"BRAVE_API_KEY={secret}\n")
+    code = (
+        f"from pathlib import Path\nprint(Path({str(fichier_secret)!r}).read_text())\n"
+    )
+    result = await make_sandbox().run_code(code)
+    assert secret not in result["stdout"]
+    assert "***" in result["stdout"]
