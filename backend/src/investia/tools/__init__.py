@@ -8,6 +8,7 @@ from investia.tools.news import GetNewsTool
 from investia.tools.order import SimulateOrderTool
 from investia.tools.pdf import PdfReader, ReadPdfTool
 from investia.tools.portfolio import GetPortfolioTool, PortfolioServiceLike
+from investia.tools.python_sandbox import PythonSandbox, RunPythonTool
 from investia.tools.quote import GetQuoteTool
 from investia.tools.web_search import WebSearcher, WebSearchTool
 
@@ -21,9 +22,11 @@ def build_tools(
     portfolio_service: PortfolioServiceLike | None = None,
     web_searcher: WebSearcher | None = None,
     pdf_reader: PdfReader | None = None,
+    python_sandbox: PythonSandbox | None = None,
 ) -> dict[str, BaseTool]:
     """Les 4 outils marché, + mémoire si dispo, + portefeuille si service fourni,
-    + web_search / read_pdf si les services sont fournis (rétrocompatible)."""
+    + web_search / read_pdf / run_python si les services sont fournis
+    (rétrocompatible)."""
     tools: dict[str, BaseTool] = {
         "get_quote": GetQuoteTool(market),
         "get_history": GetHistoryTool(market),
@@ -42,4 +45,6 @@ def build_tools(
         tools["web_search"] = WebSearchTool(web_searcher)
     if pdf_reader is not None:
         tools["read_pdf"] = ReadPdfTool(pdf_reader)
+    if python_sandbox is not None:
+        tools["run_python"] = RunPythonTool(python_sandbox)
     return tools

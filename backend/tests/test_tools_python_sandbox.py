@@ -8,18 +8,28 @@ from pydantic import ValidationError
 
 from investia.tools.base import ToolError
 from investia.tools.python_sandbox import (
+    DEFAULT_MEMORY_BYTES,
     MAX_CODE_CHARS,
+    MAX_OUTPUT_CHARS,
     RunPythonArgs,
     RunPythonTool,
     SubprocessPythonSandbox,
 )
 
 
-def make_sandbox(**kwargs) -> SubprocessPythonSandbox:
+def make_sandbox(
+    timeout: float = 5.0,
+    cpu_seconds: int = 5,
+    memory_bytes: int = DEFAULT_MEMORY_BYTES,
+    max_output_chars: int = MAX_OUTPUT_CHARS,
+) -> SubprocessPythonSandbox:
     # limites injectables pour des tests rapides
-    params = {"timeout": 5.0, "cpu_seconds": 5}
-    params.update(kwargs)
-    return SubprocessPythonSandbox(**params)
+    return SubprocessPythonSandbox(
+        timeout=timeout,
+        cpu_seconds=cpu_seconds,
+        memory_bytes=memory_bytes,
+        max_output_chars=max_output_chars,
+    )
 
 
 async def test_print_1plus1_renvoie_stdout_2():
