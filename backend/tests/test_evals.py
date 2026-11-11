@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from investia.agent import AgentResult, run_agent
 from investia.agent.loop import ToolCallLog
-from investia.agent.reasoning import Plan, PlanStep
+from investia.agent.reasoning import Plan, PlanStep, ReflectionDecision
 from investia.evals.metrics import compute_metrics
 from investia.evals.runner import EvalCase, MockLlm, load_cases, run_evals
 from investia.market.base import MarketData
@@ -153,6 +153,32 @@ def test_plan_suivi_un_sans_plan_ou_plan_vide():
     assert compute_metrics(plan_vide, None)["plan_suivi"] == 1.0
 
 
+def test_metrics_reflexion_et_auto_corrections():
+    sans = AgentResult(answer="x", turns=1)
+    m = compute_metrics(sans, None)
+    assert m["reflexion"] == 0.0
+    assert m["auto_corrections"] == 0.0
+
+    avec_ok = AgentResult(
+        answer="x", turns=2, reflections=[ReflectionDecision(ok=True)]
+    )
+    m = compute_metrics(avec_ok, None)
+    assert m["reflexion"] == 1.0
+    assert m["auto_corrections"] == 0.0
+
+    avec_ko = AgentResult(
+        answer="x",
+        turns=3,
+        reflections=[
+            ReflectionDecision(ok=False, problemes=["chiffre non sourcé"]),
+            ReflectionDecision(ok=True),
+        ],
+    )
+    m = compute_metrics(avec_ko, None)
+    assert m["reflexion"] == 1.0
+    assert m["auto_corrections"] == 1.0
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:
@@ -228,3 +254,69 @@ async def test_run_evals_plan_suivi_et_non_suivi():
     assert by_id["plan-suivi"]["tool_used"] == 1.0
     assert by_id["plan-non-suivi"]["plan_suivi"] == 0.0
     assert by_id["plan-non-suivi"]["tool_used"] == 1.0
+
+
+# --- Étape 12b : cas d'evals avec mock_responses (séquence ordonnée) ---
+
+
+async def test_run_evals_reflexion_ok_et_corrige():
+    final_bogueux = FINAL_OK.replace("344.63", "999999")
+    case_ok = EvalCase(
+        id="reflexion-ok",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=[
+            {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}},
+            FINAL_OK,
+            '{"ok": true, "problemes": []}',
+        ],
+        reasoning="reflect",
+    )
+    case_ko = EvalCase(
+        id="reflexion-corrige",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=[
+            {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}},
+            final_bogueux,
+            '{"ok": false, "problemes": ["chiffre 999999 non sourcé"]}',
+            FINAL_OK,
+            '{"ok": true, "problemes": []}',
+        ],
+        reasoning="reflect",
+    )
+    summary = await run_evals([case_ok, case_ko], market=FakeMarket(), mode="mock")
+    by_id = {r["case_id"]: r["metrics"] for r in summary["results"]}
+    assert by_id["reflexion-ok"]["reflexion"] == 1.0
+    assert by_id["reflexion-ok"]["auto_corrections"] == 0.0
+    assert by_id["reflexion-ok"]["tool_used"] == 1.0
+    assert by_id["reflexion-corrige"]["reflexion"] == 1.0
+    assert by_id["reflexion-corrige"]["auto_corrections"] == 1.0
+    assert by_id["reflexion-corrige"]["tool_used"] == 1.0
+
+
+async def test_mock_responses_accepte_le_format_yaml_content_en_dict():
+    """Depuis le YAML, chaque contenu arrive sous forme {'content': '...'} (12b)."""
+    case = EvalCase(
+        id="reflexion-dict",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=[
+            {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}},
+            {"content": FINAL_OK.replace("344.63", "999999")},
+            {"content": '{"ok": false, "problemes": ["chiffre non sourcé"]}'},
+            {"content": FINAL_OK},
+            {"content": '{"ok": true, "problemes": []}'},
+        ],
+        reasoning="reflect",
+    )
+    summary = await run_evals([case], market=FakeMarket(), mode="mock")
+    metrics = summary["results"][0]["metrics"]
+    assert metrics["auto_corrections"] == 1.0
+    assert metrics["numbers_sourced"] == 1.0

@@ -25,6 +25,9 @@ class EvalCase:
     mock_tool_call: dict[str, Any] | None
     mock_final: str
     mock_plan: str | None = None  # étape 12a : plan JSON rejoué avant le tool_call
+    # étape 12b : séquence ordonnée de réponses (dict {"tool_call": {...}} ou string content)
+    mock_responses: list[Any] | None = None
+    reasoning: str | None = None  # mode de raisonnement passé à run_agent
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -35,54 +38,57 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             question=c["question"],
             expected_tool=c.get("expected_tool"),
             mock_tool_call=c.get("mock_tool_call"),
-            mock_final=c["mock_final"],
+            mock_final=c.get("mock_final", ""),
             mock_plan=c.get("mock_plan"),
+            mock_responses=c.get("mock_responses"),
+            reasoning=c.get("reasoning"),
         )
         for c in data["cases"]
     ]
 
 
+def _mock_response(content: str = "", tool_call: dict[str, Any] | None = None) -> LlmResponse:
+    return LlmResponse(
+        content=content,
+        model="mock",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cost_cents=0.01,
+        tool_calls=[
+            ToolCall(
+                id="call_1",
+                name=tool_call["name"],
+                arguments=tool_call.get("arguments", {}),
+            )
+        ]
+        if tool_call
+        else [],
+    )
+
+
 class MockLlm:
-    """LLM déterministe : rejoue le plan (12a), le tool_call puis la réponse finale."""
+    """LLM déterministe : rejoue le plan (12a), le tool_call puis la réponse finale.
+
+    Avec `mock_responses` (12b), rejoue la séquence ordonnée fournie.
+    """
 
     def __init__(self, case: EvalCase):
+        if case.mock_responses:
+            self._responses = [
+                _mock_response(tool_call=item["tool_call"])
+                if isinstance(item, dict) and "tool_call" in item
+                else _mock_response(
+                    content=item["content"] if isinstance(item, dict) else str(item)
+                )
+                for item in case.mock_responses
+            ]
+            return
         responses = []
         if case.mock_plan:
-            responses.append(
-                LlmResponse(
-                    content=case.mock_plan,
-                    model="mock",
-                    prompt_tokens=10,
-                    completion_tokens=5,
-                    cost_cents=0.01,
-                )
-            )
+            responses.append(_mock_response(content=case.mock_plan))
         if case.mock_tool_call:
-            responses.append(
-                LlmResponse(
-                    content="",
-                    model="mock",
-                    prompt_tokens=10,
-                    completion_tokens=5,
-                    cost_cents=0.01,
-                    tool_calls=[
-                        ToolCall(
-                            id="call_1",
-                            name=case.mock_tool_call["name"],
-                            arguments=case.mock_tool_call.get("arguments", {}),
-                        )
-                    ],
-                )
-            )
-        responses.append(
-            LlmResponse(
-                content=case.mock_final,
-                model="mock",
-                prompt_tokens=10,
-                completion_tokens=5,
-                cost_cents=0.01,
-            )
-        )
+            responses.append(_mock_response(tool_call=case.mock_tool_call))
+        responses.append(_mock_response(content=case.mock_final))
         self._responses = responses
 
     async def chat(self, model_key, messages, temperature=0.2, tools=None):
@@ -131,7 +137,7 @@ async def run_evals(
             case.question,
             llm,
             tools,
-            reasoning="plan" if case.mock_plan else "none",
+            reasoning=case.reasoning or ("plan" if case.mock_plan else "none"),
         )
         metrics = compute_metrics(agent_result, case.expected_tool)
         entry = {"case_id": case.id, "metrics": metrics, "status": "ok"}

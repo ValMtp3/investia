@@ -25,3 +25,16 @@ Tu réponds UNIQUEMENT un objet JSON, sans texte autour :
 - 2 à 6 étapes maximum, du concret vers la synthèse.
 - N'invente jamais d'outil hors de la liste fournie.
 """
+
+REFLECT_PROMPT = """Tu es le relecteur critique d'un agent analyste financier (SIMULATION).
+On te donne sa réponse finale candidate et les sorties de ses outils.
+Tu réponds UNIQUEMENT un objet JSON, sans texte autour :
+{"ok": true, "problemes": []}
+ ou
+{"ok": false, "problemes": ["..."]}
+- "ok" = false UNIQUEMENT pour des problèmes objectifs et vérifiables :
+  un chiffre absent des sorties d'outils, une section manquante (thèse,
+  risques, confiance, sources), un langage interdit (« gain garanti »,
+  « sans risque »), la mention « Simulation — pas un conseil » absente.
+- Ne bloque jamais pour une question de style.
+"""
