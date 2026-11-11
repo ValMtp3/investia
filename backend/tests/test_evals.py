@@ -622,3 +622,47 @@ async def test_run_evals_cas_run_python_tool_used():
     entry = summary["results"][0]
     assert entry["metrics"]["tool_used"] == 1.0
     assert entry["status"] == "ok"
+
+
+# --- Étape 12h : routeur appris — métrique routeur_choix + cas ---
+
+
+def test_metrics_routeur_choix():
+    result = AgentResult(answer="x", turns=1, model_key="small")
+    assert compute_metrics(result, None, expected_model="small")["routeur_choix"] == 1.0
+    assert compute_metrics(result, None, expected_model="large")["routeur_choix"] == 0.0
+    # sans expected_model, la métrique ne pénalise pas
+    assert compute_metrics(result, None)["routeur_choix"] == 1.0
+
+
+async def test_run_evals_cas_routeur_learned_et_fallback():
+    voisins_small = [
+        {"similarity": 0.95, "model": "small", "success": True} for _ in range(6)
+    ]
+    case_learned = EvalCase(
+        id="routeur-learned",
+        question="analyse courte du prix de AAPL en deux lignes",
+        expected_tool="get_quote",
+        mock_tool_call={"name": "get_quote", "arguments": {"symbol": "AAPL"}},
+        mock_final=FINAL_OK,
+        expected_model="small",
+        mock_router_neighbors=voisins_small,
+    )
+    case_fallback = EvalCase(
+        id="routeur-fallback",
+        question="analyse approfondie de la stratégie long terme",
+        expected_tool="get_quote",
+        mock_tool_call={"name": "get_quote", "arguments": {"symbol": "AAPL"}},
+        mock_final=FINAL_OK,
+        expected_model="large",
+        mock_router_neighbors=[],
+    )
+    summary = await run_evals(
+        [case_learned, case_fallback], market=FakeMarket(), mode="mock"
+    )
+    by_id = {r["case_id"]: r for r in summary["results"]}
+    # learned : 6 voisins small gagnent, même si les règles D44 diraient large
+    assert by_id["routeur-learned"]["metrics"]["routeur_choix"] == 1.0
+    assert by_id["routeur-learned"]["metrics"]["tool_used"] == 1.0
+    # fallback : 0 voisin -> règles -> « analyse » -> large
+    assert by_id["routeur-fallback"]["metrics"]["routeur_choix"] == 1.0

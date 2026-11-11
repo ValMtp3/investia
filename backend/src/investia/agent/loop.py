@@ -77,6 +77,7 @@ class AgentResult:
         default_factory=list
     )  # étape 12c : les k réponses candidates
     router_source: str = "rules"  # étape 12h : explicit | learned | rules
+    model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
 
 
 DEFAULT_MAX_TURNS = 8
@@ -342,6 +343,7 @@ async def _run_once(
                 run_id=run_id,
                 status="ok",
                 router_source=router_source,
+                model_key=model_key,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -394,6 +396,7 @@ async def _run_once(
             run_id=run_id,
             status="blocked",
             router_source=router_source,
+            model_key=model_key,
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -432,6 +435,7 @@ async def _run_once(
         run_id=run_id,
         status="max_turns",
         router_source=router_source,
+        model_key=model_key,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -541,6 +545,7 @@ async def run_agent(
                 status="ok",
                 from_cache=True,
                 router_source=router_source,
+                model_key=resolved_model,
             )
 
     if consistency_k == 1:

@@ -10,6 +10,7 @@ import yaml
 from investia.agent import run_agent
 from investia.evals.metrics import compute_metrics
 from investia.llm.client import LlmResponse, ToolCall
+from investia.llm.router import LearnedRouter, Neighbor
 from investia.market.base import MarketData, MarketDataService
 from investia.tools import build_tools
 
@@ -36,6 +37,9 @@ class EvalCase:
     mock_logprobs: dict[str, float] | None = None
     # étape 12e : cache sémantique — réponse servie par le cache sans appel LLM
     mock_cache_hit: str | None = None
+    # étape 12h : routeur appris — modèle attendu + voisins k-NN mockés du store
+    expected_model: str | None = None
+    mock_router_neighbors: list[dict[str, Any]] | None = None
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -55,6 +59,8 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             mock_decision=c.get("mock_decision"),
             mock_logprobs=c.get("mock_logprobs"),
             mock_cache_hit=c.get("mock_cache_hit"),
+            expected_model=c.get("expected_model"),
+            mock_router_neighbors=c.get("mock_router_neighbors"),
         )
         for c in data["cases"]
     ]
@@ -192,6 +198,27 @@ class FakeWebSearcher:
         ][:limit]
 
 
+class FakeRouterFeedbackStore:
+    """Store de feedback déterministe (étape 12h) : voisins pré-remplis, zéro DB."""
+
+    def __init__(self, neighbors: list[dict[str, Any]] | None = None):
+        self._neighbors = [
+            Neighbor(
+                similarity=float(n["similarity"]),
+                model=str(n["model"]),
+                success=bool(n["success"]),
+            )
+            for n in (neighbors or [])
+        ]
+        self.recorded: list[tuple[str, str, bool]] = []
+
+    async def neighbors(self, question: str, k: int = 7) -> list[Neighbor]:
+        return self._neighbors[:k]
+
+    async def record(self, question: str, model: str, success: bool) -> None:
+        self.recorded.append((question, model, success))
+
+
 class FakePdfReader:
     """Reader déterministe (étape 12f) : un extrait fixe, sourcé, zéro réseau."""
 
@@ -255,6 +282,9 @@ async def run_evals(
                 )
                 return MockLlm(variant)
 
+        router = None
+        if case.mock_router_neighbors is not None:
+            router = LearnedRouter(FakeRouterFeedbackStore(case.mock_router_neighbors))
         agent_result = await run_agent(
             case.question,
             MockLlm(case),
@@ -265,8 +295,11 @@ async def run_evals(
             decision_client=FakeDecisionClient(case) if case.mock_decision else None,
             logprobs_guardrail=bool(case.mock_logprobs),
             semantic_cache=FakeSemanticCache(case) if case.mock_cache_hit else None,
+            router=router,
         )
-        metrics = compute_metrics(agent_result, case.expected_tool)
+        metrics = compute_metrics(
+            agent_result, case.expected_tool, expected_model=case.expected_model
+        )
         entry = {"case_id": case.id, "metrics": metrics, "status": agent_result.status}
         if eval_store is not None and run_id is not None:
             for metric, score in metrics.items():
