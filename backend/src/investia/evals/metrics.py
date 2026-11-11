@@ -28,6 +28,7 @@ def compute_metrics(result: AgentResult, expected_tool: str | None) -> dict[str,
         "consensus": result.consensus,
         "safety_llm_ok": 1.0 if guardrails.get("safety_llm", True) else 0.0,
         "safety_logprobs_ok": 1.0 if guardrails.get("safety_logprobs", True) else 0.0,
+        "cache_hit": 1.0 if result.from_cache else 0.0,
         "turns": float(result.turns),
         "cost_cents": result.total_cost_cents,
     }

@@ -438,3 +438,36 @@ async def test_run_evals_safety_ok_unsafe_logprobs():
     assert by_id["safety-unsafe"]["status"] == "blocked"
     assert by_id["logprobs-unsafe"]["metrics"]["safety_logprobs_ok"] == 0.0
     assert by_id["logprobs-unsafe"]["status"] == "blocked"
+
+
+def test_metrics_cache_hit():
+    from investia.agent import AgentResult
+
+    depuis_cache = AgentResult(answer="x", turns=0, from_cache=True)
+    assert compute_metrics(depuis_cache, None)["cache_hit"] == 1.0
+    normal = AgentResult(answer="x", turns=2)
+    assert compute_metrics(normal, None)["cache_hit"] == 0.0
+
+
+async def test_run_evals_cache_hit():
+    cache_answer = (
+        "## Thèse\nAAPL vaut 344.63 $ (source : mock).\n\n## Risques\nvolatilité.\n\n"
+        "## Confiance\n80\n\n## Sources\n- mock\n\n"
+        "Simulation — pas un conseil en investissement.\n"
+    )
+    case_hit = EvalCase(
+        id="cache-hit",
+        question="prix de AAPL ?",
+        expected_tool=None,
+        mock_tool_call=None,
+        mock_final="",
+        mock_cache_hit=cache_answer,
+    )
+    case_miss = make_case("cache-miss")
+    summary = await run_evals([case_hit, case_miss], market=FakeMarket(), mode="mock")
+    by_id = {r["case_id"]: r for r in summary["results"]}
+    assert by_id["cache-hit"]["metrics"]["cache_hit"] == 1.0
+    assert by_id["cache-hit"]["metrics"]["turns"] == 0.0
+    assert by_id["cache-hit"]["metrics"]["cost_cents"] == 0.0
+    assert by_id["cache-hit"]["status"] == "ok"
+    assert by_id["cache-miss"]["metrics"]["cache_hit"] == 0.0
