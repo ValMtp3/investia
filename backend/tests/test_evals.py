@@ -329,3 +329,44 @@ async def test_mock_responses_accepte_le_format_yaml_content_en_dict():
     metrics = summary["results"][0]["metrics"]
     assert metrics["auto_corrections"] == 1.0
     assert metrics["numbers_sourced"] == 1.0
+
+
+# --- Étape 12c : self-consistency, k variantes par cas ---
+
+
+def _variant(content):
+    return [
+        {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}},
+        {"content": content},
+    ]
+
+
+async def test_run_evals_consensus_fort_et_unanime():
+    import pytest
+
+    variant_b = FINAL_OK.replace("Le prix est 344.63 $", "L'action cote à 344.63 $").replace(
+        "## Confiance\n80", "## Confiance\n70"
+    )
+    case_fort = EvalCase(
+        id="consensus-fort",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        consistency_k=3,
+        mock_variants=[_variant(FINAL_OK), _variant(FINAL_OK), _variant(variant_b)],
+    )
+    case_unanime = EvalCase(
+        id="consensus-unanime",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        consistency_k=3,
+        mock_variants=[_variant(FINAL_OK), _variant(FINAL_OK), _variant(FINAL_OK)],
+    )
+    summary = await run_evals([case_fort, case_unanime], market=FakeMarket(), mode="mock")
+    by_id = {r["case_id"]: r["metrics"] for r in summary["results"]}
+    assert by_id["consensus-fort"]["consensus"] == pytest.approx(2 / 3)
+    assert by_id["consensus-fort"]["tool_used"] == 1.0
+    assert by_id["consensus-unanime"]["consensus"] == 1.0
