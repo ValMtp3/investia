@@ -34,6 +34,8 @@ class EvalCase:
     # étape 12d : garde-fous LLM — réponse mockée du modèle de décision / des logprobs
     mock_decision: dict[str, Any] | None = None
     mock_logprobs: dict[str, float] | None = None
+    # étape 12e : cache sémantique — réponse servie par le cache sans appel LLM
+    mock_cache_hit: str | None = None
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -52,9 +54,24 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             mock_variants=c.get("mock_variants"),
             mock_decision=c.get("mock_decision"),
             mock_logprobs=c.get("mock_logprobs"),
+            mock_cache_hit=c.get("mock_cache_hit"),
         )
         for c in data["cases"]
     ]
+
+
+class FakeSemanticCache:
+    """Cache sémantique déterministe (étape 12e) : rend mock_cache_hit au lookup."""
+
+    def __init__(self, case: EvalCase):
+        self._case = case
+        self.stored: list[tuple[str, str]] = []
+
+    async def lookup(self, question: str) -> str | None:
+        return self._case.mock_cache_hit
+
+    async def store(self, question: str, answer: str) -> None:
+        self.stored.append((question, answer))
 
 
 class FakeDecisionClient:
@@ -196,6 +213,7 @@ async def run_evals(
             llm_factory=llm_factory,
             decision_client=FakeDecisionClient(case) if case.mock_decision else None,
             logprobs_guardrail=bool(case.mock_logprobs),
+            semantic_cache=FakeSemanticCache(case) if case.mock_cache_hit else None,
         )
         metrics = compute_metrics(agent_result, case.expected_tool)
         entry = {"case_id": case.id, "metrics": metrics, "status": agent_result.status}
