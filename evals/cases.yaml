@@ -99,3 +99,65 @@ cases:
       - mock
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 12b : réflexion. mock_responses = séquence ordonnée rejouée par le LLM mock.
+  - id: reflexion-ok
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    reasoning: reflect
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": true, "problemes": []}'
+
+  - id: reflexion-corrige
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    reasoning: reflect
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      # candidat bogueux : chiffre inventé, l'auto-critique le signale
+      - content: |
+          ## Thèse
+          AAPL vaut 999999 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": false, "problemes": ["chiffre 999999 absent des sorties des outils"]}'
+      # réponse corrigée après réinjection
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": true, "problemes": []}'
