@@ -66,6 +66,7 @@ class AgentResult:
     plan: Plan | None = None
     reflections: list[ReflectionDecision] = field(default_factory=list)
     run_id: str | None = None
+    status: str = "ok"  # ok / blocked / max_turns
     consensus: float = 1.0  # étape 12c : part des k runs d'accord avec la réponse retenue
     answers: list[str] = field(default_factory=list)  # étape 12c : les k réponses candidates
 
@@ -322,6 +323,7 @@ async def _run_once(
                 plan=plan,
                 reflections=reflections,
                 run_id=run_id,
+                status="ok",
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -370,6 +372,9 @@ async def _run_once(
             model=response.model,
             guardrails=guardrails,
             plan=plan,
+            reflections=reflections,
+            run_id=run_id,
+            status="blocked",
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -406,6 +411,7 @@ async def _run_once(
         plan=plan,
         reflections=reflections,
         run_id=run_id,
+        status="max_turns",
     )
     if store is not None and run_id is not None:
         await store.finish_run(

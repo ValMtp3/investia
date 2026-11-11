@@ -31,6 +31,9 @@ class EvalCase:
     # étape 12c : self-consistency — k variantes de séquences, une par sous-run
     consistency_k: int = 1
     mock_variants: list[list[Any]] | None = None
+    # étape 12d : garde-fous LLM — réponse mockée du modèle de décision / des logprobs
+    mock_decision: dict[str, Any] | None = None
+    mock_logprobs: dict[str, float] | None = None
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -47,9 +50,30 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             reasoning=c.get("reasoning"),
             consistency_k=int(c.get("consistency_k", 1)),
             mock_variants=c.get("mock_variants"),
+            mock_decision=c.get("mock_decision"),
+            mock_logprobs=c.get("mock_logprobs"),
         )
         for c in data["cases"]
     ]
+
+
+class FakeDecisionClient:
+    """Client de décision déterministe (étape 12d) : rejoue mock_decision."""
+
+    def __init__(self, case: EvalCase):
+        self._case = case
+
+    async def decide(self, state, questions):
+        from investia.llm.decisions import DecisionAnswer
+
+        d = self._case.mock_decision or {}
+        return {
+            "safety": DecisionAnswer(
+                value=d.get("value"),
+                probabilities={k: float(v) for k, v in d.get("probabilities", {}).items()},
+                confidence=float(d.get("confidence", 0.0)),
+            )
+        }
 
 
 def _mock_response(content: str = "", tool_call: dict[str, Any] | None = None) -> LlmResponse:
@@ -78,6 +102,7 @@ class MockLlm:
     """
 
     def __init__(self, case: EvalCase):
+        self._case = case
         if case.mock_responses:
             self._responses = [
                 _mock_response(tool_call=item["tool_call"])
@@ -97,6 +122,15 @@ class MockLlm:
         self._responses = responses
 
     async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+        if logprobs and self._case.mock_logprobs is not None:
+            return LlmResponse(
+                content="Non",
+                model="mock",
+                prompt_tokens=10,
+                completion_tokens=1,
+                cost_cents=0.01,
+                first_token_logprobs=self._case.mock_logprobs,
+            )
         if len(self._responses) > 1:
             return self._responses.pop(0)
         return self._responses[0]
@@ -160,9 +194,11 @@ async def run_evals(
             reasoning=reasoning,
             consistency_k=case.consistency_k,
             llm_factory=llm_factory,
+            decision_client=FakeDecisionClient(case) if case.mock_decision else None,
+            logprobs_guardrail=bool(case.mock_logprobs),
         )
         metrics = compute_metrics(agent_result, case.expected_tool)
-        entry = {"case_id": case.id, "metrics": metrics, "status": "ok"}
+        entry = {"case_id": case.id, "metrics": metrics, "status": agent_result.status}
         if eval_store is not None and run_id is not None:
             for metric, score in metrics.items():
                 await eval_store.log_result(run_id, case.id, metric, score)
