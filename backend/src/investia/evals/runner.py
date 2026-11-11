@@ -28,6 +28,9 @@ class EvalCase:
     # étape 12b : séquence ordonnée de réponses (dict {"tool_call": {...}} ou string content)
     mock_responses: list[Any] | None = None
     reasoning: str | None = None  # mode de raisonnement passé à run_agent
+    # étape 12c : self-consistency — k variantes de séquences, une par sous-run
+    consistency_k: int = 1
+    mock_variants: list[list[Any]] | None = None
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -42,6 +45,8 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             mock_plan=c.get("mock_plan"),
             mock_responses=c.get("mock_responses"),
             reasoning=c.get("reasoning"),
+            consistency_k=int(c.get("consistency_k", 1)),
+            mock_variants=c.get("mock_variants"),
         )
         for c in data["cases"]
     ]
@@ -132,12 +137,29 @@ async def run_evals(
         )
     results = []
     for case in cases:
-        llm = MockLlm(case)
+        reasoning = case.reasoning or ("plan" if case.mock_plan else "none")
+        llm_factory = None
+        variants = case.mock_variants
+        if case.consistency_k > 1 and variants:
+
+            def llm_factory(i: int, case: EvalCase = case, variants: list = variants) -> MockLlm:
+                variant = EvalCase(
+                    id=f"{case.id}#{i}",
+                    question=case.question,
+                    expected_tool=None,
+                    mock_tool_call=None,
+                    mock_final="",
+                    mock_responses=variants[i],
+                )
+                return MockLlm(variant)
+
         agent_result = await run_agent(
             case.question,
-            llm,
+            MockLlm(case),
             tools,
-            reasoning=case.reasoning or ("plan" if case.mock_plan else "none"),
+            reasoning=reasoning,
+            consistency_k=case.consistency_k,
+            llm_factory=llm_factory,
         )
         metrics = compute_metrics(agent_result, case.expected_tool)
         entry = {"case_id": case.id, "metrics": metrics, "status": "ok"}

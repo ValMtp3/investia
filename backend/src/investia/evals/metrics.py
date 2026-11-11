@@ -25,6 +25,7 @@ def compute_metrics(result: AgentResult, expected_tool: str | None) -> dict[str,
         "plan_suivi": plan_suivi,
         "reflexion": 1.0 if result.reflections else 0.0,
         "auto_corrections": float(sum(1 for r in result.reflections if not r.ok)),
+        "consensus": result.consensus,
         "turns": float(result.turns),
         "cost_cents": result.total_cost_cents,
     }

@@ -161,3 +161,108 @@ cases:
 
           Simulation — pas un conseil en investissement.
       - content: '{"ok": true, "problemes": []}'
+
+  # Étape 12c : self-consistency. mock_variants = k séquences, une par sous-run.
+  # consensus-fort : A, A, B -> gagnant A, consensus = 2/3.
+  - id: consensus-fort
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    consistency_k: 3
+    mock_variants:
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            AAPL s'échange à 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            70
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+
+  # consensus-unanime : A, A, A -> consensus = 1.0.
+  - id: consensus-unanime
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    consistency_k: 3
+    mock_variants:
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
