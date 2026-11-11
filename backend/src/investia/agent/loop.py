@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from investia.agent.approval import ApprovalRegistry
+from investia.agent.reasoning import Plan, make_plan
 from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
@@ -53,6 +54,7 @@ class AgentResult:
     total_cost_cents: float = 0.0
     model: str = ""
     guardrails: list[GuardrailDecision] = field(default_factory=list)
+    plan: Plan | None = None
 
 
 DEFAULT_MAX_TURNS = 8
@@ -72,10 +74,13 @@ async def run_agent(
     event_sink: Any | None = None,
     approval_registry: ApprovalRegistry | None = None,
     approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
+    reasoning: str = "none",
 ) -> AgentResult:
     """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
 
+    if reasoning not in ("none", "plan"):
+        raise ValueError(f"reasoning inconnu : {reasoning!r} (attendu : 'none' ou 'plan')")
     model_key = model_key or choose(question)
     store = trace_store
     run_id = await store.start_run(question) if store is not None else None
@@ -89,6 +94,21 @@ async def run_agent(
     await emit(
         "start", {"question": question, "max_turns": max_turns, "run_id": run_id}
     )
+    plan: Plan | None = None
+    total_cost = 0.0
+    if reasoning == "plan":
+        # Étape 12a : appel LLM dédié, le plan est tracé puis suivi par la métrique plan_suivi.
+        plan, plan_cost = await make_plan(
+            llm, model_key, question, [tool.name for tool in tools.values()]
+        )
+        total_cost += plan_cost
+        plan_payload = {
+            "steps": [{"step": s.step, "tool": s.tool} for s in plan.steps],
+            "cost_cents": plan_cost,
+        }
+        await emit("plan", plan_payload)
+        if store is not None and run_id is not None:
+            await store.log_step(run_id, 0, "plan", plan_payload)
     tool_specs = [tool.to_openai_tool() for tool in tools.values()]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -96,7 +116,6 @@ async def run_agent(
     ]
     log: list[ToolCallLog] = []
     guardrails: list[GuardrailDecision] = []
-    total_cost = 0.0
     corrections = 0
 
     for turn in range(1, max_turns + 1):
@@ -229,6 +248,7 @@ async def run_agent(
                 total_cost_cents=total_cost,
                 model=response.model,
                 guardrails=guardrails,
+                plan=plan,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -276,6 +296,7 @@ async def run_agent(
             total_cost_cents=total_cost,
             model=response.model,
             guardrails=guardrails,
+            plan=plan,
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -309,6 +330,7 @@ async def run_agent(
         total_cost_cents=total_cost,
         model=model_key,
         guardrails=guardrails,
+        plan=plan,
     )
     if store is not None and run_id is not None:
         await store.finish_run(

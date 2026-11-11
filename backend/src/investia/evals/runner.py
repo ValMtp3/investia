@@ -24,6 +24,7 @@ class EvalCase:
     expected_tool: str | None
     mock_tool_call: dict[str, Any] | None
     mock_final: str
+    mock_plan: str | None = None  # étape 12a : plan JSON rejoué avant le tool_call
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -35,16 +36,27 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             expected_tool=c.get("expected_tool"),
             mock_tool_call=c.get("mock_tool_call"),
             mock_final=c["mock_final"],
+            mock_plan=c.get("mock_plan"),
         )
         for c in data["cases"]
     ]
 
 
 class MockLlm:
-    """LLM déterministe : rejoue le tool_call puis la réponse finale du cas."""
+    """LLM déterministe : rejoue le plan (12a), le tool_call puis la réponse finale."""
 
     def __init__(self, case: EvalCase):
         responses = []
+        if case.mock_plan:
+            responses.append(
+                LlmResponse(
+                    content=case.mock_plan,
+                    model="mock",
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    cost_cents=0.01,
+                )
+            )
         if case.mock_tool_call:
             responses.append(
                 LlmResponse(
@@ -115,7 +127,12 @@ async def run_evals(
     results = []
     for case in cases:
         llm = MockLlm(case)
-        agent_result = await run_agent(case.question, llm, tools)
+        agent_result = await run_agent(
+            case.question,
+            llm,
+            tools,
+            reasoning="plan" if case.mock_plan else "none",
+        )
         metrics = compute_metrics(agent_result, case.expected_tool)
         entry = {"case_id": case.id, "metrics": metrics, "status": "ok"}
         if eval_store is not None and run_id is not None:
