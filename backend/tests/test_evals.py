@@ -567,3 +567,58 @@ async def test_run_evals_cas_web_search_et_read_pdf_tool_used():
     assert by_id["read-pdf"]["metrics"]["tool_used"] == 1.0
     assert by_id["web-search"]["status"] == "ok"
     assert by_id["read-pdf"]["status"] == "ok"
+
+
+# --- Étape 12g : outil run_python transmis à build_tools ---
+
+
+class FakePythonSandbox:
+    async def run_code(self, code):
+        return {
+            "exit_code": 0,
+            "stdout": "sharpe = 1.42\n",
+            "stderr": "",
+            "truncated": False,
+        }
+
+
+async def test_run_evals_passe_python_sandbox(monkeypatch):
+    import investia.evals.runner as runner
+
+    captured: list[dict] = []
+    real_build_tools = runner.build_tools
+
+    def spy(market, **kwargs):
+        captured.append(kwargs)
+        return real_build_tools(market, **kwargs)
+
+    monkeypatch.setattr(runner, "build_tools", spy)
+
+    sandbox = FakePythonSandbox()
+    await run_evals(
+        [make_case()], market=FakeMarket(), mode="mock", python_sandbox=sandbox
+    )
+    assert captured[-1]["python_sandbox"] is sandbox
+
+    await run_evals([make_case()], market=FakeMarket(), mode="mock")
+    assert captured[-1]["python_sandbox"] is None
+
+
+async def test_run_evals_cas_run_python_tool_used():
+    final = FINAL_OK.replace("344.63 $", "1.42 (source : sandbox run_python)")
+    cas = EvalCase(
+        id="run-python",
+        question="Quel est le ratio de Sharpe de la stratégie ?",
+        expected_tool="run_python",
+        mock_tool_call={
+            "name": "run_python",
+            "arguments": {"code": "print('sharpe =', 1.42)"},
+        },
+        mock_final=final,
+    )
+    summary = await run_evals(
+        [cas], market=FakeMarket(), mode="mock", python_sandbox=FakePythonSandbox()
+    )
+    entry = summary["results"][0]
+    assert entry["metrics"]["tool_used"] == 1.0
+    assert entry["status"] == "ok"

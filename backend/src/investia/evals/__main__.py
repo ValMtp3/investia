@@ -6,7 +6,12 @@ import sys
 
 from investia.db import get_session
 from investia.evals import EvalStore, load_cases, run_evals
-from investia.evals.runner import FakePdfReader, FakeWebSearcher, MockMarket
+from investia.evals.runner import (
+    FakePdfReader,
+    FakePythonSandbox,
+    FakeWebSearcher,
+    MockMarket,
+)
 from investia.portfolio.service import PortfolioService
 
 
@@ -35,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
             portfolio_service=portfolio_service,
             web_searcher=FakeWebSearcher(),
             pdf_reader=FakePdfReader(),
+            python_sandbox=FakePythonSandbox(),
         )
     )
 
