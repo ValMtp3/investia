@@ -25,7 +25,7 @@ class EvalCase:
     mock_tool_call: dict[str, Any] | None
     mock_final: str
     mock_plan: str | None = None  # étape 12a : plan JSON rejoué avant le tool_call
-    # étape 12b : séquence ordonnée de réponses (dict {"tool_call": {...}} ou string content)
+    # étape 12b : séquence ordonnée de réponses (dict tool_call ou string content)
     mock_responses: list[Any] | None = None
     reasoning: str | None = None  # mode de raisonnement passé à run_agent
     # étape 12c : self-consistency — k variantes de séquences, une par sous-run
@@ -87,13 +87,17 @@ class FakeDecisionClient:
         return {
             "safety": DecisionAnswer(
                 value=d.get("value"),
-                probabilities={k: float(v) for k, v in d.get("probabilities", {}).items()},
+                probabilities={
+                    k: float(v) for k, v in d.get("probabilities", {}).items()
+                },
                 confidence=float(d.get("confidence", 0.0)),
             )
         }
 
 
-def _mock_response(content: str = "", tool_call: dict[str, Any] | None = None) -> LlmResponse:
+def _mock_response(
+    content: str = "", tool_call: dict[str, Any] | None = None
+) -> LlmResponse:
     return LlmResponse(
         content=content,
         model="mock",
@@ -138,7 +142,9 @@ class MockLlm:
         responses.append(_mock_response(content=case.mock_final))
         self._responses = responses
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         if logprobs and self._case.mock_logprobs is not None:
             return LlmResponse(
                 content="Non",
@@ -171,16 +177,45 @@ class MockMarket:
         return []
 
 
+class FakeWebSearcher:
+    """Searcher déterministe (étape 12f) : un résultat fixe, sourcé, zéro réseau."""
+
+    async def search(self, query: str, limit: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "title": "Communiqué officiel",
+                "url": "https://example.com/communique",
+                "snippet": "Chiffre d'affaires en hausse de 12 % au T3 2026.",
+                "source": "brave",
+                "timestamp": datetime(2026, 11, 8, tzinfo=UTC).isoformat(),
+            }
+        ][:limit]
+
+
+class FakePdfReader:
+    """Reader déterministe (étape 12f) : un extrait fixe, sourcé, zéro réseau."""
+
+    async def extract_text(self, url: str, max_pages: int) -> str:
+        return "Rapport annuel : résultat net de 1,2 Md$ sur l'exercice."
+
+
 async def run_evals(
     cases: list[EvalCase],
     market: MarketDataService | None = None,
     eval_store=None,
     mode: str = "mock",
     portfolio_service=None,
+    web_searcher=None,
+    pdf_reader=None,
 ) -> dict[str, Any]:
     """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni."""
     market = market or MockMarket()
-    tools = build_tools(market, portfolio_service=portfolio_service)
+    tools = build_tools(
+        market,
+        portfolio_service=portfolio_service,
+        web_searcher=web_searcher,
+        pdf_reader=pdf_reader,
+    )
     run_id = None
     if eval_store is not None:
         run_id = await eval_store.start_eval_run(
@@ -193,7 +228,9 @@ async def run_evals(
         variants = case.mock_variants
         if case.consistency_k > 1 and variants:
 
-            def llm_factory(i: int, case: EvalCase = case, variants: list = variants) -> MockLlm:
+            def llm_factory(
+                i: int, case: EvalCase = case, variants: list = variants
+            ) -> MockLlm:
                 variant = EvalCase(
                     id=f"{case.id}#{i}",
                     question=case.question,

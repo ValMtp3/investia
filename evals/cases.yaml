@@ -351,3 +351,46 @@ cases:
       - mock
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 12f : web_search — l'agent cite une actualité sourcée (tool_used = 1.0).
+  - id: web-search
+    question: "Quelles sont les dernières actualités du secteur ?"
+    expected_tool: web_search
+    mock_tool_call: { name: web_search, arguments: { query: "actualités marché", limit: 3 } }
+    mock_final: |
+      ## Thèse
+      Le chiffre d'affaires du secteur progresse de 12 % au T3 2026
+      (source : brave, https://example.com/communique, 2026-11-08).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - brave (web_search)
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12f : read_pdf — l'agent cite le rapport annuel (tool_used = 1.0).
+  - id: read-pdf
+    question: "Que dit le rapport annuel de l'entreprise ?"
+    expected_tool: read_pdf
+    mock_tool_call:
+      { name: read_pdf, arguments: { url: "https://example.com/rapport-annuel.pdf", max_pages: 5 } }
+    mock_final: |
+      ## Thèse
+      Le rapport annuel affiche un résultat net de 1,2 Md$
+      (source : nutrient, https://example.com/rapport-annuel.pdf).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - nutrient (read_pdf)
+
+      Simulation — pas un conseil en investissement.

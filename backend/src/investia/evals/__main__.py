@@ -6,7 +6,7 @@ import sys
 
 from investia.db import get_session
 from investia.evals import EvalStore, load_cases, run_evals
-from investia.evals.runner import MockMarket
+from investia.evals.runner import FakePdfReader, FakeWebSearcher, MockMarket
 from investia.portfolio.service import PortfolioService
 
 
@@ -29,7 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     portfolio_service = PortfolioService(get_session(), MockMarket())
     summary = asyncio.run(
         run_evals(
-            cases, eval_store=store, mode="mock", portfolio_service=portfolio_service
+            cases,
+            eval_store=store,
+            mode="mock",
+            portfolio_service=portfolio_service,
+            web_searcher=FakeWebSearcher(),
+            pdf_reader=FakePdfReader(),
         )
     )
 
