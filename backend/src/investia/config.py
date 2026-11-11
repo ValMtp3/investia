@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     eodhd_api_key: SecretStr | None = None
     twelvedata_api_key: SecretStr | None = None
     massive_api_key: SecretStr | None = None
+    brave_api_key: SecretStr | None = None
+    nutrient_api_key: SecretStr | None = None
     coingecko_demo_api_key: SecretStr | None = None
     stooq_api_key: SecretStr | None = None
 
