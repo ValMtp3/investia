@@ -1,8 +1,11 @@
 """Tests du runner d'evals (métriques en code, mock déterministe, zéro réseau)."""
 
+import json
 from datetime import UTC, datetime
 
-from investia.agent import run_agent
+from investia.agent import AgentResult, run_agent
+from investia.agent.loop import ToolCallLog
+from investia.agent.reasoning import Plan, PlanStep
 from investia.evals.metrics import compute_metrics
 from investia.evals.runner import EvalCase, MockLlm, load_cases, run_evals
 from investia.market.base import MarketData
@@ -120,6 +123,36 @@ async def test_run_evals_passes_portfolio_service_to_build_tools(monkeypatch):
     assert captured[-1]["portfolio_service"] is None
 
 
+# --- Étape 12a : métrique plan_suivi ---
+
+
+def test_plan_suivi_ok_quand_outils_dans_le_plan():
+    result = AgentResult(
+        answer="x",
+        turns=2,
+        tool_calls=[ToolCallLog(tool="get_quote", arguments={}, ok=True)],
+        plan=Plan(steps=[PlanStep(step="prix AAPL", tool="get_quote")]),
+    )
+    assert compute_metrics(result, "get_quote")["plan_suivi"] == 1.0
+
+
+def test_plan_suivi_zero_quand_outil_hors_plan():
+    result = AgentResult(
+        answer="x",
+        turns=2,
+        tool_calls=[ToolCallLog(tool="get_news", arguments={}, ok=True)],
+        plan=Plan(steps=[PlanStep(step="prix AAPL", tool="get_quote")]),
+    )
+    assert compute_metrics(result, "get_news")["plan_suivi"] == 0.0
+
+
+def test_plan_suivi_un_sans_plan_ou_plan_vide():
+    sans_plan = AgentResult(answer="x", turns=1)
+    assert compute_metrics(sans_plan, None)["plan_suivi"] == 1.0
+    plan_vide = AgentResult(answer="x", turns=1, plan=Plan())
+    assert compute_metrics(plan_vide, None)["plan_suivi"] == 1.0
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:
@@ -135,3 +168,63 @@ cases:
     assert len(cases) == 1
     assert cases[0].id == "prix-aapl"
     assert cases[0].expected_tool == "get_quote"
+
+
+# --- Étape 12a : cas d'evals avec mock_plan ---
+
+FINAL_SANS_CHIFFRE = """## Thèse
+Aucune actualité disponible pour l'instant (source : mock).
+
+## Risques
+volatilité.
+
+## Confiance
+60
+
+## Sources
+- mock
+
+Simulation — pas un conseil en investissement.
+"""
+
+
+def test_load_cases_avec_mock_plan(tmp_path):
+    yaml_content = """
+cases:
+  - id: plan-suivi
+    question: "prix de AAPL ?"
+    expected_tool: get_quote
+    mock_plan: '{"steps": [{"step": "prix AAPL", "tool": "get_quote"}]}'
+    mock_tool_call: {name: get_quote, arguments: {symbol: AAPL}}
+    mock_final: "réponse mock"
+"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(yaml_content)
+    cases = load_cases(path)
+    assert cases[0].mock_plan is not None
+    assert "get_quote" in cases[0].mock_plan
+
+
+async def test_run_evals_plan_suivi_et_non_suivi():
+    case_suivi = EvalCase(
+        id="plan-suivi",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_plan=json.dumps({"steps": [{"step": "prix AAPL", "tool": "get_quote"}]}),
+        mock_tool_call={"name": "get_quote", "arguments": {"symbol": "AAPL"}},
+        mock_final=FINAL_OK,
+    )
+    case_non_suivi = EvalCase(
+        id="plan-non-suivi",
+        question="actus de AAPL ?",
+        expected_tool="get_news",
+        mock_plan=json.dumps({"steps": [{"step": "prix AAPL", "tool": "get_quote"}]}),
+        mock_tool_call={"name": "get_news", "arguments": {"symbol": "AAPL"}},
+        mock_final=FINAL_SANS_CHIFFRE,
+    )
+    summary = await run_evals([case_suivi, case_non_suivi], market=FakeMarket(), mode="mock")
+    by_id = {r["case_id"]: r["metrics"] for r in summary["results"]}
+    assert by_id["plan-suivi"]["plan_suivi"] == 1.0
+    assert by_id["plan-suivi"]["tool_used"] == 1.0
+    assert by_id["plan-non-suivi"]["plan_suivi"] == 0.0
+    assert by_id["plan-non-suivi"]["tool_used"] == 1.0
