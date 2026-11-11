@@ -42,7 +42,7 @@ class FakeLlm:
         self._first = True
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         self.calls.append({"messages": list(messages)})
         if self._first:
             self._first = False

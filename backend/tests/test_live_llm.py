@@ -14,7 +14,7 @@ ADMIN = "test-admin-secret-0123456789abcdef"
 
 
 class FakeLlmOk:
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         assert model_key == "small"  # le live check utilise le modèle le moins cher
         return LlmResponse(
             content="ok",
@@ -26,7 +26,7 @@ class FakeLlmOk:
 
 
 class FakeLlmKo:
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         raise RuntimeError("gateway down")
 
 

@@ -26,6 +26,8 @@ def compute_metrics(result: AgentResult, expected_tool: str | None) -> dict[str,
         "reflexion": 1.0 if result.reflections else 0.0,
         "auto_corrections": float(sum(1 for r in result.reflections if not r.ok)),
         "consensus": result.consensus,
+        "safety_llm_ok": 1.0 if guardrails.get("safety_llm", True) else 0.0,
+        "safety_logprobs_ok": 1.0 if guardrails.get("safety_logprobs", True) else 0.0,
         "turns": float(result.turns),
         "cost_cents": result.total_cost_cents,
     }

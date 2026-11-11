@@ -21,7 +21,7 @@ class FakeLlm:
     def __init__(self):
         self._first = True
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         if self._first:
             self._first = False
             return LlmResponse(

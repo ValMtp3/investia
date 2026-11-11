@@ -188,6 +188,27 @@ def test_metrics_consensus():
     assert compute_metrics(k3, None)["consensus"] == pytest.approx(2 / 3)
 
 
+def test_metrics_safety_llm():
+    from investia.agent.loop import GuardrailDecision
+
+    sans = AgentResult(answer="x", turns=1)
+    m = compute_metrics(sans, None)
+    assert m["safety_llm_ok"] == 1.0  # non exécuté = neutre
+    assert m["safety_logprobs_ok"] == 1.0
+
+    bloque = AgentResult(
+        answer="x",
+        turns=2,
+        guardrails=[
+            GuardrailDecision(check="safety_llm", ok=False, detail="unsafe"),
+            GuardrailDecision(check="safety_logprobs", ok=True, detail=""),
+        ],
+    )
+    m = compute_metrics(bloque, None)
+    assert m["safety_llm_ok"] == 0.0
+    assert m["safety_logprobs_ok"] == 1.0
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:
@@ -370,3 +391,50 @@ async def test_run_evals_consensus_fort_et_unanime():
     assert by_id["consensus-fort"]["consensus"] == pytest.approx(2 / 3)
     assert by_id["consensus-fort"]["tool_used"] == 1.0
     assert by_id["consensus-unanime"]["consensus"] == 1.0
+
+
+# --- Étape 12d : cas d'evals avec mock_decision / mock_logprobs ---
+
+
+async def test_run_evals_safety_ok_unsafe_logprobs():
+    import pytest
+
+    base = {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}}
+    seq = [base, {"content": FINAL_OK}]
+    case_ok = EvalCase(
+        id="safety-ok",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=seq,
+        mock_decision={"value": "safe", "probabilities": {"safe": 0.95, "unsafe": 0.05}, "confidence": 0.9},
+    )
+    case_unsafe = EvalCase(
+        id="safety-unsafe",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=seq,
+        mock_decision={"value": "unsafe", "probabilities": {"unsafe": 0.9, "safe": 0.1}, "confidence": 0.95},
+    )
+    case_logprobs = EvalCase(
+        id="logprobs-unsafe",
+        question="prix de AAPL ?",
+        expected_tool="get_quote",
+        mock_tool_call=None,
+        mock_final="",
+        mock_responses=seq,
+        mock_logprobs={"Non": 0.98, "Oui": 0.02},
+    )
+    summary = await run_evals(
+        [case_ok, case_unsafe, case_logprobs], market=FakeMarket(), mode="mock"
+    )
+    by_id = {r["case_id"]: r for r in summary["results"]}
+    assert by_id["safety-ok"]["metrics"]["safety_llm_ok"] == 1.0
+    assert by_id["safety-ok"]["status"] == "ok"
+    assert by_id["safety-unsafe"]["metrics"]["safety_llm_ok"] == 0.0
+    assert by_id["safety-unsafe"]["status"] == "blocked"
+    assert by_id["logprobs-unsafe"]["metrics"]["safety_logprobs_ok"] == 0.0
+    assert by_id["logprobs-unsafe"]["status"] == "blocked"
