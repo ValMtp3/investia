@@ -4,14 +4,21 @@
 -> arrêt propre, jamais de boucle infinie.
 """
 
+import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from pydantic import ValidationError
 
 from investia.agent.approval import ApprovalRegistry
-from investia.agent.reasoning import Plan, ReflectionDecision, make_plan, reflect
+from investia.agent.reasoning import (
+    Plan,
+    ReflectionDecision,
+    make_plan,
+    reflect,
+    vote,
+)
 from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
@@ -56,6 +63,9 @@ class AgentResult:
     guardrails: list[GuardrailDecision] = field(default_factory=list)
     plan: Plan | None = None
     reflections: list[ReflectionDecision] = field(default_factory=list)
+    run_id: str | None = None
+    consensus: float = 1.0  # étape 12c : part des k runs d'accord avec la réponse retenue
+    answers: list[str] = field(default_factory=list)  # étape 12c : les k réponses candidates
 
 
 DEFAULT_MAX_TURNS = 8
@@ -78,24 +88,22 @@ def _parse_reasoning_modes(reasoning: str) -> set[str]:
 DEFAULT_APPROVAL_TIMEOUT = 300.0
 
 
-async def run_agent(
+async def _run_once(
     question: str,
     llm: LlmChat,
     tools: dict[str, BaseTool],
+    modes: set[str],
+    model_key: str,
     max_turns: int = DEFAULT_MAX_TURNS,
-    model_key: str | None = None,
     max_corrections: int = DEFAULT_MAX_CORRECTIONS,
     trace_store: TraceStoreProtocol | None = None,
     event_sink: Any | None = None,
     approval_registry: ApprovalRegistry | None = None,
     approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
-    reasoning: str = "none",
 ) -> AgentResult:
-    """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
+    """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c)."""
     from investia.agent.prompts import SYSTEM_PROMPT
 
-    modes = _parse_reasoning_modes(reasoning)
-    model_key = model_key or choose(question)
     store = trace_store
     run_id = await store.start_run(question) if store is not None else None
     # Les spans OTel de ce run portent ce run_id (ContextVar lu par l'exporter).
@@ -300,6 +308,7 @@ async def run_agent(
                 guardrails=guardrails,
                 plan=plan,
                 reflections=reflections,
+                run_id=run_id,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -383,6 +392,7 @@ async def run_agent(
         guardrails=guardrails,
         plan=plan,
         reflections=reflections,
+        run_id=run_id,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -403,6 +413,97 @@ async def run_agent(
         },
     )
     current_run_id.reset(token)
+    return result
+
+
+async def run_agent(
+    question: str,
+    llm: LlmChat,
+    tools: dict[str, BaseTool],
+    max_turns: int = DEFAULT_MAX_TURNS,
+    model_key: str | None = None,
+    max_corrections: int = DEFAULT_MAX_CORRECTIONS,
+    trace_store: TraceStoreProtocol | None = None,
+    event_sink: Any | None = None,
+    approval_registry: ApprovalRegistry | None = None,
+    approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
+    reasoning: str = "none",
+    consistency_k: int = 1,
+    llm_factory: Any | None = None,
+) -> AgentResult:
+    """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
+
+    consistency_k > 1 : k sous-runs en parallèle (chacun tracé en base), vote
+    majoritaire sur la réponse finale, event/step « consensus » dans le run
+    gagnant. Non combinable avec la validation humaine (approval_registry).
+    """
+    modes = _parse_reasoning_modes(reasoning)
+    if consistency_k < 1:
+        raise ValueError(f"consistency_k invalide : {consistency_k} (attendu >= 1)")
+    if consistency_k > 1 and approval_registry is not None:
+        raise ValueError(
+            "consistency_k > 1 non combinable avec approval_registry (validation humaine)"
+        )
+    resolved_model = model_key or choose(question)
+    if consistency_k == 1:
+        return await _run_once(
+            question,
+            llm,
+            tools,
+            modes,
+            resolved_model,
+            max_turns=max_turns,
+            max_corrections=max_corrections,
+            trace_store=trace_store,
+            event_sink=event_sink,
+            approval_registry=approval_registry,
+            approval_timeout=approval_timeout,
+        )
+
+    async def emit(kind: str, payload: dict[str, Any]) -> None:
+        if event_sink is not None:
+            await event_sink(kind, payload)
+
+    await emit("start", {"question": question, "consistency_k": consistency_k})
+
+    async def one(i: int) -> AgentResult:
+        client = llm_factory(i) if llm_factory is not None else llm
+        return await _run_once(
+            question,
+            client,
+            tools,
+            modes,
+            resolved_model,
+            max_turns=max_turns,
+            max_corrections=max_corrections,
+            trace_store=trace_store,
+            event_sink=None,  # pas de SSE entremêlée : chaque sous-run trace en base
+            approval_registry=None,
+            approval_timeout=approval_timeout,
+        )
+
+    results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))
+    winner_index, consensus = vote([r.answer for r in results])
+    winner = results[winner_index]
+    answers = [r.answer for r in results]
+    consensus_payload = {
+        "k": consistency_k,
+        "winner": winner_index,
+        "consensus": consensus,
+        "answers": answers,
+    }
+    await emit("consensus", consensus_payload)
+    if trace_store is not None and winner.run_id is not None:
+        await trace_store.log_step(winner.run_id, 0, "consensus", consensus_payload)
+    total_cost = sum(r.total_cost_cents for r in results)
+    result = replace(
+        winner, consensus=consensus, answers=answers, total_cost_cents=total_cost
+    )
+    await emit("answer", {"turn": result.turns, "text": result.answer})
+    await emit(
+        "done",
+        {"turns": result.turns, "cost_cents": result.total_cost_cents, "status": "ok"},
+    )
     return result
 
 
