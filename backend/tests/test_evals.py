@@ -179,6 +179,15 @@ def test_metrics_reflexion_et_auto_corrections():
     assert m["auto_corrections"] == 1.0
 
 
+def test_metrics_consensus():
+    import pytest
+
+    defaut = AgentResult(answer="x", turns=1)
+    assert compute_metrics(defaut, None)["consensus"] == 1.0
+    k3 = AgentResult(answer="x", turns=2, consensus=2 / 3)
+    assert compute_metrics(k3, None)["consensus"] == pytest.approx(2 / 3)
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:
