@@ -1,6 +1,6 @@
 # Spec — 12h : routeur appris (petit vs gros modèle LLM)
 
-*Écrite le : 11/11/2026 | Étape roadmap : 12 (approfondir le harness) | Statut : validée le 11/11/2026 (table router_feedback pgvector, k-NN k=7 pondéré, fallback règles si <5 feedbacks ou écart <0,1, métrique routeur_choix, zéro dépendance)*
+*Écrite le : 11/11/2026 | Étape roadmap : 12 (approfondir le harness) | Statut : validée le 11/11/2026, terminée le 11/11/2026 (k-NN k=7 pondéré, fallback <5 feedbacks ou écart <0,1, routeur_choix, zéro dépendance — chantier 12 terminé)*
 
 ## Objectif
 
