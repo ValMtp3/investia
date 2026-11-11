@@ -83,7 +83,9 @@ async def test_tool_run_renvoie_source_timestamp():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json=brave_payload([{"title": "t", "url": "https://x.co", "description": "d"}]),
+            json=brave_payload(
+                [{"title": "t", "url": "https://x.co", "description": "d"}]
+            ),
         )
 
     tool = WebSearchTool(make_searcher(handler))

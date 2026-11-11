@@ -28,6 +28,37 @@ def test_every_tool_has_llm_contract():
         assert spec["function"]["name"] == name
 
 
+class FakeSearcher:
+    async def search(self, query, limit):
+        return []
+
+
+class FakePdfReader:
+    async def extract_text(self, url, max_pages):
+        return ""
+
+
+def test_web_and_pdf_tools_added_when_services_provided():
+    tools = build_tools(
+        FakeMarket(), web_searcher=FakeSearcher(), pdf_reader=FakePdfReader()
+    )
+    assert {"web_search", "read_pdf"} <= set(tools)
+    assert len(tools) == 6
+
+
+def test_registry_retrocompatible_sans_services_web_pdf():
+    tools = build_tools(FakeMarket())
+    assert "web_search" not in tools
+    assert "read_pdf" not in tools
+
+
+def test_system_prompt_cite_web_search_et_read_pdf():
+    from investia.agent.prompts import SYSTEM_PROMPT
+
+    assert "web_search" in SYSTEM_PROMPT
+    assert "read_pdf" in SYSTEM_PROMPT
+
+
 def test_memory_tools_added_when_store_available():
     from investia.memory.embeddings import FakeEmbeddingsForTests
 

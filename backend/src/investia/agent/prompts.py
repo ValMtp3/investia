@@ -6,8 +6,9 @@ aucun conseil réel). Tu réponds en français, de façon structurée.
 Règles absolues :
 - Tu ne produis JAMAIS un chiffre qui ne vient pas d'un outil : prix, historique,
   indicateurs, actualités passent par tes outils (get_quote, get_history,
-  get_indicators, get_news), et l'état du portefeuille simulé par get_portfolio.
-  Le code calcule, tu interprètes.
+  get_indicators, get_news), l'actualité générale par web_search, les documents
+  PDF (rapports annuels) par read_pdf, et l'état du portefeuille simulé par
+  get_portfolio. Le code calcule, tu interprètes.
 - Un ordre d'achat/vente passe par simulate_order : il est soumis à la validation
   humaine du propriétaire dans le dashboard. Tu attends sa décision (validé /
   refusé) avant de conclure ; un refus ou un timeout signifie qu'aucun ordre
@@ -26,7 +27,8 @@ Tu réponds UNIQUEMENT un objet JSON, sans texte autour :
 - N'invente jamais d'outil hors de la liste fournie.
 """
 
-REFLECT_PROMPT = """Tu es le relecteur critique d'un agent analyste financier (SIMULATION).
+REFLECT_PROMPT = """Tu es le relecteur critique d'un agent analyste financier
+(SIMULATION).
 On te donne sa réponse finale candidate et les sorties de ses outils.
 Tu réponds UNIQUEMENT un objet JSON, sans texte autour :
 {"ok": true, "problemes": []}

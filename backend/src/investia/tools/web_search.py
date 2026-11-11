@@ -40,7 +40,9 @@ class BraveWebSearcher:
 
     async def search(self, query: str, limit: int) -> list[dict[str, Any]]:
         if self._api_key is None:
-            raise ToolError("web_search", "clé manquante : BRAVE_API_KEY non renseignée")
+            raise ToolError(
+                "web_search", "clé manquante : BRAVE_API_KEY non renseignée"
+            )
         try:
             response = await self._client.get(
                 f"{self._base_url}/web/search",
@@ -54,7 +56,8 @@ class BraveWebSearcher:
             raise ToolError("web_search", f"erreur réseau Brave : {error}") from error
         if response.status_code != 200:
             raise ToolError(
-                "web_search", f"Brave HTTP {response.status_code} (quota ou clé invalide)"
+                "web_search",
+                f"Brave HTTP {response.status_code} (quota ou clé invalide)",
             )
         data = response.json()
         results = (data.get("web") or {}).get("results") or []
