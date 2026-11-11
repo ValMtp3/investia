@@ -1,6 +1,6 @@
 # Spec — 12g : sandbox Python (outil `run_python`)
 
-*Écrite le : 11/11/2026 | Étape roadmap : 12 (approfondir le harness) | Statut : validée le 11/11/2026 (run_python seul, réseau bloqué best-effort, 10 s / 512 Mo / 20 000 car., flag explicite, zéro dépendance, revue sécurité avant push)*
+*Écrite le : 11/11/2026 | Étape roadmap : 12 (approfondir le harness) | Statut : validée le 11/11/2026, terminée le 11/11/2026 (run_python seul, réseau bloqué best-effort, 10 s / 512 Mo / 20 000 car., flag explicite, zéro dépendance, revue sécurité faite + rédation des secrets)*
 
 ## Objectif
 
