@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from investia.agent import AgentResult, run_agent
 from investia.agent.loop import ToolCallLog
-from investia.agent.reasoning import Plan, PlanStep
+from investia.agent.reasoning import Plan, PlanStep, ReflectionDecision
 from investia.evals.metrics import compute_metrics
 from investia.evals.runner import EvalCase, MockLlm, load_cases, run_evals
 from investia.market.base import MarketData
@@ -151,6 +151,32 @@ def test_plan_suivi_un_sans_plan_ou_plan_vide():
     assert compute_metrics(sans_plan, None)["plan_suivi"] == 1.0
     plan_vide = AgentResult(answer="x", turns=1, plan=Plan())
     assert compute_metrics(plan_vide, None)["plan_suivi"] == 1.0
+
+
+def test_metrics_reflexion_et_auto_corrections():
+    sans = AgentResult(answer="x", turns=1)
+    m = compute_metrics(sans, None)
+    assert m["reflexion"] == 0.0
+    assert m["auto_corrections"] == 0.0
+
+    avec_ok = AgentResult(
+        answer="x", turns=2, reflections=[ReflectionDecision(ok=True)]
+    )
+    m = compute_metrics(avec_ok, None)
+    assert m["reflexion"] == 1.0
+    assert m["auto_corrections"] == 0.0
+
+    avec_ko = AgentResult(
+        answer="x",
+        turns=3,
+        reflections=[
+            ReflectionDecision(ok=False, problemes=["chiffre non sourcé"]),
+            ReflectionDecision(ok=True),
+        ],
+    )
+    m = compute_metrics(avec_ko, None)
+    assert m["reflexion"] == 1.0
+    assert m["auto_corrections"] == 1.0
 
 
 def test_load_cases_from_yaml(tmp_path):
