@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from investia.agent.approval import ApprovalRegistry
-from investia.agent.reasoning import Plan, make_plan
+from investia.agent.reasoning import Plan, ReflectionDecision, make_plan, reflect
 from investia.guardrails import run_all_checks
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
@@ -55,10 +55,25 @@ class AgentResult:
     model: str = ""
     guardrails: list[GuardrailDecision] = field(default_factory=list)
     plan: Plan | None = None
+    reflections: list[ReflectionDecision] = field(default_factory=list)
 
 
 DEFAULT_MAX_TURNS = 8
 DEFAULT_MAX_CORRECTIONS = 2
+# Étape 12 : modes de raisonnement structurés, combinables par « + » ("plan+reflect").
+REASONING_MODES = frozenset({"plan", "reflect"})
+
+
+def _parse_reasoning_modes(reasoning: str) -> set[str]:
+    if reasoning == "none":
+        return {"none"}
+    modes = set(reasoning.split("+"))
+    if not modes <= REASONING_MODES:
+        raise ValueError(
+            f"reasoning inconnu : {reasoning!r} "
+            "(attendu : 'none', 'plan', 'reflect' ou 'plan+reflect')"
+        )
+    return modes
 # Validation humaine (D57) : pas de réponse = pas d'ordre.
 DEFAULT_APPROVAL_TIMEOUT = 300.0
 
@@ -79,8 +94,7 @@ async def run_agent(
     """Boucle d'agent + garde-fous. Arrêt propre si max tours/corrections atteints."""
     from investia.agent.prompts import SYSTEM_PROMPT
 
-    if reasoning not in ("none", "plan"):
-        raise ValueError(f"reasoning inconnu : {reasoning!r} (attendu : 'none' ou 'plan')")
+    modes = _parse_reasoning_modes(reasoning)
     model_key = model_key or choose(question)
     store = trace_store
     run_id = await store.start_run(question) if store is not None else None
@@ -95,8 +109,9 @@ async def run_agent(
         "start", {"question": question, "max_turns": max_turns, "run_id": run_id}
     )
     plan: Plan | None = None
+    reflections: list[ReflectionDecision] = []
     total_cost = 0.0
-    if reasoning == "plan":
+    if "plan" in modes:
         # Étape 12a : appel LLM dédié, le plan est tracé puis suivi par la métrique plan_suivi.
         plan, plan_cost = await make_plan(
             llm, model_key, question, [tool.name for tool in tools.values()]
@@ -218,8 +233,41 @@ async def run_agent(
                 )
             continue
 
-        # Réponse finale : les garde-fous vérifient en code avant validation.
+        # Réponse finale : auto-critique (12b) puis garde-fous en code avant validation.
         tool_outputs = [m["content"] for m in messages if m.get("role") == "tool"]
+        reflection_failed: tuple[str, str] | None = None
+        if "reflect" in modes:
+            decision, reflect_cost = await reflect(
+                llm, model_key, response.content, tool_outputs
+            )
+            total_cost += reflect_cost
+            reflections.append(decision)
+            await emit(
+                "reflection",
+                {
+                    "turn": turn,
+                    "ok": decision.ok,
+                    "problemes": decision.problemes,
+                    "cost_cents": reflect_cost,
+                },
+            )
+            if store is not None and run_id is not None:
+                await store.log_step(
+                    run_id,
+                    turn,
+                    "reflection",
+                    {
+                        "ok": decision.ok,
+                        "problemes": decision.problemes,
+                        "cost_cents": reflect_cost,
+                    },
+                )
+            if not decision.ok:
+                reflection_failed = (
+                    "reflection",
+                    "; ".join(decision.problemes)
+                    or "problèmes signalés par l'auto-critique",
+                )
         checks = run_all_checks(response.content, tool_outputs)
         guardrails.extend(
             GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
@@ -239,6 +287,8 @@ async def run_agent(
                     {"check": name, "ok": result.ok, "detail": result.detail},
                 )
         failed = [(name, result.detail) for name, result in checks if not result.ok]
+        if reflection_failed is not None:
+            failed.append(reflection_failed)
         if not failed:
             await emit("answer", {"turn": turn, "text": response.content})
             result = AgentResult(
@@ -249,6 +299,7 @@ async def run_agent(
                 model=response.model,
                 guardrails=guardrails,
                 plan=plan,
+                reflections=reflections,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -331,6 +382,7 @@ async def run_agent(
         model=model_key,
         guardrails=guardrails,
         plan=plan,
+        reflections=reflections,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
