@@ -139,15 +139,17 @@ async def run_evals(
     for case in cases:
         reasoning = case.reasoning or ("plan" if case.mock_plan else "none")
         llm_factory = None
-        if case.consistency_k > 1 and case.mock_variants:
-            def llm_factory(i: int, case: EvalCase = case) -> MockLlm:
+        variants = case.mock_variants
+        if case.consistency_k > 1 and variants:
+
+            def llm_factory(i: int, case: EvalCase = case, variants: list = variants) -> MockLlm:
                 variant = EvalCase(
                     id=f"{case.id}#{i}",
                     question=case.question,
                     expected_tool=None,
                     mock_tool_call=None,
                     mock_final="",
-                    mock_responses=case.mock_variants[i],
+                    mock_responses=variants[i],
                 )
                 return MockLlm(variant)
 

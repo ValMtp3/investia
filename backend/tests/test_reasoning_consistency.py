@@ -229,6 +229,8 @@ async def test_k_invalide_rejete():
 
 
 async def test_k3_avec_approval_registry_rejete():
+    from investia.agent.approval import ApprovalRegistry
+
     llm = llm_with_final(FINAL_A)
     with pytest.raises(ValueError, match="approval"):
         await run_agent(
@@ -236,5 +238,5 @@ async def test_k3_avec_approval_registry_rejete():
             llm,
             build_tools(FakeMarket()),
             consistency_k=3,
-            approval_registry=object(),
+            approval_registry=ApprovalRegistry(),
         )
