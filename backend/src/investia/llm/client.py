@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +32,9 @@ class LlmResponse:
     completion_tokens: int
     cost_cents: float
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # étape 12d (LLM-as-Jev) : proba normalisées (softmax) des top tokens du 1er
+    # token généré, demandées via chat(..., logprobs=True). None si non demandé.
+    first_token_logprobs: dict[str, float] | None = None
 
 
 class LlmClient:
@@ -59,6 +63,7 @@ class LlmClient:
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         tools: list[dict[str, Any]] | None = None,
+        logprobs: bool = False,
     ) -> LlmResponse:
         model = self._models.by_key(model_key)
         payload: dict[str, Any] = {
@@ -68,6 +73,9 @@ class LlmClient:
         }
         if tools:
             payload["tools"] = tools
+        if logprobs:
+            payload["logprobs"] = True
+            payload["top_logprobs"] = 5
         response = await self._post_with_retry(payload)
         data = response.json()
         try:
@@ -99,6 +107,9 @@ class LlmClient:
             completion_tokens=completion_tokens,
             cost_cents=cost_cents,
             tool_calls=tool_calls,
+            first_token_logprobs=(
+                _parse_first_token_logprobs(data) if logprobs else None
+            ),
         )
 
     def _cost_cents(self, model, prompt_tokens: int, completion_tokens: int) -> float:
@@ -130,3 +141,21 @@ class LlmClient:
                 raise last_error
             await asyncio.sleep(self._retry_delay)
         raise last_error if last_error else LlmError("appel gateway sans réponse")
+
+
+def _parse_first_token_logprobs(data: dict[str, Any]) -> dict[str, float] | None:
+    """Softmax des top_logprobs du 1er token généré -> {token: proba} (somme = 1)."""
+    try:
+        content = data["choices"][0]["logprobs"]["content"]
+        top = content[0].get("top_logprobs") or []
+        if not top:
+            return None
+        raw = [(str(t.get("token", "")), float(t.get("logprob", 0.0))) for t in top]
+        max_lp = max(lp for _, lp in raw)
+        exps = [(token, math.exp(lp - max_lp)) for token, lp in raw]
+        total = sum(weight for _, weight in exps)
+        if total <= 0:
+            return None
+        return {token: weight / total for token, weight in exps}
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None

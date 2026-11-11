@@ -1,5 +1,7 @@
 """Tests du client LiteLLM, du routeur et du chargement des modèles."""
 
+import json as jsonlib
+
 import httpx
 import pytest
 from pydantic import SecretStr
@@ -116,8 +118,6 @@ async def test_http_401_raises_without_retry():
 
 
 async def test_chat_with_tools_sends_them_and_parses_tool_calls():
-    import json as jsonlib
-
     tool_calls_payload = {
         "choices": [
             {
@@ -164,3 +164,69 @@ async def test_chat_with_tools_sends_them_and_parses_tool_calls():
     assert response.tool_calls[0].name == "get_quote"
     assert response.tool_calls[0].arguments == {"symbol": "AAPL"}
     assert response.tool_calls[0].id == "call_1"
+
+
+# ---------- logprobs (étape 12d : LLM-as-Jev) ----------
+
+
+def logprobs_payload():
+    return {
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": "Non"},
+                "logprobs": {
+                    "content": [
+                        {
+                            "token": "Non",
+                            "logprob": -0.1,
+                            "top_logprobs": [
+                                {"token": "Non", "logprob": -0.1},
+                                {"token": "Oui", "logprob": -2.3},
+                            ],
+                        }
+                    ]
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 1},
+    }
+
+
+async def test_chat_logprobs_parsed_normalized_and_sent():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = jsonlib.loads(request.content)
+        assert body.get("logprobs") is True
+        assert body.get("top_logprobs") == 5
+        return httpx.Response(200, json=logprobs_payload())
+
+    client = make_client(handler)
+    response = await client.chat(
+        "small", [{"role": "user", "content": "sûr ?"}], logprobs=True
+    )
+    lp = response.first_token_logprobs
+    assert lp is not None
+    assert sum(lp.values()) == pytest.approx(1.0)
+    assert lp["Non"] > lp["Oui"]
+    assert lp["Non"] == pytest.approx(0.9, abs=0.05)
+
+
+async def test_chat_sans_logprobs_renvoie_none_et_ne_demande_pas():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = jsonlib.loads(request.content)
+        assert "logprobs" not in body
+        return httpx.Response(200, json=chat_response("ok", 10, 5))
+
+    client = make_client(handler)
+    response = await client.chat("small", [{"role": "user", "content": "hi"}])
+    assert response.first_token_logprobs is None
+
+
+async def test_chat_logprobs_absents_de_la_reponse_renvoie_none():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=chat_response("Non", 10, 1))
+
+    client = make_client(handler)
+    response = await client.chat(
+        "small", [{"role": "user", "content": "sûr ?"}], logprobs=True
+    )
+    assert response.first_token_logprobs is None
