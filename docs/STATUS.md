@@ -1,8 +1,10 @@
 # STATUS — où en est le projet
 
-> **Mis à jour le : 07/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
+> **Mis à jour le : 08/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
 
 ## Étape en cours
+
+**Étape 12a — raisonnement structuré, brique 1 (plan-and-execute) : TERMINÉE le 08/11/2026** (branche `feat/etape-12a-plan`, spec `docs/specs/12a-plan-execute.md`, plan `docs/superpowers/plans/2026-11-08-etape-12a-plan-execute.md`, D69) : nouveau module `agent/reasoning.py` (`PlanStep`/`Plan`/`parse_plan`/`make_plan`) ; `run_agent(..., reasoning="plan")` produit un plan JSON par appel LLM dédié en début de run (parsing en douceur, plan vide si illisible, coût compté dans `total_cost_cents`), émis en SSE (event `plan`) et loggé en base (step `plan`, turn 0) ; `AgentResult.plan` ; métrique d'eval `plan_suivi` (1.0 si tous les outils appelés sont dans le plan, plan vide/absent = 1.0) ; `EvalCase.mock_plan` + 2 cas (`plan-suivi` = 1.0, `plan-non-suivi` = 0.0) dans `evals/cases.yaml`. Défaut `reasoning="none"` = comportement inchangé (rétrocompatible, 329 tests non-integration verts, ruff/ty propres, dashboard 110 tests verts sans changement). Suite du chantier 12 : 12b réflexion/auto-critique, 12c self-consistency.
 
 **Étape 0 — Fondations : TERMINÉE le 31/10/2026.** Branche `feat/etape-0-fondations` pushée sur GitHub (`ValMtp3/investia`), CI verte (run 41219238270 : ruff, format, ty, pytest 25 tests + couverture 89 % ≥ 80 %). Plan : `docs/superpowers/plans/2026-10-30-etape-0-fondations.md`.
 
