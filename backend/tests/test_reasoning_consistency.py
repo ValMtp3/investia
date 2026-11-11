@@ -63,7 +63,7 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         self.calls.append({"model": model_key, "messages": list(messages), "tools": tools})
         if len(self._responses) > 1:
             return self._responses.pop(0)

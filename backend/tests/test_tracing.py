@@ -37,7 +37,7 @@ class FakeLlm:
     def __init__(self, responses):
         self._responses = list(responses)
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         if len(self._responses) > 1:
             return self._responses.pop(0)
         return self._responses[0]

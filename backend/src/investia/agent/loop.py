@@ -20,6 +20,7 @@ from investia.agent.reasoning import (
     vote,
 )
 from investia.guardrails import run_all_checks
+from investia.guardrails.llm_check import check_safety_llm, check_safety_logprobs
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
 from investia.tools.base import BaseTool, ToolError
@@ -36,6 +37,7 @@ class LlmChat(Protocol):
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         tools: list[dict[str, Any]] | None = None,
+        logprobs: bool = False,
     ) -> LlmResponse: ...
 
 
@@ -100,6 +102,8 @@ async def _run_once(
     event_sink: Any | None = None,
     approval_registry: ApprovalRegistry | None = None,
     approval_timeout: float = DEFAULT_APPROVAL_TIMEOUT,
+    decision_client: Any | None = None,
+    logprobs_guardrail: bool = False,
 ) -> AgentResult:
     """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c)."""
     from investia.agent.prompts import SYSTEM_PROMPT
@@ -277,6 +281,15 @@ async def _run_once(
                     or "problèmes signalés par l'auto-critique",
                 )
         checks = run_all_checks(response.content, tool_outputs)
+        # Étape 12d : garde-fous LLM en renfort (jamais à la place du code).
+        if decision_client is not None:
+            checks.append(
+                ("safety_llm", await check_safety_llm(response.content, decision_client.decide))
+            )
+        if logprobs_guardrail:
+            checks.append(
+                ("safety_logprobs", await check_safety_logprobs(response.content, llm, model_key))
+            )
         guardrails.extend(
             GuardrailDecision(check=name, ok=result.ok, detail=result.detail)
             for name, result in checks
@@ -430,6 +443,8 @@ async def run_agent(
     reasoning: str = "none",
     consistency_k: int = 1,
     llm_factory: Any | None = None,
+    decision_client: Any | None = None,
+    logprobs_guardrail: bool = False,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
@@ -458,6 +473,8 @@ async def run_agent(
             event_sink=event_sink,
             approval_registry=approval_registry,
             approval_timeout=approval_timeout,
+            decision_client=decision_client,
+            logprobs_guardrail=logprobs_guardrail,
         )
 
     async def emit(kind: str, payload: dict[str, Any]) -> None:
@@ -480,6 +497,8 @@ async def run_agent(
             event_sink=None,  # pas de SSE entremêlée : chaque sous-run trace en base
             approval_registry=None,
             approval_timeout=approval_timeout,
+            decision_client=decision_client,
+            logprobs_guardrail=logprobs_guardrail,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))

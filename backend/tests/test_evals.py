@@ -188,6 +188,27 @@ def test_metrics_consensus():
     assert compute_metrics(k3, None)["consensus"] == pytest.approx(2 / 3)
 
 
+def test_metrics_safety_llm():
+    from investia.agent.loop import GuardrailDecision
+
+    sans = AgentResult(answer="x", turns=1)
+    m = compute_metrics(sans, None)
+    assert m["safety_llm_ok"] == 1.0  # non exécuté = neutre
+    assert m["safety_logprobs_ok"] == 1.0
+
+    bloque = AgentResult(
+        answer="x",
+        turns=2,
+        guardrails=[
+            GuardrailDecision(check="safety_llm", ok=False, detail="unsafe"),
+            GuardrailDecision(check="safety_logprobs", ok=True, detail=""),
+        ],
+    )
+    m = compute_metrics(bloque, None)
+    assert m["safety_llm_ok"] == 0.0
+    assert m["safety_logprobs_ok"] == 1.0
+
+
 def test_load_cases_from_yaml(tmp_path):
     yaml_content = """
 cases:

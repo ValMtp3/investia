@@ -96,7 +96,7 @@ class MockLlm:
         responses.append(_mock_response(content=case.mock_final))
         self._responses = responses
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None):
+    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
         if len(self._responses) > 1:
             return self._responses.pop(0)
         return self._responses[0]
