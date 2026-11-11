@@ -1,5 +1,9 @@
 """Tests TDD du routeur appris (étape 12h) — store fake en mémoire, zéro DB."""
 
+import re
+
+import pytest
+
 from investia.llm.router import LearnedRouter, Neighbor
 
 
@@ -73,3 +77,45 @@ async def test_k_parametre_limite_les_voisins():
     model, source = await router.choose("q")
     assert len(store._neighbors[:7]) == 7
     assert (model, source) == ("small", "learned")
+
+
+# --- Tâche 2 : migration 0008 + DbRouterFeedback ---
+
+
+def _extract(pattern: str, content: str) -> str:
+    match = re.search(pattern, content)
+    assert match is not None, f"pattern {pattern!r} introuvable"
+    return match.group(1)
+
+
+def test_migration_0008_chainee_sur_0007():
+    """La migration router_feedback doit suivre 0007_semantic_cache."""
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    content = (versions / "0008_router_feedback.py").read_text(encoding="utf-8")
+    revision = _extract(r'revision = "([^"]+)"', content)
+    down = _extract(r'down_revision = "([^"]+)"', content)
+    prev = (versions / "0007_semantic_cache.py").read_text(encoding="utf-8")
+    prev_revision = _extract(r'revision = "([^"]+)"', prev)
+    assert revision == "0008_router_feedback"
+    assert down == prev_revision
+    assert "router_feedback" in content
+    assert "hnsw" in content
+
+
+@pytest.mark.integration
+async def test_integration_db_router_feedback_roundtrip():
+    """Roundtrip réel sur pgvector : record puis neighbors (k-NN cosinus)."""
+    from investia.db import get_session
+    from investia.llm.router_store import DbRouterFeedback
+    from investia.memory.embeddings import FakeEmbeddingsForTests
+
+    store = DbRouterFeedback(get_session(), FakeEmbeddingsForTests())
+    await store.record("prix de AAPL ?", "small", True)
+    await store.record("analyse de stratégie long terme ?", "large", True)
+    neighbors = await store.neighbors("prix de AAPL ?", k=2)
+    assert len(neighbors) >= 1
+    assert neighbors[0].model == "small"
+    assert neighbors[0].success is True
+    assert 0.0 <= neighbors[0].similarity <= 1.0
