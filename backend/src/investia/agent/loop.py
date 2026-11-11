@@ -67,6 +67,7 @@ class AgentResult:
     reflections: list[ReflectionDecision] = field(default_factory=list)
     run_id: str | None = None
     status: str = "ok"  # ok / blocked / max_turns
+    from_cache: bool = False  # étape 12e : servi par le cache sémantique, zéro appel LLM
     consensus: float = 1.0  # étape 12c : part des k runs d'accord avec la réponse retenue
     answers: list[str] = field(default_factory=list)  # étape 12c : les k réponses candidates
 
@@ -451,6 +452,7 @@ async def run_agent(
     llm_factory: Any | None = None,
     decision_client: Any | None = None,
     logprobs_guardrail: bool = False,
+    semantic_cache: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
@@ -466,8 +468,42 @@ async def run_agent(
             "consistency_k > 1 non combinable avec approval_registry (validation humaine)"
         )
     resolved_model = model_key or choose(question)
+
+    async def emit(kind: str, payload: dict[str, Any]) -> None:
+        if event_sink is not None:
+            await event_sink(kind, payload)
+
+    async def store_cache(answer: str) -> None:
+        """Stocke la réponse dans le cache sémantique si ok ; erreur avalée."""
+        if semantic_cache is None:
+            return
+        try:
+            await semantic_cache.store(question, answer)
+        except Exception:
+            pass
+
+    # Étape 12e : cache sémantique — une question déjà répondue est servie sans appel LLM.
+    if semantic_cache is not None:
+        try:
+            hit = await semantic_cache.lookup(question)
+        except Exception:
+            hit = None
+        if hit is not None:
+            await emit("start", {"question": question, "from_cache": True})
+            await emit("cache_hit", {"question": question})
+            await emit("answer", {"turn": 0, "text": hit})
+            await emit("done", {"turns": 0, "cost_cents": 0.0, "status": "ok"})
+            return AgentResult(
+                answer=hit,
+                turns=0,
+                total_cost_cents=0.0,
+                model="cache",
+                status="ok",
+                from_cache=True,
+            )
+
     if consistency_k == 1:
-        return await _run_once(
+        result = await _run_once(
             question,
             llm,
             tools,
@@ -482,10 +518,9 @@ async def run_agent(
             decision_client=decision_client,
             logprobs_guardrail=logprobs_guardrail,
         )
-
-    async def emit(kind: str, payload: dict[str, Any]) -> None:
-        if event_sink is not None:
-            await event_sink(kind, payload)
+        if result.status == "ok":
+            await store_cache(result.answer)
+        return result
 
     await emit("start", {"question": question, "consistency_k": consistency_k})
 
@@ -524,6 +559,8 @@ async def run_agent(
     result = replace(
         winner, consensus=consensus, answers=answers, total_cost_cents=total_cost
     )
+    if result.status == "ok":
+        await store_cache(result.answer)
     await emit("answer", {"turn": result.turns, "text": result.answer})
     await emit(
         "done",
