@@ -278,7 +278,9 @@ async def test_run_evals_plan_suivi_et_non_suivi():
         mock_tool_call={"name": "get_news", "arguments": {"symbol": "AAPL"}},
         mock_final=FINAL_SANS_CHIFFRE,
     )
-    summary = await run_evals([case_suivi, case_non_suivi], market=FakeMarket(), mode="mock")
+    summary = await run_evals(
+        [case_suivi, case_non_suivi], market=FakeMarket(), mode="mock"
+    )
     by_id = {r["case_id"]: r["metrics"] for r in summary["results"]}
     assert by_id["plan-suivi"]["plan_suivi"] == 1.0
     assert by_id["plan-suivi"]["tool_used"] == 1.0
@@ -365,9 +367,9 @@ def _variant(content):
 async def test_run_evals_consensus_fort_et_unanime():
     import pytest
 
-    variant_b = FINAL_OK.replace("Le prix est 344.63 $", "L'action cote à 344.63 $").replace(
-        "## Confiance\n80", "## Confiance\n70"
-    )
+    variant_b = FINAL_OK.replace(
+        "Le prix est 344.63 $", "L'action cote à 344.63 $"
+    ).replace("## Confiance\n80", "## Confiance\n70")
     case_fort = EvalCase(
         id="consensus-fort",
         question="prix de AAPL ?",
@@ -386,7 +388,9 @@ async def test_run_evals_consensus_fort_et_unanime():
         consistency_k=3,
         mock_variants=[_variant(FINAL_OK), _variant(FINAL_OK), _variant(FINAL_OK)],
     )
-    summary = await run_evals([case_fort, case_unanime], market=FakeMarket(), mode="mock")
+    summary = await run_evals(
+        [case_fort, case_unanime], market=FakeMarket(), mode="mock"
+    )
     by_id = {r["case_id"]: r["metrics"] for r in summary["results"]}
     assert by_id["consensus-fort"]["consensus"] == pytest.approx(2 / 3)
     assert by_id["consensus-fort"]["tool_used"] == 1.0
@@ -397,8 +401,6 @@ async def test_run_evals_consensus_fort_et_unanime():
 
 
 async def test_run_evals_safety_ok_unsafe_logprobs():
-    import pytest
-
     base = {"tool_call": {"name": "get_quote", "arguments": {"symbol": "AAPL"}}}
     seq = [base, {"content": FINAL_OK}]
     case_ok = EvalCase(
@@ -408,7 +410,11 @@ async def test_run_evals_safety_ok_unsafe_logprobs():
         mock_tool_call=None,
         mock_final="",
         mock_responses=seq,
-        mock_decision={"value": "safe", "probabilities": {"safe": 0.95, "unsafe": 0.05}, "confidence": 0.9},
+        mock_decision={
+            "value": "safe",
+            "probabilities": {"safe": 0.95, "unsafe": 0.05},
+            "confidence": 0.9,
+        },
     )
     case_unsafe = EvalCase(
         id="safety-unsafe",
@@ -417,7 +423,11 @@ async def test_run_evals_safety_ok_unsafe_logprobs():
         mock_tool_call=None,
         mock_final="",
         mock_responses=seq,
-        mock_decision={"value": "unsafe", "probabilities": {"unsafe": 0.9, "safe": 0.1}, "confidence": 0.95},
+        mock_decision={
+            "value": "unsafe",
+            "probabilities": {"unsafe": 0.9, "safe": 0.1},
+            "confidence": 0.95,
+        },
     )
     case_logprobs = EvalCase(
         id="logprobs-unsafe",
@@ -471,3 +481,89 @@ async def test_run_evals_cache_hit():
     assert by_id["cache-hit"]["metrics"]["cost_cents"] == 0.0
     assert by_id["cache-hit"]["status"] == "ok"
     assert by_id["cache-miss"]["metrics"]["cache_hit"] == 0.0
+
+
+# --- Étape 12f : outils web_search / read_pdf transmis à build_tools ---
+
+
+class FakeSearcher:
+    async def search(self, query, limit):
+        return [
+            {
+                "title": "Communiqué officiel",
+                "url": "https://example.com/cp",
+                "snippet": "Chiffre d'affaires en hausse de 12 % au T3.",
+                "source": "brave",
+                "timestamp": "2026-11-08T10:00:00+00:00",
+            }
+        ]
+
+
+class FakeReader:
+    async def extract_text(self, url, max_pages):
+        return "Rapport annuel : résultat net de 1,2 Md$."
+
+
+async def test_run_evals_passe_web_searcher_et_pdf_reader(monkeypatch):
+    import investia.evals.runner as runner
+
+    captured: list[dict] = []
+    real_build_tools = runner.build_tools
+
+    def spy(market, **kwargs):
+        captured.append(kwargs)
+        return real_build_tools(market, **kwargs)
+
+    monkeypatch.setattr(runner, "build_tools", spy)
+
+    searcher, reader = FakeSearcher(), FakeReader()
+    await run_evals(
+        [make_case()],
+        market=FakeMarket(),
+        mode="mock",
+        web_searcher=searcher,
+        pdf_reader=reader,
+    )
+    assert captured[-1]["web_searcher"] is searcher
+    assert captured[-1]["pdf_reader"] is reader
+
+    await run_evals([make_case()], market=FakeMarket(), mode="mock")
+    assert captured[-1]["web_searcher"] is None
+    assert captured[-1]["pdf_reader"] is None
+
+
+async def test_run_evals_cas_web_search_et_read_pdf_tool_used():
+    final_web = FINAL_OK.replace("344.63 $", "12 % (source : brave)")
+    final_pdf = FINAL_OK.replace("344.63 $", "1,2 Md$ (source : nutrient)")
+    cas_web = EvalCase(
+        id="web-search",
+        question="Quelles sont les dernières actualités ?",
+        expected_tool="web_search",
+        mock_tool_call={
+            "name": "web_search",
+            "arguments": {"query": "actualité", "limit": 3},
+        },
+        mock_final=final_web,
+    )
+    cas_pdf = EvalCase(
+        id="read-pdf",
+        question="Que dit le rapport annuel ?",
+        expected_tool="read_pdf",
+        mock_tool_call={
+            "name": "read_pdf",
+            "arguments": {"url": "https://example.com/ra.pdf", "max_pages": 5},
+        },
+        mock_final=final_pdf,
+    )
+    summary = await run_evals(
+        [cas_web, cas_pdf],
+        market=FakeMarket(),
+        mode="mock",
+        web_searcher=FakeSearcher(),
+        pdf_reader=FakeReader(),
+    )
+    by_id = {r["case_id"]: r for r in summary["results"]}
+    assert by_id["web-search"]["metrics"]["tool_used"] == 1.0
+    assert by_id["read-pdf"]["metrics"]["tool_used"] == 1.0
+    assert by_id["web-search"]["status"] == "ok"
+    assert by_id["read-pdf"]["status"] == "ok"
