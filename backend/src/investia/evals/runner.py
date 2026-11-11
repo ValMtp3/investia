@@ -199,6 +199,18 @@ class FakePdfReader:
         return "Rapport annuel : résultat net de 1,2 Md$ sur l'exercice."
 
 
+class FakePythonSandbox:
+    """Sandbox déterministe (étape 12g) : une sortie fixe, zéro exécution réelle."""
+
+    async def run_code(self, code: str) -> dict[str, Any]:
+        return {
+            "exit_code": 0,
+            "stdout": "sharpe = 1.42\n",
+            "stderr": "",
+            "truncated": False,
+        }
+
+
 async def run_evals(
     cases: list[EvalCase],
     market: MarketDataService | None = None,
@@ -207,6 +219,7 @@ async def run_evals(
     portfolio_service=None,
     web_searcher=None,
     pdf_reader=None,
+    python_sandbox=None,
 ) -> dict[str, Any]:
     """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni."""
     market = market or MockMarket()
@@ -215,6 +228,7 @@ async def run_evals(
         portfolio_service=portfolio_service,
         web_searcher=web_searcher,
         pdf_reader=pdf_reader,
+        python_sandbox=python_sandbox,
     )
     run_id = None
     if eval_store is not None:

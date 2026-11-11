@@ -59,6 +59,28 @@ def test_system_prompt_cite_web_search_et_read_pdf():
     assert "read_pdf" in SYSTEM_PROMPT
 
 
+class FakePythonSandbox:
+    async def run_code(self, code):
+        return {"exit_code": 0, "stdout": "", "stderr": "", "truncated": False}
+
+
+def test_run_python_present_quand_sandbox_fournie():
+    tools = build_tools(FakeMarket(), python_sandbox=FakePythonSandbox())
+    assert "run_python" in tools
+    assert len(tools) == 5
+
+
+def test_registry_retrocompatible_sans_sandbox():
+    tools = build_tools(FakeMarket())
+    assert "run_python" not in tools
+
+
+def test_system_prompt_cite_run_python():
+    from investia.agent.prompts import SYSTEM_PROMPT
+
+    assert "run_python" in SYSTEM_PROMPT
+
+
 def test_memory_tools_added_when_store_available():
     from investia.memory.embeddings import FakeEmbeddingsForTests
 

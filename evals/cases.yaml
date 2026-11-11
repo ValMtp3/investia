@@ -394,3 +394,25 @@ cases:
       - nutrient (read_pdf)
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 12g : run_python — l'agent délègue le calcul à la sandbox (tool_used = 1.0).
+  - id: run-python
+    question: "Quel est le ratio de Sharpe de la stratégie sur 1 an ?"
+    expected_tool: run_python
+    mock_tool_call:
+      { name: run_python, arguments: { code: "print('sharpe =', 1.42)" } }
+    mock_final: |
+      ## Thèse
+      Le ratio de Sharpe calculé par la sandbox est de 1.42
+      (source : sandbox run_python).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - sandbox (run_python)
+
+      Simulation — pas un conseil en investissement.
