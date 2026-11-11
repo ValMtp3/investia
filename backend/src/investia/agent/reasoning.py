@@ -7,6 +7,7 @@ en douceur : un plan illisible donne un plan vide, jamais d'exception.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -136,3 +137,40 @@ async def reflect(
     ]
     response = await llm.chat(model_key, messages, tools=None)
     return parse_reflection(response.content), response.cost_cents
+
+
+# --- Self-consistency (étape 12c) : vote majoritaire déterministe ---
+
+CONFIDENCE_RE = re.compile(r"(?is)##?\s*confiance\s*[:#]?\s*(\d+)")
+
+
+def normalize_answer(text: str) -> str:
+    """Normalisation pour comparer deux réponses : minuscules, espaces compacts."""
+    return " ".join(text.lower().split())
+
+
+def extract_confidence(text: str) -> int:
+    """La confiance déclarée dans la section « Confiance » (0 si absente)."""
+    match = CONFIDENCE_RE.search(text)
+    return int(match.group(1)) if match else 0
+
+
+def vote(answers: list[str]) -> tuple[int, float]:
+    """Vote majoritaire : retourne (index du gagnant, consensus = part d'accord).
+
+    Texte normalisé ; ex-aequo → confiance la plus haute ; encore ex-aequo →
+    premier run. Déterministe, aucun aléatoire.
+    """
+    if not answers:
+        return 0, 1.0
+    groups: dict[str, list[int]] = {}
+    for i, answer in enumerate(answers):
+        groups.setdefault(normalize_answer(answer), []).append(i)
+
+    def group_key(norm: str) -> tuple[int, int, int]:
+        idxs = groups[norm]
+        return (len(idxs), extract_confidence(answers[idxs[0]]), -idxs[0])
+
+    best_norm = max(groups, key=group_key)
+    winner = groups[best_norm][0]
+    return winner, len(groups[best_norm]) / len(answers)
