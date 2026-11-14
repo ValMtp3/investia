@@ -16,10 +16,19 @@ from investia.llm.router import choose
 
 def test_models_toml_loads_small_and_large_with_prices():
     config = load_models_config()
-    assert config.small.name == "gpt-6-luna"
+    # 17b : tier small = DeepSeek Flash via LiteLLM
+    assert config.small.name == "deepseek/deepseek-flash-latest"
     assert config.large.name == "mistral-large-4"
-    assert config.small.price_input_per_m == pytest.approx(0.10)
+    assert config.small.price_input_per_m == pytest.approx(0.30)
+    assert config.small.price_output_per_m == pytest.approx(1.20)
     assert config.large.price_output_per_m == pytest.approx(4.18)
+
+
+def test_small_tier_is_deepseek_flash_with_positive_prices():
+    small = load_models_config().small
+    assert small.name.startswith("deepseek/")
+    assert small.price_input_per_m > 0
+    assert small.price_output_per_m > 0
 
 
 # ---------- routeur ----------
@@ -71,11 +80,11 @@ async def test_chat_returns_content_usage_and_cost():
     client = make_client(handler)
     response = await client.chat("small", [{"role": "user", "content": "prix AAPL ?"}])
     assert response.content == "le prix est 344 $"
-    assert response.model == "gpt-6-luna"
+    assert response.model == "deepseek/deepseek-flash-latest"
     assert response.prompt_tokens == 1000
     assert response.completion_tokens == 100
-    # coût = 1000*0.10/1e6 + 100*0.50/1e6 $ = 0.00015 $ = 0.015 centime
-    assert response.cost_cents == pytest.approx(0.015, rel=1e-3)
+    # coût = 1000*0.30/1e6 + 100*1.20/1e6 $ = 0.00042 $ = 0.042 centime
+    assert response.cost_cents == pytest.approx(0.042, rel=1e-3)
 
 
 async def test_budget_exceeded_raises_llm_error():
