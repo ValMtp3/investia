@@ -7,6 +7,7 @@ MockTransport httpx (zéro réseau en test). Aucun secret en dur : la clé vient
 de la config (MISTRAL_API_KEY réutilisée).
 """
 
+import json
 from typing import Any, Protocol
 
 import httpx
@@ -49,20 +50,28 @@ class MistralTimestralForecaster:
             raise ForecastError(
                 "timestamps et values doivent être de même taille non nulle"
             )
-        response = await self._client.post(
-            self._url,
-            json={
-                "model": self._model,
-                "timestamps": timestamps,
-                "values": values,
-                "horizon": horizon,
-                "quantiles": DEFAULT_QUANTILES,
-            },
-            headers={"Authorization": f"Bearer {self._api_key.get_secret_value()}"},
-        )
+        try:
+            response = await self._client.post(
+                self._url,
+                json={
+                    "model": self._model,
+                    "timestamps": timestamps,
+                    "values": values,
+                    "horizon": horizon,
+                    "quantiles": DEFAULT_QUANTILES,
+                },
+                headers={"Authorization": f"Bearer {self._api_key.get_secret_value()}"},
+            )
+        except httpx.HTTPError as error:
+            # jamais d'exception réseau brute : le tool traduit ForecastError
+            raise ForecastError(f"appel /forecast impossible : {error}") from error
         if response.status_code != 200:
             raise ForecastError(f"HTTP {response.status_code} sur /forecast")
-        return self._parse(response.json(), horizon)
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as error:
+            raise ForecastError(f"réponse /forecast non JSON : {error}") from error
+        return self._parse(payload, horizon)
 
     def _parse(self, payload: dict[str, Any], horizon: int) -> dict[str, Any]:
         """Parse tolérant de la réponse : quantiles sous `forecast.quantiles`

@@ -189,3 +189,29 @@ def test_build_tools_wires_get_forecast_only_when_forecaster_provided():
     assert "get_forecast" in with_fc
     without_fc = build_tools(FakeMarket())
     assert "get_forecast" not in without_fc
+
+
+async def test_forecaster_network_error_raises_forecast_error():
+    """17a fix revue : une erreur réseau (timeout/DNS) ne doit pas fuiter brute."""
+
+    def handler(request):
+        raise httpx.ConnectError("connexion refusée", request=request)
+
+    forecaster = make_forecaster(handler)
+    with pytest.raises(ForecastError, match="impossible"):
+        await forecaster.forecast(["2026-10-01T00:00:00Z"], [1.0], 5)
+
+
+async def test_forecaster_non_json_200_raises_forecast_error():
+    """17a fix revue : un 200 non-JSON ne doit pas lever JSONDecodeError brut."""
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=b"<html>proxy error</html>",
+            headers={"content-type": "text/html"},
+        )
+
+    forecaster = make_forecaster(handler)
+    with pytest.raises(ForecastError, match="non JSON"):
+        await forecaster.forecast(["2026-10-01T00:00:00Z"], [1.0], 5)

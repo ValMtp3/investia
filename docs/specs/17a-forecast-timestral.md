@@ -71,3 +71,6 @@ cd backend && uv run ruff check src/investia/market/forecast.py src/investia/too
 - Hébergement local des poids (CPU) — l'API suffit ; piste « on-prem » notée dans la veille.
 - Cache des prévisions, colonne dédiée en base, UI dashboard dédiée, eval mock dédié.
 - Changement de modèle par défaut (on reste sur 209M, le plus benchmarké).
+
+
+Post-revue (14/11) : erreurs réseau httpx + 200 non-JSON enveloppées en `ForecastError` (2 tests ajoutés).

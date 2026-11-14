@@ -10,6 +10,7 @@ groupe de processus. Sans isolation noyau (macOS) : documenté dans la spec 12g.
 
 import ast
 import asyncio
+import logging
 import os
 import platform
 import re
@@ -23,6 +24,8 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from investia.tools.base import BaseTool, ToolError
+
+logger = logging.getLogger(__name__)
 
 MAX_CODE_CHARS = 10_000
 MAX_OUTPUT_CHARS = 20_000
@@ -116,13 +119,23 @@ def check_backend_available(backend: str) -> None:
                 "non exécutable — exécution refusée (fail-closed)"
             )
         return
-    if backend == "subprocess" and fail_closed_enabled():
-        raise SandboxUnavailableError(
-            "aucun binaire d'isolation OS (nsjail / sandbox-exec) disponible : "
-            "exécution refusée (fail-closed, 17c). Installe nsjail (Linux) ou "
-            "utilise macOS (sandbox-exec), ou désactive explicitement avec "
-            f"{FAIL_CLOSED_ENV}=0 pour du dev local."
-        )
+    if backend == "subprocess":
+        explicit = os.environ.get(BACKEND_ENV) == "subprocess"
+        if fail_closed_enabled() and not explicit:
+            raise SandboxUnavailableError(
+                "aucun binaire d'isolation OS (nsjail / sandbox-exec) disponible : "
+                "exécution refusée (fail-closed, 17c). Installe nsjail (Linux) ou "
+                "utilise macOS (sandbox-exec), ou désactive explicitement avec "
+                f"{FAIL_CLOSED_ENV}=0 pour du dev local."
+            )
+        if explicit:
+            # choix délibéré (ex. CI) : autorisé même fail-closed, mais visible
+            logger.warning(
+                "%s=subprocess explicite : exécution sans isolation OS "
+                "(choix délibéré, ex. CI/dev local)",
+                BACKEND_ENV,
+            )
+        return
 
 
 def static_precheck(code: str) -> list[str]:

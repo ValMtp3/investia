@@ -154,3 +154,10 @@ async def test_sortie_masque_les_secrets_lus_sur_disque(monkeypatch, tmp_path):
     result = await make_sandbox().run_code(code)
     assert secret not in result["stdout"]
     assert "***" in result["stdout"]
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_fail_closed_off(monkeypatch):
+    """CI Linux (ubuntu-latest, sans nsjail) : opt-out 17c documenté pour ces
+    tests de sous-processus — sinon SandboxUnavailableError sur le runner CI."""
+    monkeypatch.setenv("INVESTIA_SANDBOX_FAIL_CLOSED", "0")

@@ -58,3 +58,6 @@ cd backend && uv run ruff check src/investia/tools/python_sandbox.py tests/test_
 - Watchdog temporel en arrière-plan (vérification périodique hors run) — la pré-vérification par run suffit ; un vrai watchdog continu serait un process dédié.
 - Migration vers gVisor/Firecracker (veille Go) — piste notée, chantier séparé.
 - Changement du profil Seatbelt / des rlimits nsjail.
+
+
+Post-revue (14/11) : `INVESTIA_SANDBOX_BACKEND=subprocess` explicite autorisé + warning (comme prévu par la spec) ; opt-out `FAIL_CLOSED=0` en fixture autouse des tests sandbox (CI Linux sans nsjail).

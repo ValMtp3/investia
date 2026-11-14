@@ -129,3 +129,26 @@ async def test_run_code_still_prechecks_before_backend_check(monkeypatch):
     result = await sandbox.run_code("eval('1')")  # bloqué par le precheck statique
     assert result["exit_code"] == -1
     assert "precheck" in result
+
+
+async def test_explicit_subprocess_backend_allowed_with_warning(monkeypatch, caplog):
+    """Spec 17c : INVESTIA_SANDBOX_BACKEND=subprocess explicite = choix délibéré
+    (ex. CI) -> autorisé même avec fail-closed ON, mais loggé en warning."""
+    import logging
+
+    monkeypatch.setenv(BACKEND_ENV, "subprocess")  # fail-closed reste ON (défaut)
+    sandbox = SubprocessPythonSandbox()
+    with caplog.at_level(logging.WARNING, logger="investia.tools.python_sandbox"):
+        result = await sandbox.run_code("print(1 + 1)")
+    assert result["exit_code"] == 0
+    assert result["backend"] == "subprocess"
+    assert any(
+        "subprocess" in r.getMessage() and r.levelno == logging.WARNING
+        for r in caplog.records
+    )
+
+
+def test_check_allows_explicit_subprocess_even_fail_closed(monkeypatch):
+    monkeypatch.setenv(BACKEND_ENV, "subprocess")  # fail-closed ON par défaut
+    check_backend_available("subprocess")  # ne lève pas
+    assert detect_os_backend() == "subprocess"
