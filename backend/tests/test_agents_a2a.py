@@ -268,3 +268,142 @@ async def test_orchestrator_blocks_when_risque_refuses(trace_store):
     assert "bloquée" in result.answer.lower() or "refus" in result.answer.lower()
     done = events[-1][1]
     assert done["status"] == "blocked"
+
+
+# --- 18a : délégation dynamique via router --------------------------------------
+
+
+class FakeRouter:
+    """Routeur d'agents fake : renvoie une liste fixe + enregistre le feedback."""
+
+    def __init__(self, agents, source="learned"):
+        self._agents = list(agents)
+        self._source = source
+        self.recorded: list[tuple[str, list[str], bool]] = []
+
+    async def choose(self, question: str):
+        return list(self._agents), self._source
+
+    async def record(self, question: str, agents: list[str], success: bool) -> None:
+        self.recorded.append((question, list(agents), success))
+
+
+async def test_orchestrator_uses_router_when_provided(trace_store):
+    """18a : router fourni -> délégation selon son choix, event a2a_route, feedback."""
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    class FakeCaller:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def call(self, agent: str, text: str) -> dict[str, Any]:
+            self.calls.append(agent)
+            if agent == "analyste":
+                return {"analysis": ANALYSE}
+            if agent == "risque":
+                return {"ok": True, "failures": []}
+            return {"answer": FINAL_OK}
+
+    from investia.tools import build_tools
+
+    llm = FakeLlm()
+    tools = build_tools(FakeMarket(), portfolio_service=FakePortfolio())
+    caller = FakeCaller()
+    router = FakeRouter(["analyste", "risque"])
+    result = await run_multi_agent(
+        "analyse AAPL",
+        llm=llm,
+        tools=tools,
+        trace_store=trace_store,
+        event_sink=sink,
+        caller=caller,
+        router=router,
+    )
+    assert caller.calls == ["analyste", "risque"]  # rédacteur non délégué
+    assert result.status == "ok"
+    route = next(p for k, p in events if k == "a2a_route")
+    assert route["agents"] == ["analyste", "risque"]
+    assert route["source"] == "learned"
+    assert router.recorded == [("analyse AAPL", ["analyste", "risque"], True)]
+    done = next(p for k, p in events if k == "done")
+    assert done["agents"] == ["analyste", "risque"]
+
+
+async def test_orchestrator_router_none_keeps_fixed_pipeline_and_no_route_event(
+    trace_store,
+):
+    """18a zéro régression : router=None -> pipeline fixe, pas d'event a2a_route."""
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    class FakeCaller:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def call(self, agent: str, text: str) -> dict[str, Any]:
+            self.calls.append(agent)
+            if agent == "analyste":
+                return {"analysis": ANALYSE}
+            if agent == "risque":
+                return {"ok": True, "failures": []}
+            return {"answer": FINAL_OK}
+
+    from investia.tools import build_tools
+
+    llm = FakeLlm()
+    tools = build_tools(FakeMarket(), portfolio_service=FakePortfolio())
+    caller = FakeCaller()
+    result = await run_multi_agent(
+        "analyse AAPL",
+        llm=llm,
+        tools=tools,
+        trace_store=trace_store,
+        event_sink=sink,
+        caller=caller,
+    )
+    assert caller.calls == ["analyste", "risque", "redacteur"]
+    assert "a2a_route" not in [k for k, _ in events]
+    assert result.status == "ok"
+
+
+async def test_orchestrator_router_risque_gate_still_blocks(trace_store):
+    """18a : même avec router, un verdict risque non-ok bloque la réponse."""
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    class RefusingCaller:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def call(self, agent: str, text: str) -> dict[str, Any]:
+            self.calls.append(agent)
+            if agent == "analyste":
+                return {"analysis": ANALYSE}
+            return {"ok": False, "failures": [("format", "pas de disclaimer")]}
+
+    from investia.tools import build_tools
+
+    llm = FakeLlm()
+    tools = build_tools(FakeMarket(), portfolio_service=FakePortfolio())
+    caller = RefusingCaller()
+    router = FakeRouter(["analyste", "risque"])
+    result = await run_multi_agent(
+        "analyse AAPL",
+        llm=llm,
+        tools=tools,
+        trace_store=trace_store,
+        event_sink=sink,
+        caller=caller,
+        router=router,
+    )
+    assert result.status == "blocked"
+    assert "bloquée par le gestionnaire de risque" in result.answer
+    # feedback d'échec enregistré
+    assert router.recorded and router.recorded[0][2] is False
