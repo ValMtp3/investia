@@ -3,16 +3,28 @@
 from investia.config import Settings
 from investia.db import get_session
 from investia.memory.embeddings import Embeddings, OpenRouterEmbeddings
-from investia.memory.store import DbMemoryStore, MemoryStoreProtocol
-from investia.memory.tools import RecallMemoryTool, SaveMemoryTool
+from investia.memory.store import (
+    DbMemoryStore,
+    MemoryStoreProtocol,
+    SaveResult,
+)
+from investia.memory.tools import (
+    ForgetMemoryTool,
+    RecallMemoryTool,
+    SaveMemoryTool,
+    UpdateMemoryTool,
+)
 
 __all__ = [
     "DbMemoryStore",
     "Embeddings",
     "MemoryStoreProtocol",
     "OpenRouterEmbeddings",
+    "ForgetMemoryTool",
     "RecallMemoryTool",
     "SaveMemoryTool",
+    "SaveResult",
+    "UpdateMemoryTool",
     "build_memory",
 ]
 

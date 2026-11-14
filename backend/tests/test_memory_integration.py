@@ -69,3 +69,47 @@ async def test_recall_returns_top_k_ordered(store):
     assert len(results) == 3
     scores = [r["score"] for r in results]
     assert scores == sorted(scores, reverse=True)
+
+
+async def test_temporal_save_dedup_supersede_forget_history_on_real_pgvector(store):
+    """16a : dédup sémantique, supersede, soft delete, recall courant vs historique."""
+    first = await store.save("profil de risque prudent", None)
+    assert first.duplicate is False
+    dup = await store.save("profil de risque prudent", None)
+    assert dup.duplicate is True
+    assert dup.id == first.id
+
+    new_id = await store.supersede(first.id, "profil de risque modéré", None)
+    assert new_id != first.id
+
+    # recall par défaut : uniquement le courant
+    current = await store.recall("profil de risque", k=5)
+    assert [r["content"] for r in current] == ["profil de risque modéré"]
+    assert current[0]["valid_until"] is None
+    assert current[0]["provenance"] == "agent"
+
+    # avec historique : les deux versions, archivées marquées
+    full = await store.recall("profil de risque", k=5, include_history=True)
+    assert len(full) == 2
+    archived = next(r for r in full if r["id"] == first.id)
+    assert archived["valid_until"] is not None
+
+    # history : chaîne complète, la plus récente d'abord
+    hist = await store.history(new_id)
+    assert [h["content"] for h in hist] == [
+        "profil de risque modéré",
+        "profil de risque prudent",
+    ]
+
+    # forget = soft delete, la ligne reste en base
+    assert await store.forget(new_id) is True
+    assert await store.recall("profil de risque modéré", k=5) == []
+    still_there = await store.recall(
+        "profil de risque modéré", k=5, include_history=True
+    )
+    assert len(still_there) == 1
+    assert await store.forget(new_id) is False  # déjà archivé
+
+    # supersede sur un id archivé -> ValueError
+    with pytest.raises(ValueError):
+        await store.supersede(first.id, "autre version", None)

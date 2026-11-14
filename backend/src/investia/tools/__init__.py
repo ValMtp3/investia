@@ -34,10 +34,17 @@ def build_tools(
         "get_news": GetNewsTool(market),
     }
     if memory_store is not None and embeddings is not None:
-        from investia.memory.tools import RecallMemoryTool, SaveMemoryTool
+        from investia.memory.tools import (
+            ForgetMemoryTool,
+            RecallMemoryTool,
+            SaveMemoryTool,
+            UpdateMemoryTool,
+        )
 
         tools["save_memory"] = SaveMemoryTool(memory_store, embeddings)
         tools["recall_memory"] = RecallMemoryTool(memory_store, embeddings)
+        tools["update_memory"] = UpdateMemoryTool(memory_store, embeddings)
+        tools["forget_memory"] = ForgetMemoryTool(memory_store, embeddings)
     if portfolio_service is not None:
         tools["get_portfolio"] = GetPortfolioTool(portfolio_service)
         tools["simulate_order"] = SimulateOrderTool(portfolio_service)
