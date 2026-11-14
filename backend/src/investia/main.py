@@ -137,6 +137,7 @@ def create_app(
     approval_registry: Any | None = None,
     backtest_service: Any | None = None,
     memory_store: Any | None = None,
+    forecaster: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -178,6 +179,16 @@ def create_app(
                 memory_store = build_memory(settings)[0]
             except Exception:
                 memory_store = None
+        forecaster = None
+        if settings.mistral_api_key is not None:
+            # 17a : prévision Timestral, câblée seulement si la clé est là.
+            from investia.market.forecast import MistralTimestralForecaster
+
+            forecaster = MistralTimestralForecaster(
+                api_key=settings.mistral_api_key,
+                base_url=settings.timestral_base_url,
+                model=settings.timestral_model,
+            )
         # Spans OTel GenAI exportés vers PostgreSQL (étape 9, D38).
         init_otel(session_factory=session)
     market_service: MarketDataService = market  # non None : construit juste au-dessus
@@ -409,7 +420,11 @@ def create_app(
                 run_agent(
                     body.question,
                     llm,
-                    build_tools(market, portfolio_service=portfolio_service),
+                    build_tools(
+                        market,
+                        portfolio_service=portfolio_service,
+                        forecaster=forecaster,
+                    ),
                     max_turns=body.max_turns,
                     trace_store=trace_store,
                     event_sink=sink,

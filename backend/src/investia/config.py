@@ -10,6 +10,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # dupliquée ici pour éviter un import circulaire config <-> memory.
 DEFAULT_LOCAL_EMBEDDING_MODEL = "Qwen3-Embedding-0.6B"
 
+# 17a : mêmes valeurs que market.forecast (import circulaire sinon).
+DEFAULT_TIMESTRAL_MODEL = "timestral-1-0-209m"
+DEFAULT_TIMESTRAL_BASE_URL = "https://api.mistral.ai/v1"
+
 # Le jeton admin (en-tête X-Admin-Token, D51) ne doit jamais être vide ni devinable.
 MIN_ADMIN_SECRET_LENGTH = 32
 
@@ -53,6 +57,12 @@ class Settings(BaseSettings):
         default=DEFAULT_LOCAL_EMBEDDING_MODEL,
         pattern=r"^[A-Za-z0-9._/-]+$",
     )
+
+    # 17a : prévision de séries temporelles via l'API Timestral (Mistral)
+    timestral_model: str = Field(
+        default=DEFAULT_TIMESTRAL_MODEL, pattern=r"^[A-Za-z0-9._-]+$"
+    )
+    timestral_base_url: str = DEFAULT_TIMESTRAL_BASE_URL
 
     # 16c : compaction du contexte de run_agent (0 = désactivé)
     context_max_tokens: int | None = 100_000

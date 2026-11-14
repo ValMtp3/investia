@@ -1,5 +1,10 @@
 """Registre des outils exposés à la boucle d'agent."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from investia.market.forecast import Forecaster
+
 from investia.market.base import MarketDataService
 from investia.tools.base import BaseTool
 from investia.tools.history import GetHistoryTool
@@ -23,6 +28,7 @@ def build_tools(
     web_searcher: WebSearcher | None = None,
     pdf_reader: PdfReader | None = None,
     python_sandbox: PythonSandbox | None = None,
+    forecaster: "Forecaster | None" = None,
 ) -> dict[str, BaseTool]:
     """Les 4 outils marché, + mémoire si dispo, + portefeuille si service fourni,
     + web_search / read_pdf / run_python si les services sont fournis
@@ -54,4 +60,8 @@ def build_tools(
         tools["read_pdf"] = ReadPdfTool(pdf_reader)
     if python_sandbox is not None:
         tools["run_python"] = RunPythonTool(python_sandbox)
+    if forecaster is not None:
+        from investia.tools.forecast import GetForecastTool
+
+        tools["get_forecast"] = GetForecastTool(market, forecaster)
     return tools
