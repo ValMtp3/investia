@@ -252,6 +252,9 @@ class FakeAgentFeedbackStore:
     async def record(self, question: str, agents: list[str], success: bool) -> None:
         self.recorded.append((question, list(agents), success))
 
+    async def stats(self) -> dict[str, dict[str, float]]:
+        return {}
+
 
 class FakeAgentCaller:
     """Caller A2A déterministe (18b) : réponses fixes par agent, zéro réseau."""

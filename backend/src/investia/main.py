@@ -155,6 +155,9 @@ def create_app(
         )
         raise SystemExit(1) from None
 
+    # 18a : routeur d'agents A2A appris ; construit plus bas seulement si la
+    # vraie base est montée, None sinon (pipeline fixe, zéro régression).
+    agent_router = None
     if market is None or portfolio_service is None:
         from investia.db import get_session
         from investia.evals.store import EvalStore
@@ -181,7 +184,6 @@ def create_app(
                 memory_store = None
         # 18a : routeur d'agents A2A appris (k-NN sur agent_feedback) ;
         # indisponible -> pipeline fixe (zéro régression).
-        agent_router = None
         try:
             from investia.agents.router import LearnedAgentRouter
             from investia.agents.router_store import DbAgentFeedback
@@ -275,7 +277,22 @@ def create_app(
             kid=settings.agent_card_signing_kid,
             alg=settings.agent_card_signing_alg,
         )
-    mount_agents(app, executors, base_url=default_base_url(), card_signer=card_signer)
+    # 20b : cards enrichies des métriques par agent (feedbacks 18a), servies
+    # à la volée ; sans routeur appris, pas de provider = cards statiques 6.1.
+    stats_provider = None
+    if agent_router is not None:
+
+        async def stats_provider(name: str) -> dict[str, float] | None:
+            all_stats = await agent_router.stats()
+            return all_stats.get(name)
+
+    mount_agents(
+        app,
+        executors,
+        base_url=default_base_url(),
+        card_signer=card_signer,
+        stats_provider=stats_provider,
+    )
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
     app.add_middleware(
         CORSMiddleware,

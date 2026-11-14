@@ -24,6 +24,9 @@ class FakeAgentStore:
     async def record(self, question: str, agents: list[str], success: bool) -> None:
         self.recorded.append((question, list(agents), success))
 
+    async def stats(self) -> dict[str, dict[str, float]]:
+        return {}
+
 
 def n(similarity: float, agent: str, success: bool) -> AgentNeighbor:
     return AgentNeighbor(similarity=similarity, agent=agent, success=success)

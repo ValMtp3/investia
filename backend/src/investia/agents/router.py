@@ -35,6 +35,10 @@ class AgentFeedbackStore(Protocol):
 
     async def neighbors(self, question: str, k: int) -> list[AgentNeighbor]: ...
 
+    async def stats(
+        self,
+    ) -> dict[str, dict[str, float]]: ...  # 20b : {agent: {runs, success_rate}}
+
 
 class AgentRouter(Protocol):
     async def choose(self, question: str) -> tuple[list[str], str]: ...
@@ -101,3 +105,7 @@ class LearnedAgentRouter:
 
     async def record(self, question: str, agents: list[str], success: bool) -> None:
         await self._store.record(question, agents, success)
+
+    async def stats(self) -> dict[str, dict[str, float]]:
+        """20b : métriques par agent du store de feedbacks (agent cards)."""
+        return await self._store.stats()
