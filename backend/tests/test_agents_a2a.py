@@ -407,3 +407,44 @@ async def test_orchestrator_router_risque_gate_still_blocks(trace_store):
     assert "bloquée par le gestionnaire de risque" in result.answer
     # feedback d'échec enregistré
     assert router.recorded and router.recorded[0][2] is False
+
+
+async def test_orchestrator_exposes_agents_used(trace_store):
+    """18b : le résultat porte la liste ordonnée des agents délégués (métrique eval)."""
+
+    class FakeCaller:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def call(self, agent: str, text: str) -> dict[str, Any]:
+            self.calls.append(agent)
+            if agent == "analyste":
+                return {"analysis": ANALYSE}
+            if agent == "risque":
+                return {"ok": True, "failures": []}
+            return {"answer": FINAL_OK}
+
+    from investia.tools import build_tools
+
+    llm = FakeLlm()
+    tools = build_tools(FakeMarket(), portfolio_service=FakePortfolio())
+    caller = FakeCaller()
+    router = FakeRouter(["analyste", "risque"])
+    result = await run_multi_agent(
+        "analyse AAPL",
+        llm=llm,
+        tools=tools,
+        trace_store=trace_store,
+        caller=caller,
+        router=router,
+    )
+    assert result.agents_used == ["analyste", "risque"]
+    # zero régression : sans router, pipeline fixe complète exposée aussi
+    result_fixe = await run_multi_agent(
+        "analyse AAPL",
+        llm=llm,
+        tools=tools,
+        trace_store=trace_store,
+        caller=FakeCaller(),
+    )
+    assert result_fixe.agents_used == ["analyste", "risque", "redacteur"]

@@ -29,6 +29,8 @@ CASES = [
     and c.consistency_k == 1
     and c.mock_router_neighbors is None
     and c.mock_cache_hit is None
+    and not c.multi_agent
+    and c.mock_agent_router_neighbors is None
 ]
 
 

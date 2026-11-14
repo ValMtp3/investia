@@ -7,6 +7,7 @@ def compute_metrics(
     result: AgentResult,
     expected_tool: str | None,
     expected_model: str | None = None,
+    expected_agents: list[str] | None = None,
 ) -> dict[str, float]:
     tools_used = [call.tool for call in result.tool_calls]
     guardrails = {g.check: g.ok for g in result.guardrails}
@@ -36,6 +37,12 @@ def compute_metrics(
         # étape 12h : le routeur a-t-il choisi le modèle attendu par le cas ?
         "routeur_choix": (
             1.0 if expected_model is None or result.model_key == expected_model else 0.0
+        ),
+        # étape 18b : le routeur d'agents a-t-il délégué les agents attendus ?
+        "routeur_agent": (
+            1.0
+            if expected_agents is None or result.agents_used == expected_agents
+            else 0.0
         ),
         "turns": float(result.turns),
         "cost_cents": result.total_cost_cents,

@@ -666,3 +666,77 @@ async def test_run_evals_cas_routeur_learned_et_fallback():
     assert by_id["routeur-learned"]["metrics"]["tool_used"] == 1.0
     # fallback : 0 voisin -> règles -> « analyse » -> large
     assert by_id["routeur-fallback"]["metrics"]["routeur_choix"] == 1.0
+
+
+# --- Étape 18b : routeur d'agents — métrique routeur_agent + cas multi-agent ---
+
+
+def test_metrics_routeur_agent():
+    result = AgentResult(answer="x", turns=2, agents_used=["analyste", "risque"])
+    assert (
+        compute_metrics(result, None, expected_agents=["analyste", "risque"])[
+            "routeur_agent"
+        ]
+        == 1.0
+    )
+    assert (
+        compute_metrics(
+            result, None, expected_agents=["analyste", "risque", "redacteur"]
+        )["routeur_agent"]
+        == 0.0
+    )
+    # sans expected_agents, la métrique ne pénalise pas
+    assert compute_metrics(result, None)["routeur_agent"] == 1.0
+
+
+async def test_run_evals_cas_a2a_learned_et_fallback():
+    voisins = [
+        {"similarity": 0.95, "agent": "analyste", "success": True},
+        {"similarity": 0.94, "agent": "analyste", "success": True},
+        {"similarity": 0.93, "agent": "analyste", "success": True},
+        {"similarity": 0.92, "agent": "risque", "success": True},
+        {"similarity": 0.91, "agent": "risque", "success": True},
+        {"similarity": 0.90, "agent": "risque", "success": True},
+    ]
+    case_learned = EvalCase(
+        id="a2a-learned",
+        question="résume la situation de AAPL en deux lignes",
+        expected_tool=None,
+        mock_tool_call=None,
+        mock_final=FINAL_OK,
+        multi_agent=True,
+        expected_agents=["analyste", "risque"],
+        mock_agent_router_neighbors=voisins,
+    )
+    case_fallback = EvalCase(
+        id="a2a-fallback",
+        question="analyse approfondie du portefeuille",
+        expected_tool=None,
+        mock_tool_call=None,
+        mock_final=FINAL_OK,
+        multi_agent=True,
+        expected_agents=["analyste", "risque", "redacteur"],
+        mock_agent_router_neighbors=[],
+    )
+    summary = await run_evals(
+        [case_learned, case_fallback], market=FakeMarket(), mode="mock"
+    )
+    by_id = {r["case_id"]: r for r in summary["results"]}
+    # learned : 6 voisins analyste/risque gagnent -> rédacteur non délégué
+    assert by_id["a2a-learned"]["metrics"]["routeur_agent"] == 1.0
+    assert by_id["a2a-learned"]["status"] == "ok"
+    # fallback : 0 voisin (< min_feedbacks) -> pipeline fixe complète
+    assert by_id["a2a-fallback"]["metrics"]["routeur_agent"] == 1.0
+    assert by_id["a2a-fallback"]["status"] == "ok"
+
+
+async def test_load_cases_a2a_champs():
+    """18b : load_cases relit les nouveaux champs multi-agent."""
+    cases = {c.id: c for c in load_cases()}
+    assert cases["a2a-learned"].multi_agent is True
+    assert cases["a2a-learned"].expected_agents == ["analyste", "risque"]
+    assert cases["a2a-learned"].mock_agent_router_neighbors
+    assert cases["a2a-fallback"].mock_agent_router_neighbors == []
+    # cas mono-agent existants : champ à zéro, zéro régression
+    assert cases["routeur-learned"].multi_agent is False
+    assert cases["routeur-learned"].expected_agents is None
