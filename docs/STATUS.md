@@ -106,6 +106,8 @@ Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (br
 
 Rapport consolidé de 8 sous-agents de veille (harness, mémoire, evals, garde-fous, routage, multi-agents, sandbox, frontend) : `docs/veille-oss-2026-11-14.md`. Conclusion : le cœur maison est au niveau de l'OSS en nov 2026 ; les écarts restants sont des briques transverses. Shortlist retenue par le propriétaire : sécurité de la boucle (sandbox OS, injection indirecte, redaction des traces, HITL durci), protocoles P9 (MCP 2026-07-28, A2A v1.0, AG-UI), evals/observabilité (DeepEval en complément, dataset depuis les traces), mémoire/contexte (schéma temporel pgvector, embeddings locaux, compaction).
 
+**Veille approfondie 2ᵉ passe (14/11/2026)** : 10 sous-agents sur 23 harness (opencode, codex, openhands, aider, cline, goose, crush, qwencode, pi, hermes, mini-swe-agent, openclaw, langgraph, deepagents, Agents SDK, smolagents, pydantic-ai, mastra, agno, crewAI, open-webui, librechat, onyx, deepseek-harness) + écosystème Go + modèle **Mistral Timestral** : `docs/veille-oss-2026-11-14-approfondie.md`. Top idées retenues : outil `get_forecast` Timestral, DeepSeek Flash comme tier « petit modèle » via LiteLLM, fail-closed du sandbox, compaction « working set » + PreCompact, tool policy pré-schéma, double dial approval×sandbox, règle « préserver le cache » du routeur, CVE Alerts automatisé. Chantiers 13→16 terminés et mergés dans main.
+
 ## Bloqueurs / à vérifier maintenant
 
 | # | Quoi | Pourquoi | Statut |
