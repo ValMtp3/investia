@@ -27,6 +27,7 @@ dependencies = [
     "pydantic-settings>=2.16.2",
     "pyjwt>=2.15.1",
     "redis>=8.1.0",
+    "sentence-transformers>=5",
     "sqlalchemy[asyncio]>=2.1.8",
     "uvicorn[standard]>=0.54.0",
 ]
