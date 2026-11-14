@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import inspect
 import json
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
@@ -130,12 +131,18 @@ async def _run_once(
     context_max_tokens: int | None = None,
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
+    pre_compact: Any | None = None,
 ) -> AgentResult:
     """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c).
 
     16c : context_max_tokens déclenche une compaction du contexte par tour
     (sliding window, résumé « untrusted », memory flush via memory_store).
     None = désactivé (comportement historique).
+
+    17d : pre_compact — hook bloquant appelé avant chaque compaction,
+    `(messages, estimated_tokens, context_max_tokens) -> bool` (sync ou async).
+    False = veto : pas de compaction ce tour, event « compaction_vetoed ».
+    None = autoriser (comportement 16c).
     """
     from investia.agent.prompts import SYSTEM_PROMPT
 
@@ -197,14 +204,35 @@ async def _run_once(
                 parse_memoires,
             )
 
-            if estimate_tokens(messages) > context_max_tokens:
-                messages, compaction_meta = await compact_messages(
-                    messages,
-                    llm=llm,
-                    model_key=model_key,
-                    max_tokens=context_max_tokens,
-                    keep_last_turns=keep_last_turns,
-                )
+            estimated = estimate_tokens(messages)
+            if estimated > context_max_tokens:
+                # 17d : hook PreCompact bloquant (sync ou async) — False = veto.
+                allow = True
+                if pre_compact is not None:
+                    outcome = pre_compact(messages, estimated, context_max_tokens)
+                    if inspect.isawaitable(outcome):
+                        outcome = await outcome
+                    allow = bool(outcome)
+                compaction_meta: dict[str, Any] = {"compacted": False}
+                if not allow:
+                    veto_payload = {
+                        "turn": turn,
+                        "estimated_tokens": estimated,
+                        "context_max_tokens": context_max_tokens,
+                    }
+                    await emit("compaction_vetoed", veto_payload)
+                    if store is not None and run_id is not None:
+                        await store.log_step(
+                            run_id, turn, "compaction_vetoed", veto_payload
+                        )
+                else:
+                    messages, compaction_meta = await compact_messages(
+                        messages,
+                        llm=llm,
+                        model_key=model_key,
+                        max_tokens=context_max_tokens,
+                        keep_last_turns=keep_last_turns,
+                    )
                 if compaction_meta["compacted"]:
                     compactions += 1
                     total_cost += compaction_meta["cost_cents"]
@@ -584,6 +612,7 @@ async def run_agent(
     context_max_tokens: int | None = None,
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
+    pre_compact: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
@@ -683,6 +712,7 @@ async def run_agent(
             context_max_tokens=context_max_tokens,
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
+            pre_compact=pre_compact,
         )
         if result.status == "ok":
             await store_cache(result.answer)
@@ -713,6 +743,7 @@ async def run_agent(
             context_max_tokens=context_max_tokens,
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
+            pre_compact=pre_compact,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))

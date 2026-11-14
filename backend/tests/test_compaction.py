@@ -145,6 +145,157 @@ async def test_run_agent_compacts_when_over_threshold_and_flushes_memory():
     assert turn3_messages[1] == {"role": "user", "content": QUESTION}
 
 
+# --- 17d : working set verbatim + stamp + hook PreCompact ----------------------
+
+
+async def test_compact_messages_keeps_user_and_tool_errors_verbatim_in_working_set():
+    llm = FakeLlm([make_response(content="RÉSUMÉ DU MILIEU")])
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "Q1"},
+        {"role": "assistant", "content": "tour1"},
+        {"role": "user", "content": "Q2 au milieu"},  # user dans un bloc lâché
+        {
+            "role": "tool",
+            "content": "ToolError: sandbox indisponible pour /tmp/x.py",
+            "is_error": True,
+        },
+        {"role": "assistant", "content": "tour2"},
+        {"role": "tool", "content": "ok"},
+        {"role": "assistant", "content": "tour3"},
+    ]
+    new_messages, meta = await compact_messages(
+        messages, llm=llm, model_key="m", max_tokens=1, keep_last_turns=1
+    )
+    assert meta["compacted"] is True
+    # working set verbatim : distinct du résumé, contient user + erreur exacts
+    ws = [
+        m
+        for m in new_messages
+        if m["role"] == "system" and "working set" in str(m["content"]).lower()
+    ]
+    assert len(ws) == 1
+    assert "Q2 au milieu" in ws[0]["content"]
+    assert "ToolError: sandbox indisponible pour /tmp/x.py" in ws[0]["content"]
+    # le résumé reste NON FIABLE, distinct du working set, et horodaté (stamp)
+    summary = next(m for m in new_messages if "NON FIABLE" in str(m.get("content", "")))
+    assert "RÉSUMÉ DU MILIEU" in summary["content"]
+    assert "compacté le" in summary["content"]
+    assert meta["compacted_at"]
+    datetime.fromisoformat(meta["compacted_at"])  # ISO 8601 valide
+
+
+async def test_compact_messages_no_working_set_message_when_nothing_to_keep():
+    # zéro régression 16c : si aucun user/erreur dans les blocs lâchés,
+    # aucun message working set n'est inséré (layout identique à 16c)
+    llm = FakeLlm([make_response(content="RÉSUMÉ")])
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "Q"},
+        {"role": "assistant", "content": "tour1"},
+        {"role": "tool", "content": "résultat1"},
+        {"role": "assistant", "content": "tour2"},
+    ]
+    new_messages, meta = await compact_messages(
+        messages, llm=llm, model_key="m", max_tokens=1, keep_last_turns=1
+    )
+    assert meta["compacted"] is True
+    assert all(
+        "working set" not in str(m.get("content", "")).lower() for m in new_messages
+    )
+    assert new_messages[-1] == {"role": "assistant", "content": "tour2"}
+
+
+async def test_run_agent_pre_compact_veto_skips_compaction():
+    base = estimate_tokens(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": QUESTION},
+        ]
+    )
+    long_turn1 = "analyse intermédiaire " * 50
+    llm = FakeLlm(
+        [
+            make_response(content=long_turn1, tool_calls=quote_tool_call()),
+            make_response(content=long_turn1, tool_calls=quote_tool_call()),
+            make_response(content=FINAL_WITH_PRICE),
+        ]
+    )
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    calls_seen: list[int] = []
+
+    async def pre_compact(messages, estimated_tokens, context_max_tokens):
+        calls_seen.append(estimated_tokens)
+        assert estimated_tokens > context_max_tokens
+        return False  # veto
+
+    result = await run_agent(
+        QUESTION,
+        llm,
+        build_tools(FakeMarket(quote=QUOTE)),
+        trace_store=FakeTraceStore(),
+        event_sink=sink,
+        context_max_tokens=base + 10,
+        keep_last_turns=1,
+        pre_compact=pre_compact,
+    )
+    assert result.status == "ok"
+    assert result.compactions == 0
+    kinds = [k for k, _ in events]
+    assert "compaction_vetoed" in kinds
+    assert "compaction" not in kinds
+    assert calls_seen  # le hook a bien été appelé
+    # aucun résumé inséré : le dernier appel LLM a vu tout l'historique
+    assert all(
+        "NON FIABLE" not in str(m.get("content", "")) for m in llm.calls[-1]["messages"]
+    )
+
+
+async def test_run_agent_pre_compact_allow_compacts_normally():
+    base = estimate_tokens(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": QUESTION},
+        ]
+    )
+    long_turn1 = "analyse intermédiaire " * 50
+    llm = FakeLlm(
+        [
+            make_response(content=long_turn1, tool_calls=quote_tool_call()),
+            make_response(content=long_turn1, tool_calls=quote_tool_call()),
+            make_response(content="Résumé."),  # appel de résumé (compaction)
+            make_response(content=FINAL_WITH_PRICE),
+        ]
+    )
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    def pre_compact(messages, estimated_tokens, context_max_tokens):
+        return True  # hook synchrone accepté aussi
+
+    result = await run_agent(
+        QUESTION,
+        llm,
+        build_tools(FakeMarket(quote=QUOTE)),
+        trace_store=FakeTraceStore(),
+        event_sink=sink,
+        context_max_tokens=base + 10,
+        keep_last_turns=1,
+        pre_compact=pre_compact,
+    )
+    assert result.status == "ok"
+    assert result.compactions == 1
+    kinds = [k for k, _ in events]
+    assert "compaction" in kinds
+    assert "compaction_vetoed" not in kinds
+
+
 async def test_run_agent_without_threshold_never_compacts():
     llm = FakeLlm(
         [
