@@ -351,6 +351,31 @@ describe("Page Agent — mode multi-agents A2A (6.1)", () => {
     expect(call).toBeDefined();
   });
 
+  it("20c : affiche en direct les steps des sous-agents (a2a_event) préfixés de l'agent", async () => {
+    const stream = [
+      'event: start\ndata: {"question":"analyse AAPL","mode":"multi-agent","run_id":"run-multi-2"}\n\n',
+      'event: a2a_delegate\ndata: {"agent":"analyste","status":"running"}\n\n',
+      'event: a2a_event\ndata: {"agent":"analyste","event_kind":"tool_call","payload":{"turn":1,"name":"get_quote","arguments":{"symbol":"AAPL"},"ok":true}}\n\n',
+      'event: a2a_event\ndata: {"agent":"analyste","event_kind":"llm_call","payload":{"turn":2,"model":"gpt-6-luna","cost_cents":0.01,"tool_calls":[]}}\n\n',
+      'event: a2a_delegate\ndata: {"agent":"analyste","status":"ok"}\n\n',
+      'event: answer\ndata: {"text":"Réponse."}\n\n',
+      'event: done\ndata: {"status":"ok","agents":["analyste"]}\n\n',
+    ].join("");
+    stubAgentFetch({ sse: [stream] });
+    await renderAgent();
+
+    await userEvent.click(screen.getByRole("button", { name: /multi-agents/i }));
+    await userEvent.type(screen.getByLabelText(/question/i), "analyse AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    const steps = await screen.findByLabelText(/étapes de l'agent/i);
+    await waitFor(() => {
+      expect(steps).toHaveTextContent(/Délégation A2A/);
+      expect(steps).toHaveTextContent(/→ analyste · Outil get_quote/);
+      expect(steps).toHaveTextContent(/→ analyste · Appel LLM · tour 2/);
+    });
+  });
+
   it("affiche les deux modes avec leur explication, visible quel que soit le mode choisi", async () => {
     stubAgentFetch({ sse: [FULL_RUN] });
     await renderAgent();

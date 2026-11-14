@@ -27,9 +27,15 @@ def default_base_url() -> str:
 
 
 class AgentCaller(Protocol):
-    """Appelle un agent A2A par son nom et renvoie son artifact (dict)."""
+    """Appelle un agent A2A par son nom et renvoie son artifact (dict).
 
-    async def call(self, agent: str, text: str) -> dict[str, Any]: ...
+    20c : `on_event` (optionnel) reçoit chaque artifact intermédiaire "step"
+    de l'agent sous la forme (kind, payload).
+    """
+
+    async def call(
+        self, agent: str, text: str, on_event: Any | None = None
+    ) -> dict[str, Any]: ...
 
 
 class HttpA2ACaller:
@@ -38,7 +44,9 @@ class HttpA2ACaller:
     def __init__(self, base_url: str | None = None) -> None:
         self._base_url = (base_url or default_base_url()).rstrip("/")
 
-    async def call(self, agent: str, text: str) -> dict[str, Any]:
+    async def call(
+        self, agent: str, text: str, on_event: Any | None = None
+    ) -> dict[str, Any]:
         from a2a.client import create_client
         from a2a.types import Message, Part, SendMessageRequest
 
@@ -51,6 +59,14 @@ class HttpA2ACaller:
         request = SendMessageRequest(message=message)
         artifact_text = ""
         async for event in client.send_message(request):
+            # 20c : forward des steps intermédiaires (artifacts "step")
+            if on_event is not None:
+                step = _extract_step_event(event)
+                if step is not None:
+                    try:
+                        await on_event(step[0], step[1])
+                    except Exception:
+                        logger.exception("a2a on_event: erreur avalée")
             artifact_text = _extract_artifact_text(event) or artifact_text
         if not artifact_text:
             raise RuntimeError(f"agent {agent}: aucun artifact reçu")
@@ -61,23 +77,64 @@ class HttpA2ACaller:
             return {"text": artifact_text}
 
 
+def _iter_artifacts(event: Any):
+    """Itère les artifacts d'un StreamResponse A2A (oneof payload)."""
+    for oneof in event.DESCRIPTOR.oneofs:
+        which = event.WhichOneof(oneof.name)
+        if not which:
+            continue
+        payload = getattr(event, which)
+        for artifact in getattr(payload, "artifacts", None) or []:
+            yield artifact
+        artifact = getattr(payload, "artifact", None)
+        if artifact is not None:
+            yield artifact
+
+
 def _extract_artifact_text(event: Any) -> str | None:
-    """Texte d'artifact d'un StreamResponse A2A (oneof task/message/status/artifact)."""
+    """Texte de l'artifact final d'un StreamResponse A2A.
+
+    20c : les artifacts intermédiaires nommés "step" sont ignorés (ils sont
+    forwardés séparément via _extract_step_event).
+    """
     for oneof in event.DESCRIPTOR.oneofs:
         which = event.WhichOneof(oneof.name)
         if not which:
             continue
         payload = getattr(event, which)
         parts: list[Any] = list(getattr(payload, "parts", None) or [])
-        for artifact in getattr(payload, "artifacts", None) or []:
-            parts.extend(getattr(artifact, "parts", None) or [])
-        artifact = getattr(payload, "artifact", None)
-        if artifact is not None:
+        for artifact in _iter_artifacts(event):
+            if getattr(artifact, "name", "") == "step":
+                continue
             parts.extend(getattr(artifact, "parts", None) or [])
         for part in reversed(parts):
             text = getattr(part, "text", None)
             if text:
                 return text
+    return None
+
+
+def _extract_step_event(event: Any) -> tuple[str, dict[str, Any]] | None:
+    """20c : extrait un artifact "step" d'un StreamResponse A2A.
+
+    Retourne (kind, payload) si l'artifact "step" contient un JSON
+    {"kind": ..., "payload": ...}, sinon None (JSON illisible avalé).
+    """
+    for artifact in _iter_artifacts(event):
+        if getattr(artifact, "name", "") != "step":
+            continue
+        for part in getattr(artifact, "parts", None) or []:
+            text = getattr(part, "text", None)
+            if not text:
+                continue
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(data, dict) and "kind" in data:
+                payload = data.get("payload")
+                return str(data["kind"]), payload if isinstance(payload, dict) else {}
+            return None
     return None
 
 
@@ -96,12 +153,16 @@ async def run_multi_agent(
     event_sink: Any | None = None,
     caller: AgentCaller | None = None,
     router: Any | None = None,
+    forward_agent_events: bool = False,
 ) -> AgentResult:
     """Enchaîne les agents A2A. Le verdict du risque bloque la réponse si non ok.
 
     18a : `router` (AgentRouter) choisit quels agents déléguer selon la question
     et leurs succès passés (event `a2a_route`, feedback `record` en fin de run).
     `router=None` = pipeline fixe analyste → risque → rédacteur (6.1, inchangé).
+    20c : `forward_agent_events=True` réémet les events internes de chaque
+    sous-agent en events SSE `a2a_event` {agent, event_kind, payload}.
+    Défaut False = aucun a2a_event (zéro régression).
     """
     from investia.agents.router import CANONICAL_PIPELINE, RISK_AGENT
 
@@ -115,7 +176,17 @@ async def run_multi_agent(
     async def delegate(agent: str, text: str) -> dict[str, Any]:
         await emit("a2a_delegate", {"agent": agent, "status": "running"})
         try:
-            data = await caller.call(agent, text)
+            if forward_agent_events:
+                # 20c : forward des steps internes du sous-agent en SSE
+                async def on_event(kind: str, payload: dict[str, Any]) -> None:
+                    await emit(
+                        "a2a_event",
+                        {"agent": agent, "event_kind": kind, "payload": payload},
+                    )
+
+                data = await caller.call(agent, text, on_event=on_event)
+            else:
+                data = await caller.call(agent, text)
             status = "ok"
         except Exception:
             logger.exception("a2a_delegate %s a échoué", agent)

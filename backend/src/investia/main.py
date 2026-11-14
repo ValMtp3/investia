@@ -575,6 +575,7 @@ def create_app(
                     trace_store=trace_store,
                     event_sink=sink,
                     router=agent_router,  # 18a : None = pipeline fixe (6.1)
+                    forward_agent_events=True,  # 20c : steps des sous-agents en SSE
                 )
             )
             try:

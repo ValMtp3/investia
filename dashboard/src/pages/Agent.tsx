@@ -96,6 +96,19 @@ function stepText(event: AgentEvent): { text: string; ok?: boolean } | null {
         ok: event.payload.status === "ok" ? true : event.payload.status === "error" ? false : undefined,
       };
     }
+    case "a2a_event": {
+      // 20c : step interne d'un sous-agent (streaming A2A) — on réutilise le
+      // rendu du mode solo, préfixé du nom de l'agent délégué.
+      const inner = stepText({
+        kind: event.payload.event_kind,
+        payload: event.payload.payload,
+      } as AgentEvent);
+      const detail = inner ? inner.text : event.payload.event_kind;
+      return {
+        text: `→ ${event.payload.agent} · ${detail}`,
+        ok: inner?.ok,
+      };
+    }
     default:
       return null;
   }
