@@ -132,6 +132,7 @@ async def _run_once(
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
     pre_compact: Any | None = None,
+    tool_policy: Any | None = None,
 ) -> AgentResult:
     """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c).
 
@@ -143,6 +144,10 @@ async def _run_once(
     `(messages, estimated_tokens, context_max_tokens) -> bool` (sync ou async).
     False = veto : pas de compaction ce tour, event « compaction_vetoed ».
     None = autoriser (comportement 16c).
+
+    17e : tool_policy — set de noms autorisés OU callable `(name) -> bool`
+    (sync ou async). Appliquée AVANT les tool_specs : un outil refusé n'est
+    jamais envoyé au modèle (pas de schéma). None = tous les outils.
     """
     from investia.agent.prompts import SYSTEM_PROMPT
 
@@ -158,6 +163,26 @@ async def _run_once(
     await emit(
         "start", {"question": question, "max_turns": max_turns, "run_id": run_id}
     )
+    # 17e : tool policy pré-schéma — un outil refusé n'est pas envoyé au modèle.
+    all_tool_names = set(tools)
+    if tool_policy is not None:
+
+        async def _allows(name: str) -> bool:
+            if callable(tool_policy):
+                ok = tool_policy(name)
+                if inspect.isawaitable(ok):
+                    ok = await ok
+                return bool(ok)
+            return name in tool_policy  # set / frozenset de noms autorisés
+
+        tools = {n: t for n, t in tools.items() if await _allows(n)}
+    policy_payload = {
+        "kept": sorted(tools),
+        "withheld": sorted(all_tool_names - set(tools)),
+    }
+    await emit("tool_policy", policy_payload)
+    if store is not None and run_id is not None:
+        await store.log_step(run_id, 0, "tool_policy", policy_payload)
     plan: Plan | None = None
     reflections: list[ReflectionDecision] = []
     total_cost = 0.0
@@ -613,6 +638,7 @@ async def run_agent(
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
     pre_compact: Any | None = None,
+    tool_policy: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
@@ -713,6 +739,7 @@ async def run_agent(
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
             pre_compact=pre_compact,
+            tool_policy=tool_policy,
         )
         if result.status == "ok":
             await store_cache(result.answer)
@@ -744,6 +771,7 @@ async def run_agent(
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
             pre_compact=pre_compact,
+            tool_policy=tool_policy,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))

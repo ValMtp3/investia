@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     context_max_tokens: int | None = 100_000
     compaction_keep_last_turns: int = Field(default=4, ge=1, le=20)
 
+    # 17e : tool policy pré-schéma + double dial approval × sandbox (Codex/OpenClaw).
+    # csv d'outils à ne jamais envoyer au modèle (ex. "run_python,web_search")
+    disabled_tools: str = ""
+    # "quoi" : order = validation humaine des ordres (D57, défaut) ; off = aucune
+    approval_mode: Literal["order", "off"] = "order"
+    # "où" : os = sandbox OS fail-closed (17c, défaut) ; off = opt-in dev explicite
+    sandbox_mode: Literal["os", "off"] = "os"
+
 
 @lru_cache
 def get_settings() -> Settings:

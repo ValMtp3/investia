@@ -201,6 +201,19 @@ def create_app(
 
         approval_registry = ApprovalRegistry()
 
+    # 17e double dial : avertir au démarrage si le sandbox OS est requis mais
+    # indisponible (run_python sera retiré pré-schéma par la tool policy).
+    if settings.sandbox_mode == "os":
+        from investia.tools.policy import any_sandbox_backend_available
+        from investia.tools.python_sandbox import fail_closed_enabled
+
+        if fail_closed_enabled() and not any_sandbox_backend_available():
+            logging.getLogger(__name__).warning(
+                "SANDBOX_MODE=os mais aucun binaire d'isolation "
+                "(nsjail/sandbox-exec) : run_python est retiré des outils "
+                "envoyés au modèle (fail-closed 17c/17e)."
+            )
+
     # httpx écrit l'URL complète de chaque requête au niveau INFO, donc la clé API
     # des fournisseurs qui la prennent en paramètre (EODHD, Finnhub, CoinGecko).
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -404,6 +417,7 @@ def create_app(
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
         from investia.tools import build_tools
+        from investia.tools.policy import tool_policy_from_settings
 
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
@@ -428,10 +442,15 @@ def create_app(
                     max_turns=body.max_turns,
                     trace_store=trace_store,
                     event_sink=sink,
-                    approval_registry=approval_registry,
+                    # 17e double dial « quoi » : APPROVAL_MODE=off -> pas de HITL
+                    approval_registry=(
+                        approval_registry if settings.approval_mode == "order" else None
+                    ),
                     context_max_tokens=settings.context_max_tokens or None,
                     keep_last_turns=settings.compaction_keep_last_turns,
                     memory_store=memory_store,
+                    # 17e : tool policy pré-schéma (DISABLED_TOOLS + sandbox os KO)
+                    tool_policy=tool_policy_from_settings(settings),
                 )
             )
             try:

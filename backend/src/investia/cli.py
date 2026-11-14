@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         forecaster=forecaster,
     )
     llm = build_llm_client(settings)
+    from investia.tools.policy import tool_policy_from_settings
+
     try:
         result = asyncio.run(
             run_agent(
@@ -62,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
                 tools,
                 max_turns=args.max_turns,
                 trace_store=DbTraceStore(get_session()),
+                tool_policy=tool_policy_from_settings(settings),  # 17e
             )
         )
     except (LlmError, MarketDataError) as error:
