@@ -13,7 +13,7 @@ from a2a.server.agent_execution.agent_executor import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.server.tasks.task_updater import TaskUpdater
-from a2a.types import Part, Task, TaskState, TaskStatus
+from a2a.types import Artifact, Part, Task, TaskState, TaskStatus
 
 from investia.agent import run_agent
 from investia.guardrails import run_all_checks
@@ -56,6 +56,38 @@ def _parse_json_input(context: RequestContext) -> dict[str, Any]:
     return {"text": text}
 
 
+# 20c : kinds d'events du harness non forwardés en artifacts "step" (l'orchestrateur
+# émet déjà ses propres start/answer/done au niveau du run multi-agent).
+_NON_FORWARDED_KINDS = frozenset({"start", "answer", "done", "error"})
+
+
+def _step_artifact(kind: str, payload: Any) -> Artifact:
+    """20c : artifact A2A "step" (JSON kind/payload d'un event du harness)."""
+    return Artifact(
+        artifact_id=None,
+        name="step",
+        parts=[
+            Part(
+                text=json.dumps({"kind": kind, "payload": payload}, ensure_ascii=False)
+            )
+        ],
+    )
+
+
+def _streaming_sink(updater: TaskUpdater):
+    """20c : event_sink pour run_agent — émet les events en artifacts "step"."""
+
+    async def sink(kind: str, payload: Any) -> None:
+        if kind in _NON_FORWARDED_KINDS:
+            return
+        artifact = _step_artifact(kind, payload)
+        await updater.add_artifact(
+            parts=list(artifact.parts), name="step", last_chunk=False
+        )
+
+    return sink
+
+
 class AnalysteExecutor(AgentExecutor):
     """L'analyste : boucle agent complète (outils + portefeuille) → analyse brute."""
 
@@ -67,7 +99,10 @@ class AnalysteExecutor(AgentExecutor):
         updater = await _begin_task(context, event_queue)
         await updater.start_work()
         question = _user_text(context)
-        result = await run_agent(question, self._llm, self._tools)
+        # 20c : stream des events internes (llm_call, tool_call…) en "step"
+        result = await run_agent(
+            question, self._llm, self._tools, event_sink=_streaming_sink(updater)
+        )
         payload = {
             "analysis": result.answer,
             "turns": result.turns,
@@ -138,7 +173,10 @@ class RedacteurExecutor(AgentExecutor):
             "Sources) avec la mention « Simulation — pas un conseil en "
             "investissement. »"
         )
-        result = await run_agent(prompt, self._llm, self._tools)
+        # 20c : stream des events internes en artifacts "step"
+        result = await run_agent(
+            prompt, self._llm, self._tools, event_sink=_streaming_sink(updater)
+        )
         payload = {"answer": result.answer}
         await updater.add_artifact(
             parts=[Part(text=json.dumps(payload, ensure_ascii=False))],

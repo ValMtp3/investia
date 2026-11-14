@@ -204,7 +204,7 @@ async def test_orchestrator_chains_three_agents_and_traces(trace_store):
             self._tools = tools
             self.calls: list[str] = []
 
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             self.calls.append(agent)
             if agent == "analyste":
                 return {"analysis": ANALYSE}
@@ -246,7 +246,7 @@ async def test_orchestrator_blocks_when_risque_refuses(trace_store):
         events.append((kind, payload))
 
     class RefusingCaller:
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             if agent == "analyste":
                 return {"analysis": ANALYSE}
             if agent == "risque":
@@ -299,7 +299,7 @@ async def test_orchestrator_uses_router_when_provided(trace_store):
         def __init__(self):
             self.calls: list[str] = []
 
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             self.calls.append(agent)
             if agent == "analyste":
                 return {"analysis": ANALYSE}
@@ -345,7 +345,7 @@ async def test_orchestrator_router_none_keeps_fixed_pipeline_and_no_route_event(
         def __init__(self):
             self.calls: list[str] = []
 
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             self.calls.append(agent)
             if agent == "analyste":
                 return {"analysis": ANALYSE}
@@ -382,7 +382,7 @@ async def test_orchestrator_router_risque_gate_still_blocks(trace_store):
         def __init__(self):
             self.calls: list[str] = []
 
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             self.calls.append(agent)
             if agent == "analyste":
                 return {"analysis": ANALYSE}
@@ -416,7 +416,7 @@ async def test_orchestrator_exposes_agents_used(trace_store):
         def __init__(self):
             self.calls: list[str] = []
 
-        async def call(self, agent: str, text: str) -> dict[str, Any]:
+        async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
             self.calls.append(agent)
             if agent == "analyste":
                 return {"analysis": ANALYSE}
@@ -448,3 +448,78 @@ async def test_orchestrator_exposes_agents_used(trace_store):
         caller=FakeCaller(),
     )
     assert result_fixe.agents_used == ["analyste", "risque", "redacteur"]
+
+
+# --- 20c : streaming A2A intermédiaire (forward des events des sous-agents) ---
+
+
+class FakeCallerWithEvents:
+    """Caller fake qui émet des events internes via on_event (20c)."""
+
+    def __init__(self, steps):
+        self._steps = list(steps)
+        self.calls: list[str] = []
+
+    async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
+        self.calls.append(agent)
+        if on_event is not None:
+            for kind, payload in self._steps:
+                await on_event(kind, payload)
+        if agent == "analyste":
+            return {"analysis": ANALYSE}
+        if agent == "risque":
+            return {"ok": True, "failures": []}
+        return {"answer": FINAL_OK}
+
+
+async def test_forward_agent_events_emits_a2a_event(trace_store):
+    """20c : forward=True -> les events du sous-agent deviennent des a2a_event SSE."""
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    from investia.tools import build_tools
+
+    steps = [("llm_call", {"turn": 1}), ("tool_call", {"name": "get_quote"})]
+    caller = FakeCallerWithEvents(steps)
+    result = await run_multi_agent(
+        "analyse AAPL",
+        llm=FakeLlm(),
+        tools=build_tools(FakeMarket(), portfolio_service=FakePortfolio()),
+        trace_store=trace_store,
+        event_sink=sink,
+        caller=caller,
+        forward_agent_events=True,
+    )
+    a2a_events = [p for k, p in events if k == "a2a_event"]
+    # 2 steps × 3 agents (pipeline fixe sans router)
+    assert len(a2a_events) == 6
+    assert a2a_events[0] == {
+        "agent": "analyste",
+        "event_kind": "llm_call",
+        "payload": {"turn": 1},
+    }
+    assert {p["agent"] for p in a2a_events} == {"analyste", "risque", "redacteur"}
+    assert result.status == "ok"
+
+
+async def test_forward_agent_events_default_off_zero_regression(trace_store):
+    """20c zéro régression : sans forward_agent_events, aucun a2a_event émis."""
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    from investia.tools import build_tools
+
+    caller = FakeCallerWithEvents([("llm_call", {"turn": 1})])
+    await run_multi_agent(
+        "analyse AAPL",
+        llm=FakeLlm(),
+        tools=build_tools(FakeMarket(), portfolio_service=FakePortfolio()),
+        trace_store=trace_store,
+        event_sink=sink,
+        caller=caller,
+    )
+    assert "a2a_event" not in [k for k, _ in events]

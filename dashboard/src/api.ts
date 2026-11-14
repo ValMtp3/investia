@@ -242,6 +242,24 @@ export type AgentEvent =
   | { kind: "error"; payload: { message: string } }
   | { kind: "a2a_delegate"; payload: { agent: string; status: string } }
   | {
+      kind: "a2a_event"; // 20c : step interne d'un sous-agent (streaming A2A)
+      payload: {
+        agent: string;
+        event_kind: string;
+        payload: Record<string, unknown> & {
+          turn?: number;
+          model?: string;
+          cost_cents?: number;
+          tool_calls?: string[];
+          name?: string;
+          arguments?: Record<string, unknown>;
+          ok?: boolean;
+          check?: string;
+          detail?: string;
+        };
+      };
+    }
+  | {
       kind: "approval_request";
       payload: {
         run_id: string;

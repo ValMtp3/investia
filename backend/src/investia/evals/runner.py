@@ -263,7 +263,7 @@ class FakeAgentCaller:
         self._case = case
         self.calls: list[str] = []
 
-    async def call(self, agent: str, text: str) -> dict[str, Any]:
+    async def call(self, agent: str, text: str, on_event=None) -> dict[str, Any]:
         self.calls.append(agent)
         if agent == "risque":
             return {"ok": True, "failures": []}
