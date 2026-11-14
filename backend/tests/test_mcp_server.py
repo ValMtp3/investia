@@ -93,6 +93,38 @@ async def test_lists_the_six_tools_with_their_input_schemas(portfolio):
     assert by_name["get_portfolio"].parameters["properties"] == {}
 
 
+async def test_tools_carry_mcp_annotations_20a(portfolio):
+    """20a : chaque outil déclare ses annotations MCP 2026 (hints + title)."""
+    mcp = build_mcp_server(FakeMarket(), portfolio)
+    tools = await mcp.list_tools()
+    by_name = {t.name: t for t in tools}
+
+    def hints(name):
+        a = by_name[name].annotations
+        assert a is not None, name
+        return a.model_dump(by_alias=True, exclude_none=True)
+
+    attendu = {
+        # lectures marché : read-only, idempotentes, monde ouvert (API externes)
+        "get_quote": (True, False, True, True, "Cours"),
+        "get_history": (True, False, True, True, "Historique"),
+        "get_indicators": (True, False, True, True, "Indicateurs"),
+        "get_news": (True, False, True, True, "Actualités"),
+        # portefeuille : lecture seule de la DB interne (pas openWorld)
+        "get_portfolio": (True, False, True, False, "Portefeuille"),
+        # simulate_order : écrit en DB, non idempotent, pas de monde externe
+        "simulate_order": (False, False, False, False, "Simuler un ordre"),
+    }
+    for name, (ro, dest, idem, open_world, title) in attendu.items():
+        assert hints(name) == {
+            "title": title,
+            "readOnlyHint": ro,
+            "destructiveHint": dest,
+            "idempotentHint": idem,
+            "openWorldHint": open_world,
+        }, name
+
+
 async def test_call_get_quote_returns_price_with_source_and_timestamp(portfolio):
     mcp = build_mcp_server(FakeMarket(), portfolio)
     async with Client(mcp) as client:

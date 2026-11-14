@@ -11,7 +11,12 @@ import logging
 from typing import Any, Literal
 
 from fastmcp import Context, FastMCP
-from mcp.types import ElicitRequest, ElicitRequestFormParams, InputRequiredResult
+from mcp.types import (
+    ElicitRequest,
+    ElicitRequestFormParams,
+    InputRequiredResult,
+    ToolAnnotations,
+)
 from pydantic import BaseModel
 
 from investia.agent.approval import payload_hash_for
@@ -75,39 +80,81 @@ def build_mcp_server(
     mcp = FastMCP("investia")
     tools = build_tools(market, portfolio_service=portfolio_service)
 
+    # 20a : annotations MCP 2026 (spec 2026-07-28, ToolAnnotations) — métadonnées
+    # pour le client (permission UI, audit) ; aucun changement de comportement.
+    lecture_marche = ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,  # API externes (Finnhub/Yahoo/CoinGecko/...)
+    )
+    lecture_interne = lecture_marche.model_copy(
+        update={"open_world_hint": False}  # DB interne, pas de monde externe
+    )
+
     quote = tools["get_quote"]
 
-    @mcp.tool(name=quote.name, description=quote.description)
+    @mcp.tool(
+        name=quote.name,
+        description=quote.description,
+        annotations=lecture_marche.model_copy(update={"title": "Cours"}),
+    )
     async def get_quote(symbol: str) -> dict[str, Any]:
         return await _run_tool(quote, {"symbol": symbol})
 
     history = tools["get_history"]
 
-    @mcp.tool(name=history.name, description=history.description)
+    @mcp.tool(
+        name=history.name,
+        description=history.description,
+        annotations=lecture_marche.model_copy(update={"title": "Historique"}),
+    )
     async def get_history(symbol: str, days: int = 30) -> dict[str, Any]:
         return await _run_tool(history, {"symbol": symbol, "days": days})
 
     indicators = tools["get_indicators"]
 
-    @mcp.tool(name=indicators.name, description=indicators.description)
+    @mcp.tool(
+        name=indicators.name,
+        description=indicators.description,
+        annotations=lecture_marche.model_copy(update={"title": "Indicateurs"}),
+    )
     async def get_indicators(symbol: str, days: int = 60) -> dict[str, Any]:
         return await _run_tool(indicators, {"symbol": symbol, "days": days})
 
     news = tools["get_news"]
 
-    @mcp.tool(name=news.name, description=news.description)
+    @mcp.tool(
+        name=news.name,
+        description=news.description,
+        annotations=lecture_marche.model_copy(update={"title": "Actualités"}),
+    )
     async def get_news(symbol: str, limit: int = 5) -> dict[str, Any]:
         return await _run_tool(news, {"symbol": symbol, "limit": limit})
 
     portfolio = tools["get_portfolio"]
 
-    @mcp.tool(name=portfolio.name, description=portfolio.description)
+    @mcp.tool(
+        name=portfolio.name,
+        description=portfolio.description,
+        annotations=lecture_interne.model_copy(update={"title": "Portefeuille"}),
+    )
     async def get_portfolio() -> dict[str, Any]:
         return await _run_tool(portfolio, {})
 
     order = tools["simulate_order"]
 
-    @mcp.tool(name=order.name, description=order.description)
+    @mcp.tool(
+        name=order.name,
+        description=order.description,
+        annotations=ToolAnnotations(
+            title="Simuler un ordre",
+            read_only_hint=False,  # écrit la simulation en DB
+            destructive_hint=False,
+            idempotent_hint=False,  # chaque appel = une simulation distincte
+            open_world_hint=False,
+        ),
+    )
     async def simulate_order(
         symbol: str, side: Literal["buy", "sell"], quantity: float, ctx: Context
     ) -> dict[str, Any] | InputRequiredResult:
