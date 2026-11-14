@@ -9,17 +9,19 @@ nutrient-dws-client-python (pspdfkit/nutrient-dws-client-python, src/nutrient_dw
 import json
 from datetime import UTC, datetime
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from investia.guardrails.ssrf import SsrfBlockedError, assert_public_http_url
 from investia.tools.base import BaseTool, ToolError
 
 NUTRIENT_BASE_URL = "https://api.nutrient.io"
 MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 Mo
 MAX_TEXT_CHARS = 20_000
 DOWNLOAD_TIMEOUT = 30.0
+MAX_REDIRECTS = 3  # 17g : redirects suivis manuellement, re-vérifiés un par un
 
 
 class PdfReader(Protocol):
@@ -93,14 +95,37 @@ class NutrientPdfReader:
         return text[:MAX_TEXT_CHARS]
 
     async def _download(self, url: str) -> bytes:
+        # 17g : guard SSRF avant le moindre GET, et à chaque redirect (un
+        # redirect public → privé ne doit jamais être suivi aveuglément).
         try:
-            response = await self._client.get(
-                url, timeout=DOWNLOAD_TIMEOUT, follow_redirects=True
-            )
-        except httpx.HTTPError as error:
-            raise ToolError(
-                "read_pdf", f"téléchargement impossible : {error}"
-            ) from error
+            await assert_public_http_url(url)
+        except SsrfBlockedError as error:
+            raise ToolError("read_pdf", f"SSRF bloqué : {error}") from error
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                response = await self._client.get(
+                    current, timeout=DOWNLOAD_TIMEOUT, follow_redirects=False
+                )
+            except httpx.HTTPError as error:
+                raise ToolError(
+                    "read_pdf", f"téléchargement impossible : {error}"
+                ) from error
+            if response.is_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    raise ToolError("read_pdf", "redirect sans en-tête location")
+                current = urljoin(current, location)
+                try:
+                    await assert_public_http_url(current)
+                except SsrfBlockedError as error:
+                    raise ToolError(
+                        "read_pdf", f"SSRF bloqué (redirect) : {error}"
+                    ) from error
+                continue
+            break
+        else:
+            raise ToolError("read_pdf", f"trop de redirects (> {MAX_REDIRECTS})")
         if response.status_code != 200:
             raise ToolError(
                 "read_pdf", f"téléchargement du PDF : HTTP {response.status_code}"

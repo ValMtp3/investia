@@ -34,6 +34,29 @@ class OrderConfirmation(BaseModel):
 CONFIRM_KEY = "order_confirmation"
 
 
+def _form_elicitation(
+    message: str, requested_schema: dict[str, Any], mode: str = "form"
+) -> ElicitRequest:
+    """17g (veille hermes) : elicitation MCP **form-only** — jamais de mode "url".
+
+    Le mode url ferait ouvrir un lien au client (phishing/SSRF côté client) ;
+    ici c'est impossible par construction : tout mode autre que "form" lève.
+    """
+    if mode != "form":
+        raise ValueError(
+            f"mode d'elicitation interdit : {mode!r} (seul 'form' est autorisé, "
+            "jamais 'url' — risque phishing/SSRF côté client)"
+        )
+    return ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message=message,
+            requested_schema=requested_schema,
+        ),
+    )
+
+
 async def _run_tool(tool: BaseTool, arguments: dict[str, Any]) -> dict[str, Any]:
     """Valide avec le schéma interne, exécute, et masque toute erreur interne."""
     args = tool.args_schema.model_validate(arguments)
@@ -97,16 +120,9 @@ def build_mcp_server(
             # Premier passage : on demande la confirmation (résultat input_required).
             return InputRequiredResult(
                 input_requests={
-                    CONFIRM_KEY: ElicitRequest(
-                        method="elicitation/create",
-                        params=ElicitRequestFormParams(
-                            mode="form",
-                            message=(
-                                f"Confirmer l'ordre simulé : "
-                                f"{side} {quantity} {symbol} ?"
-                            ),
-                            requested_schema=OrderConfirmation.model_json_schema(),
-                        ),
+                    CONFIRM_KEY: _form_elicitation(
+                        f"Confirmer l'ordre simulé : {side} {quantity} {symbol} ?",
+                        OrderConfirmation.model_json_schema(),
                     )
                 },
                 request_state=payload_hash,

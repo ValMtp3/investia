@@ -86,3 +86,20 @@ async def test_other_tools_do_not_ask_for_elicitation(portfolio):
         result = await client.call_tool("get_quote", {"symbol": "AAPL"})
     payload = json.loads(result.content[0].text)
     assert payload["value"] == 344.63
+
+
+# --- 17g : elicitation form-only (jamais de mode "url") -------------------------
+
+
+def test_form_elicitation_emits_form_mode_only():
+    from investia.mcp_server import _form_elicitation
+
+    req = _form_elicitation("Confirmer ?", {"type": "object"})
+    assert req.params.mode == "form"
+
+
+def test_form_elicitation_refuses_url_mode():
+    from investia.mcp_server import _form_elicitation
+
+    with pytest.raises(ValueError, match="url"):
+        _form_elicitation("Confirmer ?", {"type": "object"}, mode="url")

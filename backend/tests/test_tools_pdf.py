@@ -19,6 +19,16 @@ PDF_URL = "https://example.com/rapport-annuel.pdf"
 FAKE_PDF = b"%PDF-1.4 fake bytes"
 
 
+@pytest.fixture(autouse=True)
+def dns_public(monkeypatch):
+    """17g : en test, toute résolution DNS retourne une IP publique (zéro réseau)."""
+
+    async def _resolve(host: str) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("investia.guardrails.ssrf._resolve_host", _resolve)
+
+
 def make_reader(handler, api_key="nut-test"):
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return NutrientPdfReader(
@@ -169,3 +179,72 @@ async def test_tool_run_renvoie_source_timestamp_chars():
     assert out["text"] == "contenu pdf"
     assert out["chars"] == len("contenu pdf")
     assert out["url"] == PDF_URL
+
+
+# --- 17g : SSRF — le téléchargement bloque les IP privées/loopback/métadonnées ---
+
+
+async def test_ssrf_ip_metadonnees_cloud_bloquee_avant_tout_get():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(
+            200, content=FAKE_PDF, headers={"content-type": "application/pdf"}
+        )
+
+    reader = make_reader(handler)
+    with pytest.raises(ToolError, match="SSRF"):
+        await reader.extract_text(
+            "http://169.254.169.254/latest/meta-data", max_pages=1
+        )
+    assert calls == []  # aucun GET parti
+
+
+async def test_ssrf_dns_prive_bloque(monkeypatch):
+    async def _resolve(host: str) -> list[str]:
+        return ["192.168.0.42"]
+
+    monkeypatch.setattr("investia.guardrails.ssrf._resolve_host", _resolve)
+    reader = make_reader(lambda request: httpx.Response(200, content=FAKE_PDF))
+    with pytest.raises(ToolError, match="SSRF"):
+        await reader.extract_text("https://intranet.example.com/x.pdf", max_pages=1)
+
+
+async def test_redirect_vers_ip_privee_bloque(monkeypatch):
+    """Un redirect public → privé doit être re-vérifié (pas de follow aveugle)."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if str(request.url) == "https://example.com/start.pdf":
+            return httpx.Response(
+                302, headers={"location": "http://127.0.0.1:8080/secret.pdf"}
+            )
+        return httpx.Response(
+            200, content=FAKE_PDF, headers={"content-type": "application/pdf"}
+        )
+
+    reader = make_reader(handler)
+    with pytest.raises(ToolError, match="SSRF"):
+        await reader.extract_text("https://example.com/start.pdf", max_pages=1)
+    assert calls == ["https://example.com/start.pdf"]  # le 2e GET n'est jamais parti
+
+
+async def test_redirect_public_vers_public_autorise():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://example.com/start.pdf":
+            return httpx.Response(
+                302, headers={"location": "https://cdn.example.com/f.pdf"}
+            )
+        if str(request.url) == "https://cdn.example.com/f.pdf":
+            return httpx.Response(
+                200, content=FAKE_PDF, headers={"content-type": "application/pdf"}
+            )
+        if request.url.path == "/build":
+            return httpx.Response(200, json=nutrient_payload(["texte du pdf"]))
+        return httpx.Response(404)
+
+    reader = make_reader(handler)
+    text = await reader.extract_text("https://example.com/start.pdf", max_pages=2)
+    assert "texte du pdf" in text
