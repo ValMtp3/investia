@@ -37,9 +37,15 @@ def build_agent_subapp(card: AgentCard, executor: AgentExecutor) -> Starlette:
 
 
 def mount_agents(
-    app: Any, executors: Mapping[str, AgentExecutor], base_url: str = ""
+    app: Any,
+    executors: Mapping[str, AgentExecutor],
+    base_url: str = "",
+    card_signer: Any | None = None,
 ) -> None:
-    """Monte les 3 agents sous /api/agents/<nom> dans l'app FastAPI."""
+    """Monte les 3 agents sous /api/agents/<nom> dans l'app FastAPI.
+
+    `card_signer` (15b) : si fourni, chaque Agent Card est signée (JWS).
+    """
     for name in AGENT_NAMES:
-        card = build_agent_card(name, base_url=base_url)
+        card = build_agent_card(name, base_url=base_url, signer=card_signer)
         app.mount(f"/api/agents/{name}", build_agent_subapp(card, executors[name]))

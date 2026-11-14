@@ -10,14 +10,28 @@ détail loggué côté serveur).
 import logging
 from typing import Any, Literal
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from mcp.types import ElicitRequest, ElicitRequestFormParams, InputRequiredResult
+from pydantic import BaseModel
 
+from investia.agent.approval import payload_hash_for
 from investia.market.base import MarketDataService
 from investia.tools import build_tools
 from investia.tools.base import BaseTool
 from investia.tools.portfolio import PortfolioServiceLike
 
 logger = logging.getLogger(__name__)
+
+
+class OrderConfirmation(BaseModel):
+    """Schéma d'elicitation (MRTR, form mode) pour confirmer un ordre simulé (15a)."""
+
+    confirm: bool
+    note: str = ""
+
+
+# Clé de la demande d'input dans le InputRequiredResult (SEP-2322).
+CONFIRM_KEY = "order_confirmation"
 
 
 async def _run_tool(tool: BaseTool, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -72,8 +86,40 @@ def build_mcp_server(
 
     @mcp.tool(name=order.name, description=order.description)
     async def simulate_order(
-        symbol: str, side: Literal["buy", "sell"], quantity: float
-    ) -> dict[str, Any]:
+        symbol: str, side: Literal["buy", "sell"], quantity: float, ctx: Context
+    ) -> dict[str, Any] | InputRequiredResult:
+        # 15a : confirmation humaine par MRTR (SEP-2322, spec MCP 2026-07-28) —
+        # deny-by-default : aucun ordre sans accept explicite. Le request_state
+        # embarque le hash du payload (13d) pour lier la confirmation à l'ordre.
+        payload_hash = payload_hash_for(symbol, side, quantity)
+        responses = ctx.input_responses
+        if responses is None:
+            # Premier passage : on demande la confirmation (résultat input_required).
+            return InputRequiredResult(
+                input_requests={
+                    CONFIRM_KEY: ElicitRequest(
+                        method="elicitation/create",
+                        params=ElicitRequestFormParams(
+                            mode="form",
+                            message=(
+                                f"Confirmer l'ordre simulé : "
+                                f"{side} {quantity} {symbol} ?"
+                            ),
+                            requested_schema=OrderConfirmation.model_json_schema(),
+                        ),
+                    )
+                },
+                request_state=payload_hash,
+            )
+        elicit_result = responses.get(CONFIRM_KEY)
+        content = getattr(elicit_result, "content", None)
+        confirm = isinstance(content, dict) and bool(content.get("confirm"))
+        if (
+            getattr(elicit_result, "action", None) != "accept"
+            or not confirm
+            or ctx.request_state != payload_hash
+        ):
+            raise ValueError("simulate_order: ordre non confirmé — aucun ordre exécuté")
         return await _run_tool(
             order, {"symbol": symbol, "side": side, "quantity": quantity}
         )

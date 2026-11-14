@@ -215,7 +215,17 @@ def create_app(
         "risque": RisqueExecutor(),
         "redacteur": RedacteurExecutor(llm, _tools),
     }
-    mount_agents(app, executors, base_url=default_base_url())
+    # 15b : signature JWS des Agent Cards si une clé est configurée.
+    card_signer = None
+    if settings.agent_card_signing_key is not None:
+        from investia.agents.cards import make_card_signer
+
+        card_signer = make_card_signer(
+            settings.agent_card_signing_key.get_secret_value(),
+            kid=settings.agent_card_signing_kid,
+            alg=settings.agent_card_signing_alg,
+        )
+    mount_agents(app, executors, base_url=default_base_url(), card_signer=card_signer)
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
     app.add_middleware(
         CORSMiddleware,
@@ -355,14 +365,21 @@ def create_app(
         return {"status": "ok", "run_id": key, "decision": body.decision}
 
     @app.post("/agent/run")
-    async def agent_run(body: AgentRunBody) -> Any:
+    async def agent_run(
+        body: AgentRunBody,
+        protocol: Literal["legacy", "agui"] = "legacy",
+    ) -> Any:
         """Stream SSE de la boucle : start/llm_call/tool_call/guardrail/answer/done
-        (+ approval_request/approval pour la validation humaine, D57)."""
+        (+ approval_request/approval pour la validation humaine, D57).
+
+        protocol=legacy (défaut) : `event: <kind>\\ndata: {...}` (rétrocompatible).
+        protocol=agui (15c) : blocs `data: {"type": ...}` au format AG-UI."""
         import asyncio
 
         from fastapi.responses import StreamingResponse
 
         from investia.agent import run_agent
+        from investia.agent.agui import format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
         from investia.tools import build_tools
@@ -371,6 +388,11 @@ def create_app(
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
+
+        def render(kind: str, payload: dict[str, Any]) -> str:
+            if protocol == "agui":
+                return format_agui_sse(kind, payload)
+            return format_sse(kind, payload)
 
         async def generate():
             task = asyncio.create_task(
@@ -391,15 +413,15 @@ def create_app(
                     kind, payload = await asyncio.wait_for(
                         queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
                     )
-                    yield format_sse(kind, payload)
+                    yield render(kind, payload)
                     if kind == "done":
                         break
             except asyncio.CancelledError:
                 task.cancel()
                 raise
             except Exception as error:
-                yield format_sse("error", {"message": str(error)})
-                yield format_sse("done", {"status": "error"})
+                yield render("error", {"message": str(error)})
+                yield render("done", {"status": "error"})
             finally:
                 if not task.done():
                     task.cancel()

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Origin autorisé pour les appels cross-origin du dashboard en dev (CORS)
     frontend_origin: str = "http://localhost:5173"
 
+    # 15b : signature JWS des Agent Cards A2A (vide = cards non signées)
+    agent_card_signing_key: SecretStr | None = None
+    agent_card_signing_kid: str = "investia-2026"
+    agent_card_signing_alg: str = "ES256"
+
 
 @lru_cache
 def get_settings() -> Settings:
