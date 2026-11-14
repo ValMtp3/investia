@@ -40,6 +40,11 @@ class EvalCase:
     # étape 12h : routeur appris — modèle attendu + voisins k-NN mockés du store
     expected_model: str | None = None
     mock_router_neighbors: list[dict[str, Any]] | None = None
+    # étape 18b : cas multi-agent — délégation A2A mockée, agents attendus,
+    # voisins k-NN mockés du store de feedbacks du routeur d'agents
+    multi_agent: bool = False
+    expected_agents: list[str] | None = None
+    mock_agent_router_neighbors: list[dict[str, Any]] | None = None
 
 
 def load_cases(path: Path | None = None) -> list[EvalCase]:
@@ -61,6 +66,9 @@ def load_cases(path: Path | None = None) -> list[EvalCase]:
             mock_cache_hit=c.get("mock_cache_hit"),
             expected_model=c.get("expected_model"),
             mock_router_neighbors=c.get("mock_router_neighbors"),
+            multi_agent=bool(c.get("multi_agent", False)),
+            expected_agents=c.get("expected_agents"),
+            mock_agent_router_neighbors=c.get("mock_agent_router_neighbors"),
         )
         for c in data["cases"]
     ]
@@ -219,6 +227,48 @@ class FakeRouterFeedbackStore:
         self.recorded.append((question, model, success))
 
 
+class FakeAgentFeedbackStore:
+    """Store de feedbacks du routeur d'agents déterministe (18b).
+
+    Voisins pré-remplis, zéro DB.
+    """
+
+    def __init__(self, neighbors: list[dict[str, Any]] | None = None):
+        from investia.agents.router import AgentNeighbor
+
+        self._neighbors = [
+            AgentNeighbor(
+                similarity=float(n["similarity"]),
+                agent=str(n["agent"]),
+                success=bool(n["success"]),
+            )
+            for n in (neighbors or [])
+        ]
+        self.recorded: list[tuple[str, list[str], bool]] = []
+
+    async def neighbors(self, question: str, k: int) -> list:
+        return self._neighbors[:k]
+
+    async def record(self, question: str, agents: list[str], success: bool) -> None:
+        self.recorded.append((question, list(agents), success))
+
+
+class FakeAgentCaller:
+    """Caller A2A déterministe (18b) : réponses fixes par agent, zéro réseau."""
+
+    def __init__(self, case: EvalCase):
+        self._case = case
+        self.calls: list[str] = []
+
+    async def call(self, agent: str, text: str) -> dict[str, Any]:
+        self.calls.append(agent)
+        if agent == "risque":
+            return {"ok": True, "failures": []}
+        if agent == "redacteur":
+            return {"answer": self._case.mock_final}
+        return {"analysis": self._case.mock_final}
+
+
 class FakePdfReader:
     """Reader déterministe (étape 12f) : un extrait fixe, sourcé, zéro réseau."""
 
@@ -285,20 +335,43 @@ async def run_evals(
         router = None
         if case.mock_router_neighbors is not None:
             router = LearnedRouter(FakeRouterFeedbackStore(case.mock_router_neighbors))
-        agent_result = await run_agent(
-            case.question,
-            MockLlm(case),
-            tools,
-            reasoning=reasoning,
-            consistency_k=case.consistency_k,
-            llm_factory=llm_factory,
-            decision_client=FakeDecisionClient(case) if case.mock_decision else None,
-            logprobs_guardrail=bool(case.mock_logprobs),
-            semantic_cache=FakeSemanticCache(case) if case.mock_cache_hit else None,
-            router=router,
-        )
+        if case.multi_agent:
+            # 18b : cas multi-agent — délégation A2A mockée via run_multi_agent
+            from investia.agents.orchestrator import run_multi_agent
+            from investia.agents.router import LearnedAgentRouter
+
+            agent_router = None
+            if case.mock_agent_router_neighbors is not None:
+                agent_router = LearnedAgentRouter(
+                    FakeAgentFeedbackStore(case.mock_agent_router_neighbors)
+                )
+            agent_result = await run_multi_agent(
+                case.question,
+                llm=MockLlm(case),
+                tools=tools,
+                caller=FakeAgentCaller(case),
+                router=agent_router,
+            )
+        else:
+            agent_result = await run_agent(
+                case.question,
+                MockLlm(case),
+                tools,
+                reasoning=reasoning,
+                consistency_k=case.consistency_k,
+                llm_factory=llm_factory,
+                decision_client=FakeDecisionClient(case)
+                if case.mock_decision
+                else None,
+                logprobs_guardrail=bool(case.mock_logprobs),
+                semantic_cache=FakeSemanticCache(case) if case.mock_cache_hit else None,
+                router=router,
+            )
         metrics = compute_metrics(
-            agent_result, case.expected_tool, expected_model=case.expected_model
+            agent_result,
+            case.expected_tool,
+            expected_model=case.expected_model,
+            expected_agents=case.expected_agents,
         )
         entry = {"case_id": case.id, "metrics": metrics, "status": agent_result.status}
         if eval_store is not None and run_id is not None:

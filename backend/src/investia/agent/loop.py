@@ -112,6 +112,9 @@ class AgentResult:
     )  # étape 12c : les k réponses candidates
     router_source: str = "rules"  # étape 12h : explicit | learned | rules
     model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
+    agents_used: list[str] = field(
+        default_factory=list
+    )  # étape 18b : agents A2A délégués (multi-agent uniquement)
     injections_blocked: int = 0  # étape 13b : sorties d'outils externes bloquées
     compactions: int = 0  # étape 16c : compactions du contexte effectuées
     cached_tokens: int = 0  # 17f : tokens input servis depuis le cache prompt

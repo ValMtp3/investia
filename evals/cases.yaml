@@ -468,3 +468,54 @@ cases:
       - mock
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 18b : cas multi-agent — 6 voisins analyste/risque ont réussi ->
+  # le routeur d'agents learned délègue [analyste, risque] (gate risque incluse,
+  # rédacteur exclu, ordre canonique). routeur_agent = 1.0.
+  - id: a2a-learned
+    question: "résume la situation de AAPL en deux lignes"
+    multi_agent: true
+    expected_agents: [analyste, risque]
+    mock_agent_router_neighbors:
+      - { similarity: 0.95, agent: analyste, success: true }
+      - { similarity: 0.94, agent: analyste, success: true }
+      - { similarity: 0.93, agent: analyste, success: true }
+      - { similarity: 0.92, agent: risque, success: true }
+      - { similarity: 0.91, agent: risque, success: true }
+      - { similarity: 0.90, agent: risque, success: true }
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 18b : aucun feedback (< min_feedbacks=5) -> fallback pipeline fixe
+  # complète [analyste, risque, redacteur]. routeur_agent = 1.0.
+  - id: a2a-fallback
+    question: "analyse approfondie du portefeuille"
+    multi_agent: true
+    expected_agents: [analyste, risque, redacteur]
+    mock_agent_router_neighbors: []
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.

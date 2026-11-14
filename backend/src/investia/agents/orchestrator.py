@@ -187,6 +187,7 @@ async def run_multi_agent(
                     turns=len(used),
                     model="multi-agent",
                     status="blocked",
+                    agents_used=list(used),
                 )
             context["verdict"] = data
         else:
@@ -209,4 +210,10 @@ async def run_multi_agent(
             status="ok",
         )
     await record_feedback(True)
-    return AgentResult(answer=answer, turns=len(used), model="multi-agent", status="ok")
+    return AgentResult(
+        answer=answer,
+        turns=len(used),
+        model="multi-agent",
+        status="ok",
+        agents_used=list(used),
+    )
