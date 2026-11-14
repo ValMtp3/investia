@@ -6,36 +6,75 @@ un redémarrage du backend fait tomber les attentes en cours (timeout = refus).
 """
 
 import asyncio
+import hashlib
+import json
 
 DECISIONS = ("approved", "refused")
 
 
+def payload_hash_for(symbol: str, side: str, quantity: float) -> str:
+    """Hash SHA-256 canonique du payload d'un ordre (anti replan-after-yes, 13d).
+
+    Le symbole est normalisé (comme dans la boucle) pour que « aapl » et
+    « AAPL » aient le même hash.
+    """
+    canonical = json.dumps(
+        {"quantity": quantity, "side": side, "symbol": symbol.strip().upper()},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 class ApprovalRegistry:
-    """run_id -> file d'attente de la décision (une seule décision par run)."""
+    """run_id -> file d'attente de la décision (une seule décision par run).
+
+    13d : la décision peut être liée au hash exact du payload approuvé
+    (`open(run_id, payload_hash=...)`) : `decide` avec un hash différent
+    retourne False (409 côté endpoint).
+    """
 
     def __init__(self) -> None:
         self._queues: dict[str, asyncio.Queue[str]] = {}
         self._decisions: dict[str, str] = {}
+        self._pending_hash: dict[str, str | None] = {}
+        self._approved_hash: dict[str, str | None] = {}
 
-    def open(self, run_id: str) -> None:
-        """La boucle ouvre l'attente pour ce run."""
+    def open(self, run_id: str, payload_hash: str | None = None) -> None:
+        """La boucle ouvre l'attente pour ce run (hash du payload affiché, 13d)."""
         self._queues.setdefault(run_id, asyncio.Queue())
+        self._pending_hash[run_id] = payload_hash
 
     def close(self, run_id: str) -> None:
         """La boucle a fini (décision reçue ou timeout) : on nettoie."""
         self._queues.pop(run_id, None)
+        self._pending_hash.pop(run_id, None)
 
     def has(self, run_id: str) -> bool:
         """Vrai si une attente est ouverte pour ce run (sinon 404 côté endpoint)."""
         return run_id in self._queues
 
-    async def decide(self, run_id: str, decision: str) -> bool:
-        """Enregistre la décision. False si run inconnu ou déjà décidé (409)."""
+    def approved_hash(self, run_id: str) -> str | None:
+        """Hash du payload lié à la décision enregistrée (None si absent, 13d)."""
+        return self._approved_hash.get(run_id)
+
+    async def decide(
+        self, run_id: str, decision: str, payload_hash: str | None = None
+    ) -> bool:
+        """Enregistre la décision. False si run inconnu, déjà décidé (409), ou
+        hash fourni différent du hash de la demande en attente (409, 13d)."""
         if decision not in DECISIONS:
             raise ValueError(f"décision invalide : {decision!r}")
         if run_id not in self._queues or run_id in self._decisions:
             return False
+        pending = self._pending_hash.get(run_id)
+        if pending is not None and payload_hash is not None and payload_hash != pending:
+            return False
         self._decisions[run_id] = decision
+        if payload_hash is not None:
+            self._approved_hash[run_id] = payload_hash
+        else:
+            self._approved_hash[run_id] = pending
         await self._queues[run_id].put(decision)
         return True
 

@@ -1,7 +1,8 @@
 """TraceStore : enregistre les exécutions (runs) et leurs étapes en PostgreSQL.
 
 Schéma (migration 0002) : `runs` + `run_steps` (payload JSONB tronqué à 4 Ko).
-Aucun secret n'est jamais loggué (les clés API ne passent pas par ici).
+Depuis la spec 13a, toute donnée stockée (question, payload, réponse) passe
+par un redactor PII/secrets avant l'INSERT — voir `investia.redaction`.
 """
 
 import json
@@ -10,6 +11,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from investia.redaction import Redactor, default_redactor, redact_value
 
 MAX_PAYLOAD_CHARS = 4096
 
@@ -41,10 +44,15 @@ def _truncate(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class DbTraceStore:
-    """Store réel en PostgreSQL (async)."""
+    """Store réel en PostgreSQL (async). Redacte PII/secrets avant stockage."""
 
-    def __init__(self, session_factory: async_sessionmaker) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker,
+        redactor: Redactor | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._redactor = redactor if redactor is not None else default_redactor()
 
     async def start_run(self, question: str) -> str:
         async with self._session_factory() as session:
@@ -53,7 +61,7 @@ class DbTraceStore:
                     "INSERT INTO runs (question, status) VALUES (:q, 'running') "
                     "RETURNING id::text"
                 ),
-                {"q": question},
+                {"q": self._redactor.redact(question)},
             )
             run_id = result.scalar_one()
             await session.commit()
@@ -70,7 +78,10 @@ class DbTraceStore:
                     "rid": UUID(run_id),
                     "turn": turn,
                     "kind": kind,
-                    "payload": json.dumps(_truncate(payload), ensure_ascii=False),
+                    "payload": json.dumps(
+                        _truncate(redact_value(payload, self._redactor)),
+                        ensure_ascii=False,
+                    ),
                 },
             )
             await session.commit()
@@ -93,7 +104,7 @@ class DbTraceStore:
                 ),
                 {
                     "rid": UUID(run_id),
-                    "a": answer[:MAX_PAYLOAD_CHARS],
+                    "a": self._redactor.redact(answer)[:MAX_PAYLOAD_CHARS],
                     "m": model,
                     "t": turns,
                     "c": cost_cents,

@@ -21,6 +21,7 @@ CONFIDENCE_SECTION_RE = re.compile(r"(?is)##?\s*confiance.*?(?=##|\Z)")
 ISO_DATETIME_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"
 )
+ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 @dataclass(frozen=True)
@@ -30,9 +31,9 @@ class CheckResult:
 
 
 def _numbers(text: str) -> list[float]:
-    text = ISO_DATETIME_RE.sub(
-        " ", text
-    )  # les dates/heures ne sont pas des chiffres de marché
+    # les dates/heures ne sont pas des chiffres de marché
+    text = ISO_DATETIME_RE.sub(" ", text)
+    text = ISO_DATE_RE.sub(" ", text)
     values = []
     for match in NUMBER_RE.findall(text):
         cleaned = match.replace(" ", "").replace("%", "").replace(",", ".")

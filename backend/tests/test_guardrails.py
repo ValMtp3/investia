@@ -57,6 +57,13 @@ def test_check_numbers_tolerates_rounding():
     assert result.ok, result.detail
 
 
+def test_check_numbers_ignore_date_iso_sans_heure():
+    # Une date seule (2026-10-31) dans les sources n'est pas un chiffre de marché.
+    answer = GOOD_ANSWER.replace("2026-10-31T15:00:00Z", "2026-10-31")
+    result = check_numbers(answer, TOOL_OUTPUTS)
+    assert result.ok, result.detail
+
+
 def test_check_language_ko_on_forbidden_words():
     answer = GOOD_ANSWER + "\nGain garanti !"
     result = check_language(answer)

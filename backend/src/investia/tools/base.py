@@ -33,6 +33,9 @@ class BaseTool[T: BaseModel](ABC):
     name: str
     description: str
     args_schema: type[T]
+    # Sortie à contenu externe non fiable (web/PDF/actus) → scannée contre
+    # l'injection de prompt et délimitée avant d'entrer dans le contexte (13b).
+    untrusted_output: bool = False
 
     @abstractmethod
     async def run(self, args: T) -> dict[str, Any]:

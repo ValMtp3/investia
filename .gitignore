@@ -29,3 +29,6 @@ deploy/authelia/users_database.yml
 .env.*
 !.env.example
 *.dump
+
+# Dataset de traces régénérable (spec 14b)
+backend/evals/generated/

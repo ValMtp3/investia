@@ -5,6 +5,7 @@ import pytest
 from pydantic import SecretStr
 
 from investia.memory.embeddings import OpenRouterEmbeddings
+from investia.memory.store import SaveResult
 from investia.memory.tools import RecallMemoryTool, SaveMemoryTool
 
 
@@ -26,14 +27,24 @@ class FakeMemoryStore:
     def __init__(self):
         self.memories = {}
 
-    async def save(self, content: str, embedding: list[float] | None) -> str:
+    async def save(
+        self, content: str, embedding: list[float] | None, **kwargs
+    ) -> SaveResult:
         if embedding is None:
             embedding = (await FakeEmbeddings().embed([content]))[0]
         memory_id = f"mem-{len(self.memories) + 1}"
         self.memories[memory_id] = {"content": content, "embedding": embedding}
-        return memory_id
+        return SaveResult(id=memory_id, duplicate=False)
 
-    async def recall(self, query: str, k: int = 5) -> list[dict]:
+    async def supersede(self, old_id, new_content, embedding=None, **kwargs) -> str:
+        return (await self.save(new_content, embedding)).id
+
+    async def forget(self, memory_id: str) -> bool:
+        return memory_id in self.memories
+
+    async def recall(
+        self, query: str, k: int = 5, *, include_history: bool = False
+    ) -> list[dict]:
         import math
 
         query_embedding = (await FakeEmbeddings().embed([query]))[0]
@@ -50,6 +61,10 @@ class FakeMemoryStore:
         ]
         scored.sort(reverse=True)
         return [{"content": c, "score": s} for s, c in scored[:k]]
+
+    async def history(self, memory_id: str) -> list[dict]:
+        mem = self.memories.get(memory_id)
+        return [{"content": mem["content"]}] if mem else []
 
 
 def make_embeddings(handler) -> OpenRouterEmbeddings:

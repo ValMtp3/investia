@@ -19,3 +19,8 @@ model_list:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/LITELLM_DATABASE_URL
+  # 17f : plafond de budget côté gateway (USD), renouvelé tous les 30 jours.
+  # Budget projet : 10-20 €/mois. Le client a aussi son propre plafond par
+  # appel (LLM_BUDGET_CENTS_PER_CALL, défaut 100 c).
+  max_budget: 20
+  budget_duration: 30d

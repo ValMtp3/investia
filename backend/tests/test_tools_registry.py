@@ -28,18 +28,85 @@ def test_every_tool_has_llm_contract():
         assert spec["function"]["name"] == name
 
 
+class FakeSearcher:
+    async def search(self, query, limit):
+        return []
+
+
+class FakePdfReader:
+    async def extract_text(self, url, max_pages):
+        return ""
+
+
+def test_web_and_pdf_tools_added_when_services_provided():
+    tools = build_tools(
+        FakeMarket(), web_searcher=FakeSearcher(), pdf_reader=FakePdfReader()
+    )
+    assert {"web_search", "read_pdf"} <= set(tools)
+    assert len(tools) == 6
+
+
+def test_registry_retrocompatible_sans_services_web_pdf():
+    tools = build_tools(FakeMarket())
+    assert "web_search" not in tools
+    assert "read_pdf" not in tools
+
+
+def test_system_prompt_cite_web_search_et_read_pdf():
+    from investia.agent.prompts import SYSTEM_PROMPT
+
+    assert "web_search" in SYSTEM_PROMPT
+    assert "read_pdf" in SYSTEM_PROMPT
+
+
+class FakePythonSandbox:
+    async def run_code(self, code):
+        return {"exit_code": 0, "stdout": "", "stderr": "", "truncated": False}
+
+
+def test_run_python_present_quand_sandbox_fournie():
+    tools = build_tools(FakeMarket(), python_sandbox=FakePythonSandbox())
+    assert "run_python" in tools
+    assert len(tools) == 5
+
+
+def test_registry_retrocompatible_sans_sandbox():
+    tools = build_tools(FakeMarket())
+    assert "run_python" not in tools
+
+
+def test_system_prompt_cite_run_python():
+    from investia.agent.prompts import SYSTEM_PROMPT
+
+    assert "run_python" in SYSTEM_PROMPT
+
+
 def test_memory_tools_added_when_store_available():
     from investia.memory.embeddings import FakeEmbeddingsForTests
 
     class FakeStore:
-        async def save(self, content, embedding=None):
-            return "mem-1"
+        async def save(self, content, embedding=None, **kwargs):
+            from investia.memory.store import SaveResult
 
-        async def recall(self, query, k=5):
+            return SaveResult(id="mem-1", duplicate=False)
+
+        async def supersede(self, old_id, new_content, embedding=None, **kwargs):
+            return "mem-2"
+
+        async def forget(self, memory_id):
+            return True
+
+        async def recall(self, query, k=5, *, include_history=False):
+            return []
+
+        async def history(self, memory_id):
             return []
 
     tools = build_tools(
         FakeMarket(), memory_store=FakeStore(), embeddings=FakeEmbeddingsForTests()
     )
-    assert {"save_memory", "recall_memory"} <= set(tools)
-    assert len(tools) == 6
+    # 16a : les 4 outils mémoire (save/recall/update/forget) sont câblés.
+    assert {"save_memory", "recall_memory", "update_memory", "forget_memory"} <= set(
+        tools
+    )
+    assert len(tools) == 8

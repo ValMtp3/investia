@@ -113,8 +113,12 @@ async def test_call_get_portfolio_returns_portfolio(portfolio):
 
 
 async def test_call_simulate_order_executes_the_simulated_order(portfolio):
+    # 15a : simulate_order exige une elicitation acceptée (confirm=True)
+    async def accept(message, response_type, params, context):
+        return {"confirm": True}
+
     mcp = build_mcp_server(FakeMarket(), portfolio)
-    async with Client(mcp) as client:
+    async with Client(mcp, elicitation_handler=accept) as client:
         result = await client.call_tool(
             "simulate_order", {"symbol": "AAPL", "side": "buy", "quantity": 3}
         )

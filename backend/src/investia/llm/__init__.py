@@ -24,13 +24,18 @@ DEFAULT_BUDGET_CENTS = 100.0
 
 
 def build_llm_client(
-    settings: Settings, budget_cents: float = DEFAULT_BUDGET_CENTS
+    settings: Settings, budget_cents: float | None = None
 ) -> LlmClient:
     return LlmClient(
         base_url=settings.litellm_base_url,
         master_key=settings.litellm_master_key,
         models=load_models_config(),
-        budget_cents=budget_cents,
+        # 17f : plafond par appel depuis la config (défaut historique 100 c)
+        budget_cents=(
+            budget_cents
+            if budget_cents is not None
+            else settings.llm_budget_cents_per_call
+        ),
     )
 
 

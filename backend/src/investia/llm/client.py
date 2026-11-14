@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +32,12 @@ class LlmResponse:
     completion_tokens: int
     cost_cents: float
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # étape 12d (LLM-as-Jev) : proba normalisées (softmax) des top tokens du 1er
+    # token généré, demandées via chat(..., logprobs=True). None si non demandé.
+    first_token_logprobs: dict[str, float] | None = None
+    # 17f : tokens input servis depuis le cache prompt du provider
+    # (usage.prompt_tokens_details.cached_tokens) — tarif caché si connu.
+    cached_tokens: int = 0
 
 
 class LlmClient:
@@ -59,6 +66,7 @@ class LlmClient:
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         tools: list[dict[str, Any]] | None = None,
+        logprobs: bool = False,
     ) -> LlmResponse:
         model = self._models.by_key(model_key)
         payload: dict[str, Any] = {
@@ -68,6 +76,9 @@ class LlmClient:
         }
         if tools:
             payload["tools"] = tools
+        if logprobs:
+            payload["logprobs"] = True
+            payload["top_logprobs"] = 5
         response = await self._post_with_retry(payload)
         data = response.json()
         try:
@@ -76,6 +87,9 @@ class LlmClient:
             usage = data["usage"]
             prompt_tokens = int(usage["prompt_tokens"])
             completion_tokens = int(usage["completion_tokens"])
+            # 17f : tokens cachés (champ standard, absent selon providers)
+            details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = int(details.get("cached_tokens") or 0)
             tool_calls = [
                 ToolCall(
                     id=call["id"],
@@ -86,7 +100,9 @@ class LlmClient:
             ]
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise LlmError(f"réponse mal formée du gateway ({model.name})") from error
-        cost_cents = self._cost_cents(model, prompt_tokens, completion_tokens)
+        cost_cents = self._cost_cents(
+            model, prompt_tokens, completion_tokens, cached_tokens
+        )
         if cost_cents > self._budget_cents:
             raise LlmError(
                 f"budget dépassé : {cost_cents:.2f} c > {self._budget_cents:.2f} c "
@@ -99,11 +115,30 @@ class LlmClient:
             completion_tokens=completion_tokens,
             cost_cents=cost_cents,
             tool_calls=tool_calls,
+            first_token_logprobs=(
+                _parse_first_token_logprobs(data) if logprobs else None
+            ),
+            cached_tokens=cached_tokens,
         )
 
-    def _cost_cents(self, model, prompt_tokens: int, completion_tokens: int) -> float:
+    def _cost_cents(
+        self,
+        model,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+    ) -> float:
+        # 17f : les tokens cachés sont tarifés au prix cache quand le modèle le connaît
+        cached = min(cached_tokens, prompt_tokens)
+        uncached = prompt_tokens - cached
+        cached_price = (
+            model.price_input_cached_per_m
+            if model.price_input_cached_per_m is not None
+            else model.price_input_per_m
+        )
         dollars = (
-            prompt_tokens * model.price_input_per_m
+            cached * cached_price
+            + uncached * model.price_input_per_m
             + completion_tokens * model.price_output_per_m
         ) / 1_000_000
         return dollars * 100
@@ -130,3 +165,21 @@ class LlmClient:
                 raise last_error
             await asyncio.sleep(self._retry_delay)
         raise last_error if last_error else LlmError("appel gateway sans réponse")
+
+
+def _parse_first_token_logprobs(data: dict[str, Any]) -> dict[str, float] | None:
+    """Softmax des top_logprobs du 1er token généré -> {token: proba} (somme = 1)."""
+    try:
+        content = data["choices"][0]["logprobs"]["content"]
+        top = content[0].get("top_logprobs") or []
+        if not top:
+            return None
+        raw = [(str(t.get("token", "")), float(t.get("logprob", 0.0))) for t in top]
+        max_lp = max(lp for _, lp in raw)
+        exps = [(token, math.exp(lp - max_lp)) for token, lp in raw]
+        total = sum(weight for _, weight in exps)
+        if total <= 0:
+            return None
+        return {token: weight / total for token, weight in exps}
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None

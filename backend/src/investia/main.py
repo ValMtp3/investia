@@ -47,6 +47,9 @@ class AgentRunBody(BaseModel):
 
 class ApprovalBody(BaseModel):
     decision: Literal["approved", "refused"]
+    # 13d : hash du payload affiché au moment de l'approbation (optionnel,
+    # rétrocompatible) ; incohérent avec la demande en attente → 409.
+    payload_hash: str | None = None
 
 
 MARKET_STREAM_INTERVAL = 5.0
@@ -133,6 +136,8 @@ def create_app(
     eval_store: Any | None = None,
     approval_registry: Any | None = None,
     backtest_service: Any | None = None,
+    memory_store: Any | None = None,
+    forecaster: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -165,6 +170,25 @@ def create_app(
         backtest_service = backtest_service or BacktestService(session, market)
         trace_store = trace_store or DbTraceStore(session)
         eval_store = eval_store or EvalStore(session)
+        if memory_store is None:
+            # 16b/16c : mémoire longue (embeddings locaux ou OpenRouter) ;
+            # indisponible -> on démarre sans, zéro régression.
+            try:
+                from investia.memory import build_memory
+
+                memory_store = build_memory(settings)[0]
+            except Exception:
+                memory_store = None
+        forecaster = None
+        if settings.mistral_api_key is not None:
+            # 17a : prévision Timestral, câblée seulement si la clé est là.
+            from investia.market.forecast import MistralTimestralForecaster
+
+            forecaster = MistralTimestralForecaster(
+                api_key=settings.mistral_api_key,
+                base_url=settings.timestral_base_url,
+                model=settings.timestral_model,
+            )
         # Spans OTel GenAI exportés vers PostgreSQL (étape 9, D38).
         init_otel(session_factory=session)
     market_service: MarketDataService = market  # non None : construit juste au-dessus
@@ -176,6 +200,19 @@ def create_app(
         from investia.agent.approval import ApprovalRegistry
 
         approval_registry = ApprovalRegistry()
+
+    # 17e double dial : avertir au démarrage si le sandbox OS est requis mais
+    # indisponible (run_python sera retiré pré-schéma par la tool policy).
+    if settings.sandbox_mode == "os":
+        from investia.tools.policy import any_sandbox_backend_available
+        from investia.tools.python_sandbox import fail_closed_enabled
+
+        if fail_closed_enabled() and not any_sandbox_backend_available():
+            logging.getLogger(__name__).warning(
+                "SANDBOX_MODE=os mais aucun binaire d'isolation "
+                "(nsjail/sandbox-exec) : run_python est retiré des outils "
+                "envoyés au modèle (fail-closed 17c/17e)."
+            )
 
     # httpx écrit l'URL complète de chaque requête au niveau INFO, donc la clé API
     # des fournisseurs qui la prennent en paramètre (EODHD, Finnhub, CoinGecko).
@@ -212,7 +249,17 @@ def create_app(
         "risque": RisqueExecutor(),
         "redacteur": RedacteurExecutor(llm, _tools),
     }
-    mount_agents(app, executors, base_url=default_base_url())
+    # 15b : signature JWS des Agent Cards si une clé est configurée.
+    card_signer = None
+    if settings.agent_card_signing_key is not None:
+        from investia.agents.cards import make_card_signer
+
+        card_signer = make_card_signer(
+            settings.agent_card_signing_key.get_secret_value(),
+            kid=settings.agent_card_signing_kid,
+            alg=settings.agent_card_signing_alg,
+        )
+    mount_agents(app, executors, base_url=default_base_url(), card_signer=card_signer)
     # Le dashboard en dev tourne sur un autre port : autoriser son origin (navigateur).
     app.add_middleware(
         CORSMiddleware,
@@ -340,41 +387,70 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"aucune approbation en attente pour {run_id}"
             )
-        decided = await approval_registry.decide(key, body.decision)
+        decided = await approval_registry.decide(key, body.decision, body.payload_hash)
         if not decided:
             raise HTTPException(
-                status_code=409, detail=f"décision déjà enregistrée pour {run_id}"
+                status_code=409,
+                detail=(
+                    "décision déjà enregistrée ou payload_hash incohérent "
+                    f"pour {run_id}"
+                ),
             )
         return {"status": "ok", "run_id": key, "decision": body.decision}
 
     @app.post("/agent/run")
-    async def agent_run(body: AgentRunBody) -> Any:
+    async def agent_run(
+        body: AgentRunBody,
+        protocol: Literal["legacy", "agui"] = "legacy",
+    ) -> Any:
         """Stream SSE de la boucle : start/llm_call/tool_call/guardrail/answer/done
-        (+ approval_request/approval pour la validation humaine, D57)."""
+        (+ approval_request/approval pour la validation humaine, D57).
+
+        protocol=legacy (défaut) : `event: <kind>\\ndata: {...}` (rétrocompatible).
+        protocol=agui (15c) : blocs `data: {"type": ...}` au format AG-UI."""
         import asyncio
 
         from fastapi.responses import StreamingResponse
 
         from investia.agent import run_agent
+        from investia.agent.agui import format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
         from investia.tools import build_tools
+        from investia.tools.policy import tool_policy_from_settings
 
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
 
+        def render(kind: str, payload: dict[str, Any]) -> str:
+            if protocol == "agui":
+                return format_agui_sse(kind, payload)
+            return format_sse(kind, payload)
+
         async def generate():
             task = asyncio.create_task(
                 run_agent(
                     body.question,
                     llm,
-                    build_tools(market, portfolio_service=portfolio_service),
+                    build_tools(
+                        market,
+                        portfolio_service=portfolio_service,
+                        forecaster=forecaster,
+                    ),
                     max_turns=body.max_turns,
                     trace_store=trace_store,
                     event_sink=sink,
-                    approval_registry=approval_registry,
+                    # 17e double dial « quoi » : APPROVAL_MODE=off -> pas de HITL
+                    approval_registry=(
+                        approval_registry if settings.approval_mode == "order" else None
+                    ),
+                    context_max_tokens=settings.context_max_tokens or None,
+                    keep_last_turns=settings.compaction_keep_last_turns,
+                    memory_store=memory_store,
+                    # 17e : tool policy pré-schéma (DISABLED_TOOLS + sandbox os KO)
+                    tool_policy=tool_policy_from_settings(settings),
                 )
             )
             try:
@@ -384,15 +460,15 @@ def create_app(
                     kind, payload = await asyncio.wait_for(
                         queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
                     )
-                    yield format_sse(kind, payload)
+                    yield render(kind, payload)
                     if kind == "done":
                         break
             except asyncio.CancelledError:
                 task.cancel()
                 raise
             except Exception as error:
-                yield format_sse("error", {"message": str(error)})
-                yield format_sse("done", {"status": "error"})
+                yield render("error", {"message": str(error)})
+                yield render("done", {"status": "error"})
             finally:
                 if not task.done():
                     task.cancel()

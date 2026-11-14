@@ -37,13 +37,25 @@ def main(argv: list[str] | None = None) -> int:
     if settings.openrouter_api_key is not None:
         memory_store, embeddings = build_memory(settings)
     portfolio_service = PortfolioService(get_session(), market)
+    forecaster = None
+    if settings.mistral_api_key is not None:
+        from investia.market.forecast import MistralTimestralForecaster
+
+        forecaster = MistralTimestralForecaster(
+            api_key=settings.mistral_api_key,
+            base_url=settings.timestral_base_url,
+            model=settings.timestral_model,
+        )
     tools = build_tools(
         market,
         memory_store=memory_store,
         embeddings=embeddings,
         portfolio_service=portfolio_service,
+        forecaster=forecaster,
     )
     llm = build_llm_client(settings)
+    from investia.tools.policy import tool_policy_from_settings
+
     try:
         result = asyncio.run(
             run_agent(
@@ -52,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
                 tools,
                 max_turns=args.max_turns,
                 trace_store=DbTraceStore(get_session()),
+                tool_policy=tool_policy_from_settings(settings),  # 17e
             )
         )
     except (LlmError, MarketDataError) as error:

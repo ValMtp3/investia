@@ -1,10 +1,13 @@
 # Noms des modèles et prix (par million de tokens) — jamais dans le code (doc 03).
-# Prix indicatifs oct. 2026 (D26), à vérifier avant chaque étape.
+# Prix indicatifs nov. 2026 (D26 + veille 14/11), à vérifier avant chaque étape.
 
 [models]
-small = "gpt-6-luna"
+# 17b : DeepSeek V4.1-Flash-1017 via LiteLLM (alias -latest suivant les checkpoints).
+small = "deepseek/deepseek-flash-latest"
 large = "mistral-large-4"
 
 [prices_per_million_tokens]
-gpt-6-luna = { input = 0.10, output = 0.50 }
+# DeepSeek flash, prix peak cache-miss (off-peak = moitié ; cache hit ~50x moins cher).
+# Source : api-docs.deepseek.com/quick_start/pricing (nov. 2026).
+"deepseek/deepseek-flash-latest" = { input = 0.30, output = 1.20, input_cached = 0.006 }
 mistral-large-4 = { input = 1.36, output = 4.18 }

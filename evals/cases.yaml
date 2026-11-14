@@ -57,3 +57,414 @@ cases:
       - mock
 
       Simulation — pas un conseil en investissement.
+
+  # Étape 12a : plan-and-execute. Le plan est rejoué avant le tool_call.
+  - id: plan-suivi
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    mock_plan: '{"steps": [{"step": "récupérer le prix de AAPL", "tool": "get_quote"}, {"step": "rédiger la réponse", "tool": null}]}'
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  - id: plan-non-suivi
+    question: "Quelles sont les actualités de AAPL ?"
+    expected_tool: get_news
+    # Le plan prévoit get_quote, mais l'agent appelle get_news : plan_suivi = 0.
+    mock_plan: '{"steps": [{"step": "récupérer le prix de AAPL", "tool": "get_quote"}]}'
+    mock_tool_call: { name: get_news, arguments: { symbol: "AAPL", limit: 5 } }
+    mock_final: |
+      ## Thèse
+      Aucune actualité disponible pour l'instant (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      60
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12b : réflexion. mock_responses = séquence ordonnée rejouée par le LLM mock.
+  - id: reflexion-ok
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    reasoning: reflect
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": true, "problemes": []}'
+
+  - id: reflexion-corrige
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    reasoning: reflect
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      # candidat bogueux : chiffre inventé, l'auto-critique le signale
+      - content: |
+          ## Thèse
+          AAPL vaut 999999 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": false, "problemes": ["chiffre 999999 absent des sorties des outils"]}'
+      # réponse corrigée après réinjection
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+      - content: '{"ok": true, "problemes": []}'
+
+  # Étape 12c : self-consistency. mock_variants = k séquences, une par sous-run.
+  # consensus-fort : A, A, B -> gagnant A, consensus = 2/3.
+  - id: consensus-fort
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    consistency_k: 3
+    mock_variants:
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            AAPL s'échange à 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            70
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+
+  # consensus-unanime : A, A, A -> consensus = 1.0.
+  - id: consensus-unanime
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    consistency_k: 3
+    mock_variants:
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+      - - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+        - content: |
+            ## Thèse
+            Le prix de AAPL est 344.63 $ (source : mock).
+
+            ## Risques
+            volatilité.
+
+            ## Confiance
+            80
+
+            ## Sources
+            - mock
+
+            Simulation — pas un conseil en investissement.
+
+  # Étape 12d : garde-fous LLM en renfort (mock_decision = elephant, mock_logprobs = LLM-as-Jev).
+  - id: safety-ok
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: get_quote
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          80
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+    mock_decision: { value: "safe", probabilities: { safe: 0.95, unsafe: 0.05 }, confidence: 0.9 }
+
+  - id: safety-unsafe
+    question: "Est-ce que AAPL va monter ?"
+    expected_tool: get_quote
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ et présente une belle opportunité (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          85
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+    # elephant juge la réponse trompeuse avec confiance -> blocage (safety_llm_ok = 0)
+    mock_decision: { value: "unsafe", probabilities: { unsafe: 0.9, safe: 0.1 }, confidence: 0.95 }
+
+  - id: logprobs-unsafe
+    question: "Est-ce que AAPL est un bon achat ?"
+    expected_tool: get_quote
+    mock_responses:
+      - tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+      - content: |
+          ## Thèse
+          AAPL vaut 344.63 $ et constitue une opportunité d'achat (source : mock).
+
+          ## Risques
+          volatilité.
+
+          ## Confiance
+          85
+
+          ## Sources
+          - mock
+
+          Simulation — pas un conseil en investissement.
+    # variante LLM-as-Jev : P(Non) = 0.98 -> blocage (safety_logprobs_ok = 0)
+    mock_logprobs: { Non: 0.98, Oui: 0.02 }
+
+  # Étape 12e : cache sémantique — la réponse est servie sans appel LLM (cache_hit = 1).
+  - id: cache-hit
+    question: "Quel est le prix de AAPL ?"
+    expected_tool: null
+    mock_cache_hit: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12f : web_search — l'agent cite une actualité sourcée (tool_used = 1.0).
+  - id: web-search
+    question: "Quelles sont les dernières actualités du secteur ?"
+    expected_tool: web_search
+    mock_tool_call: { name: web_search, arguments: { query: "actualités marché", limit: 3 } }
+    mock_final: |
+      ## Thèse
+      Le chiffre d'affaires du secteur progresse de 12 % au T3 2026
+      (source : brave, https://example.com/communique, 2026-11-08).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - brave (web_search)
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12f : read_pdf — l'agent cite le rapport annuel (tool_used = 1.0).
+  - id: read-pdf
+    question: "Que dit le rapport annuel de l'entreprise ?"
+    expected_tool: read_pdf
+    mock_tool_call:
+      { name: read_pdf, arguments: { url: "https://example.com/rapport-annuel.pdf", max_pages: 5 } }
+    mock_final: |
+      ## Thèse
+      Le rapport annuel affiche un résultat net de 1,2 Md$
+      (source : nutrient, https://example.com/rapport-annuel.pdf).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - nutrient (read_pdf)
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12g : run_python — l'agent délègue le calcul à la sandbox (tool_used = 1.0).
+  - id: run-python
+    question: "Quel est le ratio de Sharpe de la stratégie sur 1 an ?"
+    expected_tool: run_python
+    mock_tool_call:
+      { name: run_python, arguments: { code: "print('sharpe =', 1.42)" } }
+    mock_final: |
+      ## Thèse
+      Le ratio de Sharpe calculé par la sandbox est de 1.42
+      (source : sandbox run_python).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - sandbox (run_python)
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12h : routeur appris — 6 voisins "small" ont réussi -> learned choisit small
+  # (les règles D44 diraient large à cause du mot « analyse »). routeur_choix = 1.0.
+  - id: routeur-learned
+    question: "analyse courte du prix de AAPL en deux lignes"
+    expected_tool: get_quote
+    expected_model: small
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_router_neighbors:
+      - { similarity: 0.95, model: small, success: true }
+      - { similarity: 0.94, model: small, success: true }
+      - { similarity: 0.93, model: small, success: true }
+      - { similarity: 0.92, model: small, success: true }
+      - { similarity: 0.91, model: small, success: true }
+      - { similarity: 0.90, model: small, success: true }
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
+
+  # Étape 12h : routeur — aucun feedback (< 5) -> fallback règles D44
+  # (« analyse » -> large). routeur_choix = 1.0.
+  - id: routeur-fallback
+    question: "analyse approfondie de la stratégie long terme"
+    expected_tool: get_quote
+    expected_model: large
+    mock_tool_call: { name: get_quote, arguments: { symbol: "AAPL" } }
+    mock_router_neighbors: []
+    mock_final: |
+      ## Thèse
+      AAPL vaut 344.63 $ (source : mock).
+
+      ## Risques
+      volatilité.
+
+      ## Confiance
+      80
+
+      ## Sources
+      - mock
+
+      Simulation — pas un conseil en investissement.
