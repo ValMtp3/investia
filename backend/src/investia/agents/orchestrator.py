@@ -95,8 +95,16 @@ async def run_multi_agent(
     trace_store: Any | None = None,
     event_sink: Any | None = None,
     caller: AgentCaller | None = None,
+    router: Any | None = None,
 ) -> AgentResult:
-    """Enchaîne les 3 agents A2A. Le verdict du risque bloque la réponse si non ok."""
+    """Enchaîne les agents A2A. Le verdict du risque bloque la réponse si non ok.
+
+    18a : `router` (AgentRouter) choisit quels agents déléguer selon la question
+    et leurs succès passés (event `a2a_route`, feedback `record` en fin de run).
+    `router=None` = pipeline fixe analyste → risque → rédacteur (6.1, inchangé).
+    """
+    from investia.agents.router import CANONICAL_PIPELINE, RISK_AGENT
+
     caller = caller or HttpA2ACaller()
     run_id = await trace_store.start_run(question) if trace_store is not None else None
 
@@ -125,46 +133,80 @@ async def run_multi_agent(
 
     await emit("start", {"question": question, "mode": "multi-agent", "run_id": run_id})
 
-    analysis = await delegate("analyste", question)
-    verdict = await delegate(
-        "risque",
-        json.dumps({"analysis": analysis.get("analysis", "")}, ensure_ascii=False),
-    )
-    if not verdict.get("ok", False):
-        failures = "; ".join(
-            f"{name}: {detail}" for name, detail in verdict.get("failures", [])
-        )
-        answer = "[réponse bloquée par le gestionnaire de risque : " + failures + "]"
-        await emit("answer", {"text": answer})
-        await emit("done", {"status": "blocked", "agents": ["analyste", "risque"]})
+    # 18a : délégation dynamique — router appris, sinon pipeline fixe (6.1)
+    if router is not None:
+        agents, route_source = await router.choose(question)
+    else:
+        agents, route_source = list(CANONICAL_PIPELINE), "fixed"
+    if router is not None:
+        # 18a : on ne touche au flux SSE que quand le routage dynamique est actif
+        route_payload = {"agents": list(agents), "source": route_source}
+        await emit("a2a_route", route_payload)
         if trace_store is not None and run_id is not None:
-            await trace_store.finish_run(
-                run_id,
-                answer=answer,
-                model="multi-agent",
-                turns=2,
-                cost_cents=0.0,
-                status="blocked",
-            )
-        return AgentResult(answer=answer, turns=2, model="multi-agent")
+            await trace_store.log_step(run_id, 0, "a2a_route", route_payload)
 
-    final = await delegate(
-        "redacteur",
-        json.dumps(
-            {"analysis": analysis.get("analysis", ""), "verdict": verdict},
-            ensure_ascii=False,
-        ),
-    )
-    answer = str(final.get("answer") or final.get("text") or "")
+    used: list[str] = []
+
+    async def record_feedback(success: bool) -> None:
+        """Feedback du routeur d'agents (18a) ; une erreur ne bloque jamais."""
+        if router is None:
+            return
+        try:
+            await router.record(question, used, success)
+        except Exception:
+            logger.exception("agent router feedback: erreur avalée")
+
+    context: dict[str, Any] = {"question": question}
+    answer = ""
+    for i, agent in enumerate(agents):
+        payload = question if i == 0 else json.dumps(context, ensure_ascii=False)
+        data = await delegate(agent, payload)
+        used.append(agent)
+        if agent == RISK_AGENT:
+            if not data.get("ok", False):
+                failures = "; ".join(
+                    f"{name}: {detail}" for name, detail in data.get("failures", [])
+                )
+                answer = (
+                    "[réponse bloquée par le gestionnaire de risque : " + failures + "]"
+                )
+                await emit("answer", {"text": answer})
+                await emit("done", {"status": "blocked", "agents": list(used)})
+                if trace_store is not None and run_id is not None:
+                    await trace_store.finish_run(
+                        run_id,
+                        answer=answer,
+                        model="multi-agent",
+                        turns=len(used),
+                        cost_cents=0.0,
+                        status="blocked",
+                    )
+                await record_feedback(False)
+                return AgentResult(
+                    answer=answer,
+                    turns=len(used),
+                    model="multi-agent",
+                    status="blocked",
+                )
+            context["verdict"] = data
+        else:
+            text = str(
+                data.get("analysis") or data.get("answer") or data.get("text") or ""
+            )
+            context["analysis"] = text
+            if i == len(agents) - 1:
+                answer = text
+
     await emit("answer", {"text": answer})
-    await emit("done", {"status": "ok", "agents": ["analyste", "risque", "redacteur"]})
+    await emit("done", {"status": "ok", "agents": list(used)})
     if trace_store is not None and run_id is not None:
         await trace_store.finish_run(
             run_id,
             answer=answer,
             model="multi-agent",
-            turns=3,
+            turns=len(used),
             cost_cents=0.0,
             status="ok",
         )
-    return AgentResult(answer=answer, turns=3, model="multi-agent")
+    await record_feedback(True)
+    return AgentResult(answer=answer, turns=len(used), model="multi-agent", status="ok")

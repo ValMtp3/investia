@@ -179,6 +179,22 @@ def create_app(
                 memory_store = build_memory(settings)[0]
             except Exception:
                 memory_store = None
+        # 18a : routeur d'agents A2A appris (k-NN sur agent_feedback) ;
+        # indisponible -> pipeline fixe (zéro régression).
+        agent_router = None
+        try:
+            from investia.agents.router import LearnedAgentRouter
+            from investia.agents.router_store import DbAgentFeedback
+            from investia.memory import build_memory
+
+            _memory_store, embeddings = build_memory(settings)
+            agent_router = LearnedAgentRouter(
+                DbAgentFeedback(get_session(), embeddings)
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "routeur d'agents A2A indisponible : pipeline fixe (18a)"
+            )
         forecaster = None
         if settings.mistral_api_key is not None:
             # 17a : prévision Timestral, câblée seulement si la clé est là.
@@ -541,6 +557,7 @@ def create_app(
                     build_tools(market, portfolio_service=portfolio_service),
                     trace_store=trace_store,
                     event_sink=sink,
+                    router=agent_router,  # 18a : None = pipeline fixe (6.1)
                 )
             )
             try:
