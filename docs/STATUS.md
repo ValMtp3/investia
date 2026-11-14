@@ -132,6 +132,8 @@ Rapport consolidé de 8 sous-agents de veille (harness, mémoire, evals, garde-f
 
 **Étape 18b — métrique d'eval `routeur_agent` + cas multi-agent mock : TERMINÉE le 14/11/2026** (branche `feat/etape-18b-eval-routeur-agent`, spec `docs/specs/18b-eval-routeur-agent.md`) : `AgentResult.agents_used` (rempli par `run_multi_agent`, `[]` sinon — zéro régression mono-agent) ; métrique `routeur_agent` dans `compute_metrics` (1.0 si `agents_used == expected_agents`, non pénalisante sans `expected_agents`) ; `EvalCase` gagne `multi_agent` / `expected_agents` / `mock_agent_router_neighbors`, le runner exécute ces cas via `run_multi_agent` avec `FakeAgentCaller` + `LearnedAgentRouter(FakeAgentFeedbackStore(...))` (zéro réseau/DB) ; 2 cas YAML `a2a-learned` (→ [analyste, risque]) et `a2a-fallback` (→ pipeline fixe 3 agents). 4 tests TDD. Suite non-integration **635 passed / 1 skip** ; ruff/ty/format propres.
 
+**Étape 20a — MCP 2026 : tool annotations sur les 6 outils (P9.2) : TERMINÉE le 14/11/2026** (branche `feat/etape-20a-mcp-annotations`, spec `docs/specs/20a-mcp-tool-annotations.md`) : chaque `@mcp.tool` déclare ses `ToolAnnotations` (lectures marché = readOnly/idempotent/openWorld + title FR ; `get_portfolio` = readOnly interne ; `simulate_order` = non readOnly, non idempotent, non openWorld) — métadonnées uniquement, zéro changement de comportement. **Sampling non retenu** (D87) : déprécié dans la spec 2026-07-28 (SEP-2577 → MRTR), retiré de FastMCP 4.2.0 (`Context.sample` inexistant, vérifié en local), et contre-productif (nos LLM passent déjà par LiteLLM avec plafond 17f). 1 test TDD (`tools/list` annoté). Suite non-integration **636 passed / 1 skip** ; ruff/ty/format propres.
+
 ## Bloqueurs / à vérifier maintenant
 
 | # | Quoi | Pourquoi | Statut |
