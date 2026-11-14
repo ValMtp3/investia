@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # "où" : os = sandbox OS fail-closed (17c, défaut) ; off = opt-in dev explicite
     sandbox_mode: Literal["os", "off"] = "os"
 
+    # 17f : plafond de coût par appel LLM, côté client (le gateway a aussi son
+    # propre plafond max_budget dans deploy/litellm/config.yaml)
+    llm_budget_cents_per_call: float = Field(default=100.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -119,3 +119,79 @@ async def test_integration_db_router_feedback_roundtrip():
     assert neighbors[0].model == "small"
     assert neighbors[0].success is True
     assert 0.0 <= neighbors[0].similarity <= 1.0
+
+
+# --- 17f : règle « préserver le cache » — un seul modèle par run ---------------
+
+from dataclasses import replace  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+
+from test_agent_loop import (  # noqa: E402
+    FINAL_WITH_PRICE,
+    FakeLlm,
+    FakeMarket,
+    make_response,
+    quote_tool_call,
+)
+from test_sse import FakeTraceStore  # noqa: E402
+
+from investia.agent import run_agent  # noqa: E402
+from investia.market.base import MarketData  # noqa: E402
+from investia.tools import build_tools  # noqa: E402
+
+
+class FlippingRouter:
+    """Routeur factice qui changerait de modèle à chaque appel (anti-cache)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def choose(self, question: str):
+        self.calls += 1
+        return ("small" if self.calls == 1 else "large"), "learned"
+
+    async def record(self, question: str, model: str, success: bool) -> None:
+        return None
+
+
+async def test_run_agent_sticky_model_preserves_prompt_cache():
+    # 17f : le modèle est résolu UNE fois par run ; tous les appels LLM
+    # (boucle, plan, réflexion, compaction) l'utilisent, même si le routeur
+    # changerait d'avis entre-temps (sinon le cache prompt saute).
+    quote = MarketData(
+        value=344.63,
+        currency="USD",
+        source="finnhub",
+        timestamp=datetime(2026, 10, 31, tzinfo=UTC),
+    )
+    llm = FakeLlm(
+        [
+            replace(
+                make_response(content="je cherche", tool_calls=quote_tool_call()),
+                cached_tokens=42,
+            ),
+            make_response(content=FINAL_WITH_PRICE),
+        ]
+    )
+    events: list[tuple[str, dict]] = []
+
+    async def sink(kind, payload):
+        events.append((kind, payload))
+
+    router = FlippingRouter()
+    result = await run_agent(
+        "prix de AAPL ?",
+        llm,
+        build_tools(FakeMarket(quote=quote)),
+        trace_store=FakeTraceStore(),
+        event_sink=sink,
+        router=router,
+    )
+    assert router.calls == 1  # résolu une seule fois pour tout le run
+    assert {c["model"] for c in llm.calls} == {"small"}  # aucun switch mid-run
+    assert result.router_source == "learned"
+    assert result.cached_tokens == 42  # tokens cachés exposés dans le résultat
+    done = next(p for k, p in events if k == "done")
+    assert done["model"] == "small"
+    assert done["router_source"] == "learned"
+    assert done["cached_tokens"] == 42

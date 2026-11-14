@@ -9,5 +9,5 @@ large = "mistral-large-4"
 [prices_per_million_tokens]
 # DeepSeek flash, prix peak cache-miss (off-peak = moitié ; cache hit ~50x moins cher).
 # Source : api-docs.deepseek.com/quick_start/pricing (nov. 2026).
-"deepseek/deepseek-flash-latest" = { input = 0.30, output = 1.20 }
+"deepseek/deepseek-flash-latest" = { input = 0.30, output = 1.20, input_cached = 0.006 }
 mistral-large-4 = { input = 1.36, output = 4.18 }

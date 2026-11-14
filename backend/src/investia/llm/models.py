@@ -10,6 +10,8 @@ class ModelConfig:
     name: str
     price_input_per_m: float
     price_output_per_m: float
+    # 17f : tarif input des tokens servis depuis le cache prompt (None = prix plein)
+    price_input_cached_per_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -31,10 +33,12 @@ def load_models_config(path: Path | None = None) -> ModelsConfig:
     def build(key: str) -> ModelConfig:
         name = data["models"][key]
         price = prices[name]
+        cached = price.get("input_cached")
         return ModelConfig(
             name=name,
             price_input_per_m=float(price["input"]),
             price_output_per_m=float(price["output"]),
+            price_input_cached_per_m=float(cached) if cached is not None else None,
         )
 
     return ModelsConfig(small=build("small"), large=build("large"))

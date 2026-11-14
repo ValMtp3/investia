@@ -31,6 +31,39 @@ def test_small_tier_is_deepseek_flash_with_positive_prices():
     assert small.price_output_per_m > 0
 
 
+def test_models_toml_deepseek_has_cached_input_price_large_does_not():
+    # 17f : tarif cache hit DeepSeek (~50x moins cher que le peak)
+    config = load_models_config()
+    assert config.small.price_input_cached_per_m == pytest.approx(0.006)
+    assert config.large.price_input_cached_per_m is None
+
+
+def test_build_llm_client_uses_settings_budget_per_call():
+    # 17f : plafond par appel configurable via env LLM_BUDGET_CENTS_PER_CALL
+    from investia.config import Settings
+    from investia.llm import build_llm_client
+
+    settings = Settings(
+        database_url="postgresql://u:p@localhost/db",
+        redis_url="redis://localhost:6379",
+        litellm_base_url="http://litellm.test",
+        litellm_master_key=SecretStr("sk-test"),
+        app_secret_key="x" * 32,
+        llm_budget_cents_per_call=5.0,
+    )
+    client = build_llm_client(settings)
+    assert client._budget_cents == 5.0
+    # défaut = comportement historique (100 c)
+    default_settings = Settings(
+        database_url="postgresql://u:p@localhost/db",
+        redis_url="redis://localhost:6379",
+        litellm_base_url="http://litellm.test",
+        litellm_master_key=SecretStr("sk-test"),
+        app_secret_key="x" * 32,
+    )
+    assert build_llm_client(default_settings)._budget_cents == 100.0
+
+
 # ---------- routeur ----------
 
 
@@ -84,6 +117,40 @@ async def test_chat_returns_content_usage_and_cost():
     assert response.prompt_tokens == 1000
     assert response.completion_tokens == 100
     # coût = 1000*0.30/1e6 + 100*1.20/1e6 $ = 0.00042 $ = 0.042 centime
+    assert response.cost_cents == pytest.approx(0.042, rel=1e-3)
+
+
+async def test_chat_parses_cached_tokens_and_applies_cached_price():
+    # 17f : usage.prompt_tokens_details.cached_tokens (champ standard LiteLLM)
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 100,
+                    "prompt_tokens_details": {"cached_tokens": 600},
+                },
+            },
+        )
+
+    client = make_client(handler)
+    response = await client.chat("small", [{"role": "user", "content": "x"}])
+    assert response.cached_tokens == 600
+    # 600 cachés à 0.006 $/M + 400 pleins à 0.30 + 100 out à 1.20
+    # = (600*0.006 + 400*0.30 + 100*1.20)/1e6 $ = 0.0002436 $ = 0.02436 c
+    assert response.cost_cents == pytest.approx(0.02436, rel=1e-3)
+
+
+async def test_chat_without_cached_details_defaults_to_zero_full_price():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=chat_response("ok", 1000, 100))
+
+    client = make_client(handler)
+    response = await client.chat("small", [{"role": "user", "content": "x"}])
+    assert response.cached_tokens == 0
+    # coût plein = (1000*0.30 + 100*1.20)/1e6 $ = 0.00042 $ = 0.042 c
     assert response.cost_cents == pytest.approx(0.042, rel=1e-3)
 
 

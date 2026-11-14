@@ -48,6 +48,33 @@ class LlmChat(Protocol):
     ) -> LlmResponse: ...
 
 
+class _CachedTokensTracker:
+    """17f : wrapper LLM qui somme les tokens cachés (cache prompt) d'un run.
+
+    Règle « préserver le cache » (opencode v2.2.7) : le modèle est résolu une
+    seule fois par run_agent, donc tous les appels ci-dessous réutilisent le
+    même préfixe caché côté provider — on les compte pour l'exposer.
+    """
+
+    def __init__(self, llm: LlmChat) -> None:
+        self._llm = llm
+        self.cached_tokens = 0
+
+    async def chat(
+        self,
+        model_key: str,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        tools: list[dict[str, Any]] | None = None,
+        logprobs: bool = False,
+    ) -> LlmResponse:
+        response = await self._llm.chat(
+            model_key, messages, temperature=temperature, tools=tools, logprobs=logprobs
+        )
+        self.cached_tokens += response.cached_tokens
+        return response
+
+
 @dataclass(frozen=True)
 class ToolCallLog:
     tool: str
@@ -87,6 +114,7 @@ class AgentResult:
     model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
     injections_blocked: int = 0  # étape 13b : sorties d'outils externes bloquées
     compactions: int = 0  # étape 16c : compactions du contexte effectuées
+    cached_tokens: int = 0  # 17f : tokens input servis depuis le cache prompt
 
 
 DEFAULT_MAX_TURNS = 8
@@ -183,6 +211,8 @@ async def _run_once(
     await emit("tool_policy", policy_payload)
     if store is not None and run_id is not None:
         await store.log_step(run_id, 0, "tool_policy", policy_payload)
+    # 17f : on somme les tokens cachés de tous les appels LLM du run
+    llm = _CachedTokensTracker(llm)
     plan: Plan | None = None
     reflections: list[ReflectionDecision] = []
     total_cost = 0.0
@@ -496,6 +526,7 @@ async def _run_once(
                 model_key=model_key,
                 injections_blocked=injections_blocked,
                 compactions=compactions,
+                cached_tokens=llm.cached_tokens,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -513,6 +544,11 @@ async def _run_once(
                     "turns": result.turns,
                     "cost_cents": result.total_cost_cents,
                     "status": "ok",
+                    # 17f : coût/run exposé — modèle choisi, source du routage,
+                    # tokens servis depuis le cache prompt
+                    "model": model_key,
+                    "router_source": router_source,
+                    "cached_tokens": llm.cached_tokens,
                 },
             )
             current_run_id.reset(token)
@@ -550,6 +586,7 @@ async def _run_once(
             router_source=router_source,
             model_key=model_key,
             compactions=compactions,
+            cached_tokens=llm.cached_tokens,
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -567,6 +604,9 @@ async def _run_once(
                 "turns": result.turns,
                 "cost_cents": result.total_cost_cents,
                 "status": "blocked",
+                "model": model_key,
+                "router_source": router_source,
+                "cached_tokens": llm.cached_tokens,
             },
         )
         current_run_id.reset(token)
@@ -591,6 +631,7 @@ async def _run_once(
         model_key=model_key,
         injections_blocked=injections_blocked,
         compactions=compactions,
+        cached_tokens=llm.cached_tokens,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -608,6 +649,9 @@ async def _run_once(
             "turns": result.turns,
             "cost_cents": result.total_cost_cents,
             "status": "max_turns",
+            "model": model_key,
+            "router_source": router_source,
+            "cached_tokens": llm.cached_tokens,
         },
     )
     current_run_id.reset(token)
@@ -705,7 +749,17 @@ async def run_agent(
             await emit("start", {"question": question, "from_cache": True})
             await emit("cache_hit", {"question": question})
             await emit("answer", {"turn": 0, "text": hit})
-            await emit("done", {"turns": 0, "cost_cents": 0.0, "status": "ok"})
+            await emit(
+                "done",
+                {
+                    "turns": 0,
+                    "cost_cents": 0.0,
+                    "status": "ok",
+                    "model": "cache",
+                    "router_source": router_source,
+                    "cached_tokens": 0,
+                },
+            )
             return AgentResult(
                 answer=hit,
                 turns=0,

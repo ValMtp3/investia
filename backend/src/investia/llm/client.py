@@ -35,6 +35,9 @@ class LlmResponse:
     # étape 12d (LLM-as-Jev) : proba normalisées (softmax) des top tokens du 1er
     # token généré, demandées via chat(..., logprobs=True). None si non demandé.
     first_token_logprobs: dict[str, float] | None = None
+    # 17f : tokens input servis depuis le cache prompt du provider
+    # (usage.prompt_tokens_details.cached_tokens) — tarif caché si connu.
+    cached_tokens: int = 0
 
 
 class LlmClient:
@@ -84,6 +87,9 @@ class LlmClient:
             usage = data["usage"]
             prompt_tokens = int(usage["prompt_tokens"])
             completion_tokens = int(usage["completion_tokens"])
+            # 17f : tokens cachés (champ standard, absent selon providers)
+            details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = int(details.get("cached_tokens") or 0)
             tool_calls = [
                 ToolCall(
                     id=call["id"],
@@ -94,7 +100,9 @@ class LlmClient:
             ]
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise LlmError(f"réponse mal formée du gateway ({model.name})") from error
-        cost_cents = self._cost_cents(model, prompt_tokens, completion_tokens)
+        cost_cents = self._cost_cents(
+            model, prompt_tokens, completion_tokens, cached_tokens
+        )
         if cost_cents > self._budget_cents:
             raise LlmError(
                 f"budget dépassé : {cost_cents:.2f} c > {self._budget_cents:.2f} c "
@@ -110,11 +118,27 @@ class LlmClient:
             first_token_logprobs=(
                 _parse_first_token_logprobs(data) if logprobs else None
             ),
+            cached_tokens=cached_tokens,
         )
 
-    def _cost_cents(self, model, prompt_tokens: int, completion_tokens: int) -> float:
+    def _cost_cents(
+        self,
+        model,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+    ) -> float:
+        # 17f : les tokens cachés sont tarifés au prix cache quand le modèle le connaît
+        cached = min(cached_tokens, prompt_tokens)
+        uncached = prompt_tokens - cached
+        cached_price = (
+            model.price_input_cached_per_m
+            if model.price_input_cached_per_m is not None
+            else model.price_input_per_m
+        )
         dollars = (
-            prompt_tokens * model.price_input_per_m
+            cached * cached_price
+            + uncached * model.price_input_per_m
             + completion_tokens * model.price_output_per_m
         ) / 1_000_000
         return dollars * 100
