@@ -4,6 +4,7 @@ TDD : ces tests ont été écrits AVANT backend/src/investia/redaction.py.
 """
 
 import json
+from typing import Any, cast
 
 from investia.redaction import (
     REDACTED,
@@ -123,7 +124,7 @@ class _FakeSessionFactory:
 async def test_log_step_redacts_secret_in_payload(monkeypatch):
     monkeypatch.setenv("INVESTIA_TEST_API_KEY", "sk-live-abcdef123456789")
     factory = _FakeSessionFactory()
-    store = DbTraceStore(factory)
+    store = DbTraceStore(cast(Any, factory))
     await store.log_step(
         RUN_ID, 0, "tool_call", {"result": "key=sk-live-abcdef123456789"}
     )
@@ -136,7 +137,7 @@ async def test_log_step_redacts_secret_in_payload(monkeypatch):
 async def test_start_run_redacts_question(monkeypatch):
     monkeypatch.setenv("INVESTIA_TEST_API_KEY", "sk-live-abcdef123456789")
     factory = _FakeSessionFactory()
-    store = DbTraceStore(factory)
+    store = DbTraceStore(cast(Any, factory))
     await store.start_run("ma clé sk-live-abcdef123456789 ?")
     assert "sk-live-abcdef123456789" not in factory.captured[-1][1]["q"]
 
@@ -144,7 +145,7 @@ async def test_start_run_redacts_question(monkeypatch):
 async def test_finish_run_redacts_answer(monkeypatch):
     monkeypatch.setenv("INVESTIA_TEST_API_KEY", "sk-live-abcdef123456789")
     factory = _FakeSessionFactory()
-    store = DbTraceStore(factory)
+    store = DbTraceStore(cast(Any, factory))
     await store.finish_run(
         RUN_ID,
         answer="réponse avec sk-live-abcdef123456789",
@@ -163,6 +164,6 @@ async def test_store_uses_injected_redactor():
             return text
 
     factory = _FakeSessionFactory()
-    store = DbTraceStore(factory, redactor=NullRedactor())
+    store = DbTraceStore(cast(Any, factory), redactor=NullRedactor())
     await store.log_step(RUN_ID, 0, "tool_call", {"result": "sk-abcdefghijklmnopqrst"})
     assert "sk-abcdefghijklmnopqrst" in factory.captured[-1][1]["payload"]

@@ -90,7 +90,7 @@ MAX_REFLECT_OUTPUT_CHARS = 4000
 
 
 def parse_reflection(text: str) -> ReflectionDecision:
-    """Parse la critique JSON. Illisible -> ok=True (les garde-fous en code décident)."""
+    """Parse la critique JSON. Illisible -> ok=True (garde-fous en code)."""
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end <= start:

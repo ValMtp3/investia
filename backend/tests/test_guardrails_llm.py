@@ -2,8 +2,6 @@
 
 from typing import Any
 
-import pytest
-
 from investia.guardrails.llm_check import (
     MIN_CONFIDENCE,
     NON_BLOCK_THRESHOLD,
@@ -80,7 +78,9 @@ class LogprobsLlm:
         self._logprobs = logprobs
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append(
             {
                 "model": model_key,
@@ -131,12 +131,12 @@ def test_seuils_sont_coherents():
 
 # --- Task 3 : boucle run_agent(decision_client / logprobs_guardrail) ---
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # noqa: E402
 
-from investia.agent import run_agent
-from investia.llm.client import ToolCall
-from investia.market.base import MarketData
-from investia.tools import build_tools
+from investia.agent import run_agent  # noqa: E402
+from investia.llm.client import ToolCall  # noqa: E402
+from investia.market.base import MarketData  # noqa: E402
+from investia.tools import build_tools  # noqa: E402
 
 
 class FakeMarket:
@@ -161,7 +161,9 @@ class FakeLlm:
         self._logprobs = logprobs
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append({"logprobs": logprobs, "tools": tools})
         if logprobs and self._logprobs is not None:
             return LlmResponse(
@@ -234,7 +236,10 @@ def quote_call():
 
 
 def llm_ok(logprobs=None):
-    return FakeLlm([make_response(tool_calls=quote_call()), make_response(content=FINAL_OK)], logprobs=logprobs)
+    return FakeLlm(
+        [make_response(tool_calls=quote_call()), make_response(content=FINAL_OK)],
+        logprobs=logprobs,
+    )
 
 
 async def test_boucle_safety_llm_present_avec_decision_client():
@@ -256,7 +261,10 @@ async def test_boucle_safety_llm_present_avec_decision_client():
     checks = {g.check: g.ok for g in result.guardrails}
     assert checks.get("safety_llm") is True
     assert any(k == "guardrail" and p.get("check") == "safety_llm" for k, p in events)
-    assert any(kind == "guardrail" and payload.get("check") == "safety_llm" for kind, payload in store.steps)
+    assert any(
+        kind == "guardrail" and payload.get("check") == "safety_llm"
+        for kind, payload in store.steps
+    )
     assert store.finished[0]["status"] == "ok"
 
 

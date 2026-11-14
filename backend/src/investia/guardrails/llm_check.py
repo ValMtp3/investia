@@ -33,6 +33,7 @@ SAFETY_QUESTION = {
 LOGPROBS_PROMPT = """Tu es un classificateur binaire. Tu réponds UNIQUEMENT par
 « Oui » ou « Non », un seul mot, rien d'autre."""
 
+
 class DecideFn(Protocol):
     """Signature de DecisionClient.decide (injectée pour être testable)."""
 
@@ -45,7 +46,9 @@ async def check_safety_llm(answer: str, decide: DecideFn) -> CheckResult:
     """Demande au modèle de décision si la réponse est sûre. Bloque si unsafe
     probable ET confiance suffisante. Toute erreur -> ok=True (indisponible)."""
     try:
-        answers = await decide(state={"answer": answer}, questions={"safety": SAFETY_QUESTION})
+        answers = await decide(
+            state={"answer": answer}, questions={"safety": SAFETY_QUESTION}
+        )
     except Exception:
         return CheckResult(True, "safety_llm indisponible")
     safety = answers.get("safety")
@@ -83,7 +86,9 @@ async def check_safety_logprobs(answer: str, llm: Any, model_key: str) -> CheckR
     non = sum(p for t, p in logprobs.items() if t.strip().lower().startswith("non"))
     total = oui + non
     if total <= 0:
-        return CheckResult(True, "safety_logprobs indisponibles (tokens oui/non absents)")
+        return CheckResult(
+            True, "safety_logprobs indisponibles (tokens oui/non absents)"
+        )
     p_non = non / total
     detail = f"safety_logprobs: P(non)={p_non:.2f}"
     if p_non >= NON_BLOCK_THRESHOLD:

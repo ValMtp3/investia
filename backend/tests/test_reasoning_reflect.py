@@ -1,23 +1,19 @@
 """Tests TDD de la brique 12b : réflexion/auto-critique (reflect + boucle + evals)."""
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 from investia.agent import run_agent
 from investia.agent.reasoning import (
-    Plan,
-    PlanStep,
-    ReflectionDecision,
-    make_plan,
     parse_reflection,
     reflect,
 )
 from investia.llm.client import LlmResponse, ToolCall
 from investia.market.base import MarketData
 from investia.tools import build_tools
-from datetime import UTC, datetime
 
 
 class FakeLlm:
@@ -27,7 +23,9 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append(
             {"model": model_key, "messages": list(messages), "tools": tools}
         )
@@ -160,7 +158,9 @@ def quote_call():
 
 
 async def test_mode_none_aucune_reflection():
-    llm = FakeLlm([make_response(tool_calls=quote_call()), make_response(content=FINAL_OK)])
+    llm = FakeLlm(
+        [make_response(tool_calls=quote_call()), make_response(content=FINAL_OK)]
+    )
     result = await run_agent("prix de AAPL ?", llm, build_tools(FakeMarket()))
     assert result.reflections == []
     assert len(llm.calls) == 2

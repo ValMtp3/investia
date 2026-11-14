@@ -37,7 +37,9 @@ class FakeLlm:
         self._error = error
         self.calls = 0
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls += 1
         if self._error:
             raise self._error
@@ -106,7 +108,9 @@ async def test_chat_and_tool_spans_emitted_with_run_id(otel):
     # 1er appel = tool_call, 2e = réponse finale
 
     class TwoShotLlm(FakeLlm):
-        async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+        async def chat(
+            self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+        ):
             self.calls += 1
             if self.calls == 1:
                 return LlmResponse(

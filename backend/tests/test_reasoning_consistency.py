@@ -1,6 +1,5 @@
 """Tests TDD de la brique 12c : self-consistency (vote + k runs parallèles + evals)."""
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,7 +10,6 @@ from investia.agent.reasoning import extract_confidence, normalize_answer, vote
 from investia.llm.client import LlmResponse, ToolCall
 from investia.market.base import MarketData
 from investia.tools import build_tools
-
 
 # --- Task 1 : fonctions pures de vote ---
 
@@ -63,8 +61,12 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
-        self.calls.append({"model": model_key, "messages": list(messages), "tools": tools})
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
+        self.calls.append(
+            {"model": model_key, "messages": list(messages), "tools": tools}
+        )
         if len(self._responses) > 1:
             return self._responses.pop(0)
         return self._responses[0]
@@ -111,7 +113,9 @@ class FakeTraceStore:
         self.steps.append((run_id, turn, kind, payload))
 
     async def finish_run(self, run_id, *, answer, model, turns, cost_cents, status):
-        self.finished.append({"run_id": run_id, "status": status, "cost_cents": cost_cents})
+        self.finished.append(
+            {"run_id": run_id, "status": status, "cost_cents": cost_cents}
+        )
 
 
 FINAL_A = """## Thèse
@@ -150,7 +154,9 @@ def quote_call():
 
 
 def llm_with_final(content):
-    return FakeLlm([make_response(tool_calls=quote_call()), make_response(content=content)])
+    return FakeLlm(
+        [make_response(tool_calls=quote_call()), make_response(content=content)]
+    )
 
 
 async def test_k1_comportement_identique():
@@ -162,7 +168,11 @@ async def test_k1_comportement_identique():
 
     store = FakeTraceStore()
     result = await run_agent(
-        "prix de AAPL ?", llm, build_tools(FakeMarket()), trace_store=store, event_sink=sink
+        "prix de AAPL ?",
+        llm,
+        build_tools(FakeMarket()),
+        trace_store=store,
+        event_sink=sink,
     )
     assert result.consensus == 1.0
     assert result.answers == []
@@ -177,7 +187,11 @@ async def test_k3_vote_majoritaire_avec_factory():
 
     def factory(i):
         factories.append(i)
-        return [llm_with_final(FINAL_A), llm_with_final(FINAL_A), llm_with_final(FINAL_B)][i]
+        return [
+            llm_with_final(FINAL_A),
+            llm_with_final(FINAL_A),
+            llm_with_final(FINAL_B),
+        ][i]
 
     events = []
 
@@ -223,9 +237,7 @@ async def test_k3_sans_factory_meme_llm_partage():
 async def test_k_invalide_rejete():
     llm = llm_with_final(FINAL_A)
     with pytest.raises(ValueError, match="consistency_k"):
-        await run_agent(
-            "prix ?", llm, build_tools(FakeMarket()), consistency_k=0
-        )
+        await run_agent("prix ?", llm, build_tools(FakeMarket()), consistency_k=0)
 
 
 async def test_k3_avec_approval_registry_rejete():

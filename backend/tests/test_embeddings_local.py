@@ -79,7 +79,7 @@ class _FakeSentenceTransformer:
 @pytest.fixture
 def fake_sentence_transformers(monkeypatch):
     module = types.ModuleType("sentence_transformers")
-    module.SentenceTransformer = _FakeSentenceTransformer
+    setattr(module, "SentenceTransformer", _FakeSentenceTransformer)
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     return module
 

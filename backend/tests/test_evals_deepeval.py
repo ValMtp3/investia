@@ -66,7 +66,9 @@ def test_to_llm_test_case_rempli_les_champs():
         answer="réponse",
         turns=1,
         tool_calls=[
-            ToolCallLog(tool=case.expected_tool, arguments={"symbol": "AAPL"}, ok=True)
+            ToolCallLog(
+                tool=case.expected_tool or "", arguments={"symbol": "AAPL"}, ok=True
+            )
         ],
     )
     test_case = to_llm_test_case(case, result)

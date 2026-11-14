@@ -28,6 +28,7 @@ def test_start_maps_to_run_started():
     assert isinstance(event, agui_events.RunStartedEvent)
     assert event.run_id == "r1"
     assert event.thread_id == "r1"
+    assert event.input is not None
     assert event.input.messages[0].role == "user"
     assert event.input.messages[0].content == "prix AAPL ?"
 
@@ -74,6 +75,7 @@ def test_done_maps_to_run_finished_with_result():
     assert isinstance(event, agui_events.RunFinishedEvent)
     assert event.run_id == "r1"
     assert event.thread_id == "r1"
+    assert event.result is not None
     assert event.result["status"] == "ok"
     assert event.result["turns"] == 2
     assert event.result["cost_cents"] == 0.03

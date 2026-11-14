@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from investia.agent import run_agent
-from investia.agent.reasoning import Plan, PlanStep, make_plan, parse_plan
+from investia.agent.reasoning import PlanStep, make_plan, parse_plan
 from investia.llm.client import LlmResponse, ToolCall
 from investia.market.base import MarketData
 from investia.tools import build_tools
@@ -31,7 +31,9 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append(
             {"model": model_key, "messages": list(messages), "tools": tools}
         )
@@ -41,7 +43,6 @@ class FakeLlm:
 
 
 def make_response(content="", tool_calls=None, cost=0.01):
-    from investia.llm.client import ToolCall
 
     return LlmResponse(
         content=content,
@@ -235,6 +236,4 @@ async def test_mode_plan_invalid_json_degrades_proprely():
 async def test_reasoning_valeur_inconnue_rejetee():
     llm = FakeLlm([make_response(content=FINAL_WITH_PRICE)])
     with pytest.raises(ValueError, match="reasoning"):
-        await run_agent(
-            "question", llm, build_tools(FakeMarket()), reasoning="inconnu"
-        )
+        await run_agent("question", llm, build_tools(FakeMarket()), reasoning="inconnu")

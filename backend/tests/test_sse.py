@@ -48,7 +48,9 @@ class FakeLlm:
             ),
         ]
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         if len(self._responses) > 1:
             return self._responses.pop(0)
         return self._responses[0]
@@ -273,7 +275,9 @@ async def test_agent_run_offers_and_executes_get_portfolio(monkeypatch):
                 ),
             ]
 
-        async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+        async def chat(
+            self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+        ):
             offered = {t["function"]["name"] for t in tools or []}
             assert "get_portfolio" in offered
             if len(self._responses) > 1:

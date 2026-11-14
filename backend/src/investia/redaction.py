@@ -102,9 +102,7 @@ class PresidioRedactor:
             results = self._analyzer.analyze(text=text, language="fr")
             if not results:
                 return text
-            return self._anonymizer.anonymize(
-                text=text, analyzer_results=results
-            ).text
+            return self._anonymizer.anonymize(text=text, analyzer_results=results).text
         except Exception:
             return self._fallback.redact(text)
 

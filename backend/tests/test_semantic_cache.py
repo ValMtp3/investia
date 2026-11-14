@@ -61,7 +61,7 @@ def test_seuil_par_defaut_092():
 
 @pytest.mark.integration
 async def test_integration_lookup_store_roundtrip():
-    """Roundtrip réel sur pgvector : store puis lookup (identique -> hit, loin -> miss)."""
+    """Roundtrip réel pgvector : store puis lookup (identique -> hit, loin -> miss)."""
     from investia.db import get_session
     from investia.memory.embeddings import FakeEmbeddingsForTests
 
@@ -75,12 +75,12 @@ async def test_integration_lookup_store_roundtrip():
 
 # --- Task 2 : boucle run_agent(semantic_cache=...) ---
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # noqa: E402
 
-from investia.agent import run_agent
-from investia.llm.client import LlmResponse, ToolCall
-from investia.market.base import MarketData
-from investia.tools import build_tools
+from investia.agent import run_agent  # noqa: E402
+from investia.llm.client import LlmResponse, ToolCall  # noqa: E402
+from investia.market.base import MarketData  # noqa: E402
+from investia.tools import build_tools  # noqa: E402
 
 
 class FakeMarket:
@@ -104,7 +104,9 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def chat(self, model_key, messages, temperature=0.2, tools=None, logprobs=False):
+    async def chat(
+        self, model_key, messages, temperature=0.2, tools=None, logprobs=False
+    ):
         self.calls.append({"model": model_key})
         if len(self._responses) > 1:
             return self._responses.pop(0)
@@ -154,7 +156,11 @@ def make_response(content="", tool_calls=None, cost=0.01):
 def llm_ok():
     return FakeLlm(
         [
-            make_response(tool_calls=[ToolCall(id="c1", name="get_quote", arguments={"symbol": "AAPL"})]),
+            make_response(
+                tool_calls=[
+                    ToolCall(id="c1", name="get_quote", arguments={"symbol": "AAPL"})
+                ]
+            ),
             make_response(content=FINAL_OK),
         ]
     )
@@ -162,7 +168,13 @@ def llm_ok():
 
 async def test_cache_hit_renvoie_sans_appel_llm():
     cache = FakeSemanticCache()
-    cache.entries.append(("prix de AAPL ?", "RÉPONSE CACHÉE", (await FakeEmbeddings().embed(["prix de AAPL ?"]))[0]))
+    cache.entries.append(
+        (
+            "prix de AAPL ?",
+            "RÉPONSE CACHÉE",
+            (await FakeEmbeddings().embed(["prix de AAPL ?"]))[0],
+        )
+    )
     llm = llm_ok()
     events = []
 
@@ -170,7 +182,11 @@ async def test_cache_hit_renvoie_sans_appel_llm():
         events.append(kind)
 
     result = await run_agent(
-        "prix de AAPL ?", llm, build_tools(FakeMarket()), semantic_cache=cache, event_sink=sink
+        "prix de AAPL ?",
+        llm,
+        build_tools(FakeMarket()),
+        semantic_cache=cache,
+        event_sink=sink,
     )
     assert result.answer == "RÉPONSE CACHÉE"
     assert result.turns == 0
@@ -204,7 +220,11 @@ async def test_pas_de_store_si_bloque():
     cache = FakeSemanticCache()
     llm = FakeLlm(
         [
-            make_response(tool_calls=[ToolCall(id="c1", name="get_quote", arguments={"symbol": "AAPL"})]),
+            make_response(
+                tool_calls=[
+                    ToolCall(id="c1", name="get_quote", arguments={"symbol": "AAPL"})
+                ]
+            ),
             make_response(content=FINAL_SANS_DISCLAIMER),
         ]
     )
@@ -242,7 +262,6 @@ async def test_sans_cache_rien_ne_change():
 
 
 async def test_k3_lookup_store_une_seule_fois():
-    cache = FakeSemanticCache()
     lookups = []
     stores = []
 
