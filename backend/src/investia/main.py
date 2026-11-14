@@ -47,6 +47,9 @@ class AgentRunBody(BaseModel):
 
 class ApprovalBody(BaseModel):
     decision: Literal["approved", "refused"]
+    # 13d : hash du payload affiché au moment de l'approbation (optionnel,
+    # rétrocompatible) ; incohérent avec la demande en attente → 409.
+    payload_hash: str | None = None
 
 
 MARKET_STREAM_INTERVAL = 5.0
@@ -340,10 +343,14 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"aucune approbation en attente pour {run_id}"
             )
-        decided = await approval_registry.decide(key, body.decision)
+        decided = await approval_registry.decide(key, body.decision, body.payload_hash)
         if not decided:
             raise HTTPException(
-                status_code=409, detail=f"décision déjà enregistrée pour {run_id}"
+                status_code=409,
+                detail=(
+                    "décision déjà enregistrée ou payload_hash incohérent "
+                    f"pour {run_id}"
+                ),
             )
         return {"status": "ok", "run_id": key, "decision": body.decision}
 

@@ -8,9 +8,12 @@ bloqués (best effort, patch de socket/subprocess/os.system), timeout avec kill 
 groupe de processus. Sans isolation noyau (macOS) : documenté dans la spec 12g.
 """
 
+import ast
 import asyncio
 import os
+import platform
 import re
+import shutil
 import signal
 import sys
 import tempfile
@@ -48,6 +51,149 @@ def _redact(text: str, secrets: list[str]) -> str:
     for secret in secrets:
         text = text.replace(secret, REDACTED)
     return text
+
+
+# ------------------------------------------------- 13c : pre-check + couche OS
+
+# 13c : pre-check statique. Le preamble patch déjà socket/subprocess/os.system
+# en runtime (testé), donc un `import socket` simple passe — mais ctypes/libc
+# contourne tout, et `from socket import X` contourne le patch du module.
+HARD_BLOCKED_MODULES = frozenset({"ctypes", "multiprocessing", "importlib", "pty"})
+# Le `from X import ...` bypass le patch d'attributs du preamble : toujours bloqué.
+FROM_IMPORT_BLOCKED_MODULES = HARD_BLOCKED_MODULES | {"socket", "subprocess"}
+DANGEROUS_CALLS = frozenset({"eval", "exec", "compile", "__import__"})
+# os.system/os.popen sont patchés par le preamble (laissés passer, testés) ;
+# les exec*/spawn* remplacent le process et contournent le preamble : bloqués.
+DANGEROUS_OS_ATTRS = frozenset(
+    {
+        "execv",
+        "execvp",
+        "execl",
+        "execle",
+        "execlp",
+        "execlpe",
+        "spawnv",
+        "spawnve",
+        "spawnl",
+        "spawnle",
+    }
+)
+
+BACKEND_ENV = "INVESTIA_SANDBOX_BACKEND"
+VALID_BACKENDS = frozenset({"nsjail", "seatbelt", "subprocess"})
+
+
+def static_precheck(code: str) -> list[str]:
+    """Analyse AST stdlib du code utilisateur : retourne la liste des problèmes.
+
+    Liste non vide = le code ne doit PAS être exécuté. Zéro dépendance.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        # Laisse l'interpréteur rapporter la SyntaxError (comportement 12g).
+        return []
+    issues: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in HARD_BLOCKED_MODULES:
+                    issues.append(f"import interdit : {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in FROM_IMPORT_BLOCKED_MODULES:
+                issues.append(f"import interdit : from {node.module} import ...")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in DANGEROUS_CALLS:
+                issues.append(f"appel interdit : {func.id}()")
+            elif (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "os"
+                and func.attr in DANGEROUS_OS_ATTRS
+            ):
+                issues.append(f"appel interdit : os.{func.attr}()")
+    return issues
+
+
+def detect_os_backend() -> str:
+    """Backend d'isolation OS : env INVESTIA_SANDBOX_BACKEND, défaut auto.
+
+    auto = nsjail si dispo (Linux), sandbox-exec/Seatbelt si dispo (macOS),
+    sinon repli sur le sous-processus seul.
+    """
+    choice = os.environ.get(BACKEND_ENV, "auto")
+    if choice != "auto":
+        if choice not in VALID_BACKENDS:
+            raise ValueError(
+                f"{BACKEND_ENV} inconnu : {choice!r} "
+                f"(attendu : auto | {' | '.join(sorted(VALID_BACKENDS))})"
+            )
+        return choice
+    if platform.system() == "Linux" and shutil.which("nsjail"):
+        return "nsjail"
+    if platform.system() == "Darwin" and shutil.which("sandbox-exec"):
+        return "seatbelt"
+    return "subprocess"
+
+
+def _seatbelt_profile(workdir: str) -> str:
+    """Profil Seatbelt : deny default, lecture FS libre, écriture tmpdir seul.
+
+    realpath : sur macOS /tmp et /var sont des symlinks vers /private/..., et
+    Seatbelt compare les chemins résolus.
+    """
+    real = os.path.realpath(workdir)
+    return (
+        "(version 1)\n"
+        "(deny default)\n"
+        "(allow file-read*)\n"
+        f'(allow file-write* (subpath "{real}"))\n'
+        "(allow process-exec)\n"
+        "(allow process-fork)\n"
+        "(allow sysctl-read)\n"
+        "(allow mach-lookup)\n"
+        "(allow signal (target self))\n"
+    )
+
+
+def os_wrap_command(cmd: list[str], workdir: str) -> list[str]:
+    """Enveloppe la commande python d'une couche OS (nsjail / Seatbelt).
+
+    nsjail clone par défaut de nouveaux namespaces (user, net isolé loopback
+    uniquement, pid, mount) + rlimits par process. Seatbelt applique le profil
+    deny-default. Sans binaire disponible : commande inchangée (repli).
+    """
+    backend = detect_os_backend()
+    if backend == "nsjail":
+        return [
+            "nsjail",
+            "--mode",
+            "once",
+            "--quiet",
+            "--chroot",
+            "/",
+            "--cwd",
+            workdir,
+            "--rlimit_cpu",
+            str(DEFAULT_CPU_SECONDS),
+            "--rlimit_as",
+            str(DEFAULT_MEMORY_BYTES),
+            "--rlimit_nofile",
+            str(DEFAULT_MAX_OPEN_FILES),
+            "--rlimit_fsize",
+            str(DEFAULT_MAX_FILE_BYTES),
+            "--",
+            *cmd,
+        ]
+    if backend == "seatbelt":
+        profile_path = os.path.join(workdir, "seatbelt.sb")
+        with open(profile_path, "w", encoding="utf-8") as handle:
+            handle.write(_seatbelt_profile(workdir))
+        return ["sandbox-exec", "-f", profile_path, "--", *cmd]
+    return cmd
 
 
 class PythonSandbox(Protocol):
@@ -110,6 +256,18 @@ class SubprocessPythonSandbox:
                 "run_python",
                 f"code trop long ({len(code)} > {self._max_code_chars} car.)",
             )
+        # 13c : pre-check statique — un code dangereux n'est jamais exécuté.
+        backend = detect_os_backend()
+        issues = static_precheck(code)
+        if issues:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": "bloqué par le pre-check statique : " + "; ".join(issues),
+                "truncated": False,
+                "precheck": issues,
+                "backend": backend,
+            }
         program = self._preamble() + "\n" + code
         with tempfile.TemporaryDirectory(prefix="investia-sandbox-") as tmpdir:
             env = {
@@ -118,11 +276,9 @@ class SubprocessPythonSandbox:
                 "HOME": tmpdir,
                 "TMPDIR": tmpdir,
             }
+            command = os_wrap_command([sys.executable, "-I", "-c", program], tmpdir)
             proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-I",
-                "-c",
-                program,
+                *command,
                 cwd=tmpdir,
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
@@ -153,6 +309,7 @@ class SubprocessPythonSandbox:
             "stdout": out[: self._max_output_chars],
             "stderr": err[: self._max_output_chars],
             "truncated": truncated,
+            "backend": backend,
         }
 
 

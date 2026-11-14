@@ -76,6 +76,7 @@ class BraveWebSearcher:
 
 class WebSearchTool(BaseTool[WebSearchArgs]):
     name = "web_search"
+    untrusted_output = True  # contenu web externe : scanné anti-injection (13b)
     description = (
         "Recherche web générale (actualités, communiqués, sites officiels). "
         "Entrée : query (1-300 car.), limit (1-10 résultats). "

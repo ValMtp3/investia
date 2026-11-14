@@ -14,6 +14,7 @@ class NewsArgs(SymbolArgs):
 
 class GetNewsTool(BaseTool[NewsArgs]):
     name = "get_news"
+    untrusted_output = True  # contenu actus externe : scanné anti-injection (13b)
     description = (
         "Actualités récentes sur un actif US (ex. AAPL). "
         "Pas de news gratuites pour l'Europe pour l'instant."

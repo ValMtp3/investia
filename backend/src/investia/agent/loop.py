@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 from pydantic import ValidationError
 
-from investia.agent.approval import ApprovalRegistry
+from investia.agent.approval import ApprovalRegistry, payload_hash_for
 from investia.agent.reasoning import (
     Plan,
     ReflectionDecision,
@@ -20,6 +20,12 @@ from investia.agent.reasoning import (
     vote,
 )
 from investia.guardrails import run_all_checks
+from investia.guardrails.injection import (
+    BLOCKED_MESSAGE,
+    InjectionScanner,
+    default_injection_scanner,
+    wrap_untrusted,
+)
 from investia.guardrails.llm_check import check_safety_llm, check_safety_logprobs
 from investia.llm.client import LlmResponse
 from investia.llm.router import choose
@@ -78,6 +84,7 @@ class AgentResult:
     )  # étape 12c : les k réponses candidates
     router_source: str = "rules"  # étape 12h : explicit | learned | rules
     model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
+    injections_blocked: int = 0  # étape 13b : sorties d'outils externes bloquées
 
 
 DEFAULT_MAX_TURNS = 8
@@ -117,6 +124,8 @@ async def _run_once(
     decision_client: Any | None = None,
     logprobs_guardrail: bool = False,
     router_source: str = "rules",
+    injection_scanner: InjectionScanner | None = None,
+    injection_policy: str = "block",
 ) -> AgentResult:
     """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c)."""
     from investia.agent.prompts import SYSTEM_PROMPT
@@ -157,6 +166,17 @@ async def _run_once(
     log: list[ToolCallLog] = []
     guardrails: list[GuardrailDecision] = []
     corrections = 0
+    # Étape 13b : scan anti-injection des sorties d'outils externes.
+    if injection_policy not in {"block", "warn"}:
+        raise ValueError(
+            f"injection_policy inconnu : {injection_policy!r} "
+            "(attendu : 'block' ou 'warn')"
+        )
+    if injection_scanner is not None:
+        scanner = injection_scanner
+    else:
+        scanner = default_injection_scanner()
+    injections_blocked = 0
 
     for turn in range(1, max_turns + 1):
         async with start_chat_span(model=model_key, model_key=model_key) as span_attrs:
@@ -226,6 +246,35 @@ async def _run_once(
                     )
                 else:
                     result_text = await _execute_tool(tools, call.name, call.arguments)
+                # 13b : sortie d'outil externe → scan injection + délimitation.
+                tool = tools.get(call.name)
+                if tool is not None and getattr(tool, "untrusted_output", False):
+                    scan = scanner.scan(result_text)
+                    if scan.verdict == "blocked" and injection_policy == "block":
+                        injections_blocked += 1
+                        await emit(
+                            "injection",
+                            {
+                                "turn": turn,
+                                "tool": call.name,
+                                "verdict": scan.verdict,
+                                "detail": scan.detail,
+                            },
+                        )
+                        if store is not None and run_id is not None:
+                            await store.log_step(
+                                run_id,
+                                turn,
+                                "injection",
+                                {
+                                    "tool": call.name,
+                                    "verdict": scan.verdict,
+                                    "detail": scan.detail,
+                                },
+                            )
+                        result_text = BLOCKED_MESSAGE
+                    else:
+                        result_text = wrap_untrusted(result_text)
                 entry = ToolCallLog(
                     tool=call.name,
                     arguments=call.arguments,
@@ -344,6 +393,7 @@ async def _run_once(
                 status="ok",
                 router_source=router_source,
                 model_key=model_key,
+                injections_blocked=injections_blocked,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -436,6 +486,7 @@ async def _run_once(
         status="max_turns",
         router_source=router_source,
         model_key=model_key,
+        injections_blocked=injections_blocked,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -477,6 +528,8 @@ async def run_agent(
     logprobs_guardrail: bool = False,
     semantic_cache: Any | None = None,
     router: Any | None = None,
+    injection_scanner: InjectionScanner | None = None,
+    injection_policy: str = "block",
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
 
@@ -494,6 +547,11 @@ async def run_agent(
         raise ValueError(
             "consistency_k > 1 non combinable avec approval_registry "
             "(validation humaine)"
+        )
+    if injection_policy not in {"block", "warn"}:
+        raise ValueError(
+            f"injection_policy inconnu : {injection_policy!r} "
+            "(attendu : 'block' ou 'warn')"
         )
     if model_key is not None:
         resolved_model = model_key
@@ -564,6 +622,8 @@ async def run_agent(
             decision_client=decision_client,
             logprobs_guardrail=logprobs_guardrail,
             router_source=router_source,
+            injection_scanner=injection_scanner,
+            injection_policy=injection_policy,
         )
         if result.status == "ok":
             await store_cache(result.answer)
@@ -589,6 +649,8 @@ async def run_agent(
             decision_client=decision_client,
             logprobs_guardrail=logprobs_guardrail,
             router_source=router_source,
+            injection_scanner=injection_scanner,
+            injection_policy=injection_policy,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))
@@ -663,25 +725,33 @@ async def _request_approval(
         msg = error.errors()[0]["msg"]
         return f"erreur: arguments invalides pour simulate_order — {msg}"
     symbol = args.symbol.strip().upper()
+    # 13d : l'approbation est liée au hash exact du payload affiché.
+    payload_hash = payload_hash_for(symbol, args.side, args.quantity)
     request = {
         "run_id": run_id,
         "turn": turn,
         "symbol": symbol,
         "side": args.side,
         "quantity": args.quantity,
+        "payload_hash": payload_hash,
     }
     await emit("approval_request", request)
     if store is not None:
         await store.log_step(
             run_id, turn, "approval_request", {**request, "status": "pending"}
         )
-    registry.open(run_id)
+    registry.open(run_id, payload_hash=payload_hash)
     try:
         decision = await registry.wait(run_id, timeout)
     finally:
         registry.close(run_id)
     if store is not None:
-        await store.log_step(run_id, turn, "approval", {"decision": decision})
+        await store.log_step(
+            run_id,
+            turn,
+            "approval",
+            {"decision": decision, "payload_hash": payload_hash},
+        )
     await emit(
         "approval",
         {
@@ -690,9 +760,16 @@ async def _request_approval(
             "symbol": symbol,
             "side": args.side,
             "quantity": args.quantity,
+            "payload_hash": payload_hash,
         },
     )
     if decision == "approved":
+        # 13d : re-vérification du hash avant exécution (anti replan-after-yes).
+        approved = getattr(registry, "approved_hash", lambda _rid: None)(run_id)
+        if approved is not None and approved != payload_hash:
+            return (
+                "ordre refusé (payload modifié après approbation) — aucun ordre exécuté"
+            )
         return await _execute_tool(tools, call.name, call.arguments)
     if decision == "timeout":
         return (

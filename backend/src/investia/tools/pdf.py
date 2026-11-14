@@ -125,6 +125,7 @@ class NutrientPdfReader:
 
 class ReadPdfTool(BaseTool[ReadPdfArgs]):
     name = "read_pdf"
+    untrusted_output = True  # contenu PDF externe : scanné anti-injection (13b)
     description = (
         "Extrait le texte brut d'un PDF distant (rapport annuel, document officiel). "
         "Entrée : url (http/https), max_pages (1-20, défaut 5). "

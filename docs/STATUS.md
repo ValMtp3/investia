@@ -1,6 +1,6 @@
 # STATUS — où en est le projet
 
-> **Mis à jour le : 08/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
+> **Mis à jour le : 14/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
 
 ## Étape en cours
 
@@ -79,6 +79,18 @@ Avancement étape 1 : 1.1 ✅ connecteurs + cache · 1.2 ✅ outils agent · **1
 Avancement étape 1 : **1.1 terminée le 31/10/2026** — connecteurs Finnhub (US temps réel) / Yahoo (Europe) / CoinGecko (crypto) / Frankfurter (taux), cache Redis TTL, routeur par symbole, 53 tests verts (91 % couverture) + test live Finnhub réel. D36 ✅ (Finnhub gratuit = US only, Europe via Yahoo, P8).
 
 Environnement de test local : PostgreSQL 17.11 (brew, port 5433), Redis 8.10 (brew, port 6380) pour les tests `@pytest.mark.integration` ; Docker via OrbStack.
+
+**Étape 13a — redaction PII/secrets avant stockage des traces : TERMINÉE le 14/11/2026** (branche `feat/etape-13-securite`, spec `docs/specs/13a-redaction-traces.md`) : nouveau module `redaction.py` (`Redactor`, `RegexRedactor` stdlib env+patterns, `PresidioRedactor` lazy avec repli regex, `ChainRedactor`, `redact_value` récursif) ; `DbTraceStore(..., redactor=None)` redacte question/payload/réponse avant INSERT (rétrocompatible, redactor par défaut actif) ; deps ajoutées (validées) : `presidio-analyzer`/`presidio-anonymizer` 2.2.366. 10 tests `test_redaction.py` ; suite non-integration 448 passed / 1 skip (macOS) ; ruff/ty propres sur les fichiers touchés. ⚠️ 55 erreurs ruff E501/F pré-existantes sur la branche (fichiers non touchés) — à vérifier vs CI. Suite chantier 13 : 13b injection indirecte, 13c sandbox OS, 13d HITL hash.
+
+**Étape 13b — scan d'injection indirecte sur sorties d'outils externes : TERMINÉE le 14/11/2026** (branche `feat/etape-13-securite`, spec `docs/specs/13b-injection-indirecte.md`) : `guardrails/injection.py` (`RegexInjectionScanner` stdlib EN/FR, `OnnxInjectionScanner` lazy ONNX via `INJECTION_GUARD_MODEL_PATH` avec repli regex, `wrap_untrusted`) ; flag `untrusted_output=True` sur `web_search`/`read_pdf`/`get_news` ; `run_agent(..., injection_scanner=None, injection_policy="block")` — verdict blocked → contenu remplacé par `BLOCKED_MESSAGE` + event/step `injection` + `AgentResult.injections_blocked`, sinon délimitation systématique ; règle ajoutée au system prompt ; dep ajoutée (validée) : `onnxruntime` 1.32.0. 11 tests `test_injection.py` ; suite non-integration 459 passed / 1 skip ; ruff/ty/format propres sur les fichiers touchés. Suite chantier 13 : 13c sandbox OS, 13d HITL hash.
+
+**Étape 13c — couche OS sous run_python + pre-check statique : TERMINÉE le 14/11/2026** (branche `feat/etape-13-securite`, spec `docs/specs/13c-sandbox-os.md`) : `static_precheck` (AST stdlib : bloque ctypes/multiprocessing/importlib/pty, `from socket|subprocess import …`, eval/exec/compile/__import__, os.exec*/spawn* → code non exécuté, `exit_code=-1` + champ `precheck`) ; `detect_os_backend`/`os_wrap_command` (`INVESTIA_SANDBOX_BACKEND=auto|nsjail|seatbelt|subprocess`, défaut auto : nsjail Linux / sandbox-exec macOS avec profil Seatbelt deny-default + realpath du tmpdir / repli subprocess) ; champ `backend` dans le résultat ; zéro dep Python. Vérifié en réel sur macOS : Seatbelt bloque le réseau au niveau OS (gaierror) et autorise l'écriture dans le tmpdir. 29 tests `test_sandbox_os.py` ; suite non-integration 488 passed / 1 skip ; ruff/ty/format propres. Suite chantier 13 : 13d HITL hash.
+
+**Étape 13d — HITL durci (hash du payload approuvé) : TERMINÉE le 14/11/2026 — chantier 13 terminé** (branche `feat/etape-13-securite`, spec `docs/specs/13d-hitl-hash.md`) : `payload_hash_for(symbol, side, quantity)` (SHA-256 canonique, symbole normalisé) dans `approval.py` ; `ApprovalRegistry.open(run_id, payload_hash=...)` / `decide(..., payload_hash=...)` (hash incohérent → False → 409) / `approved_hash()` ; `_request_approval` émet/trace le hash dans `approval_request`/`approval` et re-vérifie avant exécution (mismatch → « ordre refusé (payload modifié après approbation) ») ; `ApprovalBody.payload_hash` optionnel (rétrocompatible). 8 tests `test_approval_hash.py` ; suite non-integration 496 passed / 1 skip ; ruff/ty/format propres. ⚠️ Toujours d'actualité : 55 erreurs ruff E501/F pré-existantes sur la branche (fichiers non touchés). Chantier suivant validé : 14 (evals/observabilité).
+
+## Veille OSS (14/11/2026)
+
+Rapport consolidé de 8 sous-agents de veille (harness, mémoire, evals, garde-fous, routage, multi-agents, sandbox, frontend) : `docs/veille-oss-2026-11-14.md`. Conclusion : le cœur maison est au niveau de l'OSS en nov 2026 ; les écarts restants sont des briques transverses. Shortlist retenue par le propriétaire : sécurité de la boucle (sandbox OS, injection indirecte, redaction des traces, HITL durci), protocoles P9 (MCP 2026-07-28, A2A v1.0, AG-UI), evals/observabilité (DeepEval en complément, dataset depuis les traces), mémoire/contexte (schéma temporel pgvector, embeddings locaux, compaction).
 
 ## Bloqueurs / à vérifier maintenant
 
