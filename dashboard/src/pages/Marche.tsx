@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ErrorNotice from "../components/ErrorNotice";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
-import Loading from "../components/Loading";
+import Skeleton from "../components/Skeleton";
 import Module from "../components/Module";
 import PageHeader from "../components/PageHeader";
 import PriceChart from "../components/PriceChart";
@@ -364,7 +364,7 @@ export default function Marche() {
       </div>
       {activeSymbol !== null && (
         <Module title={activeSymbol}>
-          {history.isPending && <Loading label="Chargement de l'historique…" />}
+          {history.isPending && <Skeleton label="Chargement de l'historique…" />}
           {history.isError && <ErrorNotice>{history.error.message}</ErrorNotice>}
           {history.data && history.data.points.length === 0 && (
             <p className="text-muted">Aucun historique disponible pour ce symbole.</p>

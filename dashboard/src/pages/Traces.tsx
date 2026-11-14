@@ -7,6 +7,7 @@ import EmptyState from "../components/EmptyState";
 import ErrorNotice from "../components/ErrorNotice";
 import EvalChart, { type EvalSeries } from "../components/EvalChart";
 import Module from "../components/Module";
+import Skeleton from "../components/Skeleton";
 import PageHeader from "../components/PageHeader";
 import { evalSeriesColors } from "../lib/chartTheme";
 import { formatDateTime } from "../lib/format";
@@ -105,9 +106,7 @@ export default function Traces() {
       <div className="grid gap-3 lg:grid-cols-[22rem_1fr]">
         <Module title="Exécutions" className="min-w-0">
           {traces.isLoading && (
-            <p role="status" className="text-muted">
-              Chargement des exécutions…
-            </p>
+            <Skeleton label="Chargement des exécutions…" />
           )}
           {traces.isError && (
             <ErrorNotice>
@@ -147,9 +146,7 @@ export default function Traces() {
             <p className="text-muted">Sélectionne une exécution pour voir ses étapes.</p>
           )}
           {selectedId && detail.isLoading && (
-            <p role="status" className="text-muted">
-              Chargement de la trace…
-            </p>
+            <Skeleton label="Chargement de la trace…" />
           )}
           {selectedId && detail.isError && (
             <ErrorNotice>
@@ -234,9 +231,7 @@ export default function Traces() {
 
       <Module title="Évaluations" className="mt-3 min-w-0">
         {evals.isLoading && (
-          <p role="status" className="text-muted">
-            Chargement des évaluations…
-          </p>
+          <Skeleton label="Chargement des évaluations…" />
         )}
         {evals.isError && (
           <ErrorNotice>

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
-import Loading from "../components/Loading";
+import Skeleton from "../components/Skeleton";
 import PageHeader from "../components/PageHeader";
 import Sparkline from "../components/Sparkline";
 import Stat from "../components/Stat";
@@ -92,10 +92,11 @@ describe("EmptyState", () => {
   });
 });
 
-describe("Loading", () => {
-  it("a le rôle status et le libellé donné", () => {
-    render(<Loading label="Chargement du portefeuille…" />);
+describe("Skeleton", () => {
+  it("a le rôle status et le libellé donné (sr-only), plus des blocs pulsés", () => {
+    const { container } = render(<Skeleton label="Chargement du portefeuille…" />);
     expect(screen.getByRole("status")).toHaveTextContent("Chargement du portefeuille…");
+    expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
   });
 });
 

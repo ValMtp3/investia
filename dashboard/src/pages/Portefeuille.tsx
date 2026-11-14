@@ -11,7 +11,7 @@ import BacktestChart from "../components/BacktestChart";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
 import ErrorNotice from "../components/ErrorNotice";
-import Loading from "../components/Loading";
+import Skeleton from "../components/Skeleton";
 import Module from "../components/Module";
 import PageHeader from "../components/PageHeader";
 import Stat from "../components/Stat";
@@ -43,10 +43,10 @@ function AllocationBar({ portfolio }: { portfolio: Portfolio }) {
       <div
         role="img"
         aria-label={`Répartition du portefeuille : cash ${formatPct(cashPct)} %, positions ${formatPct(positionsPct)} %`}
-        className="flex h-3 w-full border border-rule"
+        className="flex h-3 w-full overflow-hidden rounded-[3px] border border-rule"
       >
-        <div className="bg-rule-strong" style={{ width: `${cashPct}%` }} />
-        <div className="bg-signal" style={{ width: `${positionsPct}%` }} />
+        <div className="bg-rule-strong transition-[width] duration-300" style={{ width: `${cashPct}%` }} />
+        <div className="bg-signal transition-[width] duration-300" style={{ width: `${positionsPct}%` }} />
       </div>
       <p className="mt-1 text-xs text-muted">
         Cash {formatPct(cashPct)} % · Positions {formatPct(positionsPct)} %
@@ -85,7 +85,7 @@ export default function Portefeuille() {
         title="Portefeuille simulé"
         subtitle="Argent fictif — aucun ordre réel. Valorisé au dernier prix connu, source affichée."
       />
-      {isLoading && <Loading label="Chargement du portefeuille…" />}
+      {isLoading && <Skeleton label="Chargement du portefeuille…" />}
       {isError && (
         <ErrorNotice>
           Erreur : {error instanceof Error ? error.message : "API indisponible"}
@@ -130,7 +130,7 @@ export default function Portefeuille() {
                 />
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left">
+                  <table className="zebra w-full text-left">
                     <caption className="sr-only">Positions du portefeuille</caption>
                     <thead>
                       <tr className="border-b border-rule text-xs uppercase tracking-wide text-muted">
@@ -196,7 +196,7 @@ export default function Portefeuille() {
           </div>
 
           <Module title="Backtest vs indice" className="mt-3 min-w-0">
-            {backtest.isPending && <Loading label="Calcul du backtest…" />}
+            {backtest.isPending && <Skeleton label="Calcul du backtest…" />}
             {backtest.isError && (
               <ErrorNotice>
                 Erreur :{" "}
@@ -250,7 +250,7 @@ export default function Portefeuille() {
 
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <Module title="Ordres simulés" className="min-w-0">
-              {orders.isPending && <Loading label="Chargement des ordres…" />}
+              {orders.isPending && <Skeleton label="Chargement des ordres…" />}
               {orders.isError && (
                 <ErrorNotice>
                   Erreur :{" "}
@@ -265,7 +265,7 @@ export default function Portefeuille() {
                   />
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="zebra w-full text-left">
                       <caption className="sr-only">Historique des ordres simulés</caption>
                       <thead>
                         <tr className="border-b border-rule text-xs uppercase tracking-wide text-muted">
@@ -323,7 +323,7 @@ export default function Portefeuille() {
             </Module>
 
             <Module title="Ajustements de capital" className="min-w-0">
-              {adjustments.isPending && <Loading label="Chargement des ajustements…" />}
+              {adjustments.isPending && <Skeleton label="Chargement des ajustements…" />}
               {adjustments.isError && (
                 <ErrorNotice>
                   Erreur :{" "}

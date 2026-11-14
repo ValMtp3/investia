@@ -12,7 +12,7 @@ export default function Module({ title, children, className = "" }: ModuleProps)
   return (
     <section
       aria-labelledby={headingId}
-      className={`border border-t-2 border-rule border-t-signal bg-paper ${className}`}
+      className={`animate-enter border border-t-2 border-rule border-t-signal bg-paper ${className}`}
     >
       <h2
         id={headingId}
