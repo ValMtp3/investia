@@ -54,6 +54,10 @@ class Settings(BaseSettings):
         pattern=r"^[A-Za-z0-9._/-]+$",
     )
 
+    # 16c : compaction du contexte de run_agent (0 = désactivé)
+    context_max_tokens: int | None = 100_000
+    compaction_keep_last_turns: int = Field(default=4, ge=1, le=20)
+
 
 @lru_cache
 def get_settings() -> Settings:

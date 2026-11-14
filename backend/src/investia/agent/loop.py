@@ -85,6 +85,7 @@ class AgentResult:
     router_source: str = "rules"  # étape 12h : explicit | learned | rules
     model_key: str = ""  # étape 12h : clé résolue (small/large) choisie pour ce run
     injections_blocked: int = 0  # étape 13b : sorties d'outils externes bloquées
+    compactions: int = 0  # étape 16c : compactions du contexte effectuées
 
 
 DEFAULT_MAX_TURNS = 8
@@ -126,8 +127,16 @@ async def _run_once(
     router_source: str = "rules",
     injection_scanner: InjectionScanner | None = None,
     injection_policy: str = "block",
+    context_max_tokens: int | None = None,
+    keep_last_turns: int = 4,
+    memory_store: Any | None = None,
 ) -> AgentResult:
-    """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c)."""
+    """Un run de la boucle + garde-fous (corps historique, extrait en étape 12c).
+
+    16c : context_max_tokens déclenche une compaction du contexte par tour
+    (sliding window, résumé « untrusted », memory flush via memory_store).
+    None = désactivé (comportement historique).
+    """
     from investia.agent.prompts import SYSTEM_PROMPT
 
     store = trace_store
@@ -177,8 +186,47 @@ async def _run_once(
     else:
         scanner = default_injection_scanner()
     injections_blocked = 0
+    compactions = 0
 
     for turn in range(1, max_turns + 1):
+        # 16c : compaction du contexte si le seuil est dépassé (avant l'appel LLM).
+        if context_max_tokens is not None:
+            from investia.agent.compaction import (
+                compact_messages,
+                estimate_tokens,
+                parse_memoires,
+            )
+
+            if estimate_tokens(messages) > context_max_tokens:
+                messages, compaction_meta = await compact_messages(
+                    messages,
+                    llm=llm,
+                    model_key=model_key,
+                    max_tokens=context_max_tokens,
+                    keep_last_turns=keep_last_turns,
+                )
+                if compaction_meta["compacted"]:
+                    compactions += 1
+                    total_cost += compaction_meta["cost_cents"]
+                    memoires = parse_memoires(compaction_meta["summary"])
+                    if memory_store is not None:
+                        for fait in memoires:
+                            try:
+                                await memory_store.save(fait, None)
+                            except Exception:
+                                pass  # le flush mémoire ne bloque jamais le run
+                    compaction_payload = {
+                        "turn": turn,
+                        "dropped_messages": compaction_meta["dropped_messages"],
+                        "summary_chars": len(compaction_meta["summary"]),
+                        "memoires": memoires,
+                        "cost_cents": compaction_meta["cost_cents"],
+                    }
+                    await emit("compaction", compaction_payload)
+                    if store is not None and run_id is not None:
+                        await store.log_step(
+                            run_id, turn, "compaction", compaction_payload
+                        )
         async with start_chat_span(model=model_key, model_key=model_key) as span_attrs:
             response = await llm.chat(model_key, messages, tools=tool_specs)
             span_attrs["gen_ai.usage.input_tokens"] = response.prompt_tokens
@@ -394,6 +442,7 @@ async def _run_once(
                 router_source=router_source,
                 model_key=model_key,
                 injections_blocked=injections_blocked,
+                compactions=compactions,
             )
             if store is not None and run_id is not None:
                 await store.finish_run(
@@ -447,6 +496,7 @@ async def _run_once(
             status="blocked",
             router_source=router_source,
             model_key=model_key,
+            compactions=compactions,
         )
         if store is not None and run_id is not None:
             await store.finish_run(
@@ -487,6 +537,7 @@ async def _run_once(
         router_source=router_source,
         model_key=model_key,
         injections_blocked=injections_blocked,
+        compactions=compactions,
     )
     if store is not None and run_id is not None:
         await store.finish_run(
@@ -530,8 +581,13 @@ async def run_agent(
     router: Any | None = None,
     injection_scanner: InjectionScanner | None = None,
     injection_policy: str = "block",
+    context_max_tokens: int | None = None,
+    keep_last_turns: int = 4,
+    memory_store: Any | None = None,
 ) -> AgentResult:
     """Boucle d'agent + reasoning structuré (12a/12b) + self-consistency (12c).
+
+    16c : context_max_tokens (None = off) déclenche la compaction du contexte.
 
     consistency_k > 1 : k sous-runs en parallèle (chacun tracé en base), vote
     majoritaire sur la réponse finale, event/step « consensus » dans le run
@@ -624,6 +680,9 @@ async def run_agent(
             router_source=router_source,
             injection_scanner=injection_scanner,
             injection_policy=injection_policy,
+            context_max_tokens=context_max_tokens,
+            keep_last_turns=keep_last_turns,
+            memory_store=memory_store,
         )
         if result.status == "ok":
             await store_cache(result.answer)
@@ -651,6 +710,9 @@ async def run_agent(
             router_source=router_source,
             injection_scanner=injection_scanner,
             injection_policy=injection_policy,
+            context_max_tokens=context_max_tokens,
+            keep_last_turns=keep_last_turns,
+            memory_store=memory_store,
         )
 
     results = list(await asyncio.gather(*(one(i) for i in range(consistency_k))))

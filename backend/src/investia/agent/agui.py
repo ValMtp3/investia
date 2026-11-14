@@ -30,6 +30,7 @@ CUSTOM_KINDS = frozenset(
         "reflection",
         "consensus",
         "cache_hit",
+        "compaction",
     }
 )
 

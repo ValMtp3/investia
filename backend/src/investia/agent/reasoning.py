@@ -57,7 +57,9 @@ def parse_plan(text: str, tool_names: Collection[str] | None = None) -> Plan:
             continue
         step = str(raw.get("step", "")).strip()
         tool = raw.get("tool")
-        if not isinstance(tool, str) or (tool_names is not None and tool not in tool_names):
+        if not isinstance(tool, str) or (
+            tool_names is not None and tool not in tool_names
+        ):
             tool = None
         if step:
             steps.append(PlanStep(step=step, tool=tool))

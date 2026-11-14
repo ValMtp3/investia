@@ -136,6 +136,7 @@ def create_app(
     eval_store: Any | None = None,
     approval_registry: Any | None = None,
     backtest_service: Any | None = None,
+    memory_store: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -168,6 +169,15 @@ def create_app(
         backtest_service = backtest_service or BacktestService(session, market)
         trace_store = trace_store or DbTraceStore(session)
         eval_store = eval_store or EvalStore(session)
+        if memory_store is None:
+            # 16b/16c : mémoire longue (embeddings locaux ou OpenRouter) ;
+            # indisponible -> on démarre sans, zéro régression.
+            try:
+                from investia.memory import build_memory
+
+                memory_store = build_memory(settings)[0]
+            except Exception:
+                memory_store = None
         # Spans OTel GenAI exportés vers PostgreSQL (étape 9, D38).
         init_otel(session_factory=session)
     market_service: MarketDataService = market  # non None : construit juste au-dessus
@@ -404,6 +414,9 @@ def create_app(
                     trace_store=trace_store,
                     event_sink=sink,
                     approval_registry=approval_registry,
+                    context_max_tokens=settings.context_max_tokens or None,
+                    keep_last_turns=settings.compaction_keep_last_turns,
+                    memory_store=memory_store,
                 )
             )
             try:
