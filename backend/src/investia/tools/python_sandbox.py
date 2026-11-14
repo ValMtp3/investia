@@ -81,6 +81,48 @@ DANGEROUS_OS_ATTRS = frozenset(
 
 BACKEND_ENV = "INVESTIA_SANDBOX_BACKEND"
 VALID_BACKENDS = frozenset({"nsjail", "seatbelt", "subprocess"})
+FAIL_CLOSED_ENV = "INVESTIA_SANDBOX_FAIL_CLOSED"
+
+# Binaire attendu par backend OS (pré-vérification avant chaque spawn, 17c).
+BACKEND_BINARIES = {"nsjail": "nsjail", "seatbelt": "sandbox-exec"}
+
+
+class SandboxUnavailableError(Exception):
+    """Aucun binaire d'isolation OS disponible et fail-closed actif (17c)."""
+
+
+def fail_closed_enabled() -> bool:
+    """Fail-closed par défaut : sans backend OS, on refuse d'exécuter (17c).
+
+    Leçon CVE CrewAI-2026-2287 : jamais de fallback silencieux vers un simple
+    sous-processus. Opt-out explicite pour le dev local : =0/false/no.
+    """
+    value = os.environ.get(FAIL_CLOSED_ENV, "1").strip().lower()
+    return value not in {"0", "false", "no"}
+
+
+def check_backend_available(backend: str) -> None:
+    """Pré-vérifie le binaire d'isolation avant chaque exécution (17c).
+
+    - backend nsjail/seatbelt : le binaire doit exister et être exécutable ;
+    - backend subprocess : refusé si fail-closed (sauf opt-out explicite).
+    """
+    binary = BACKEND_BINARIES.get(backend)
+    if binary is not None:
+        path = shutil.which(binary)
+        if path is None or not os.access(path, os.X_OK):
+            raise SandboxUnavailableError(
+                f"backend {backend!r} demandé mais binaire {binary!r} absent ou "
+                "non exécutable — exécution refusée (fail-closed)"
+            )
+        return
+    if backend == "subprocess" and fail_closed_enabled():
+        raise SandboxUnavailableError(
+            "aucun binaire d'isolation OS (nsjail / sandbox-exec) disponible : "
+            "exécution refusée (fail-closed, 17c). Installe nsjail (Linux) ou "
+            "utilise macOS (sandbox-exec), ou désactive explicitement avec "
+            f"{FAIL_CLOSED_ENV}=0 pour du dev local."
+        )
 
 
 def static_precheck(code: str) -> list[str]:
@@ -268,6 +310,8 @@ class SubprocessPythonSandbox:
                 "precheck": issues,
                 "backend": backend,
             }
+        # 17c : fail-closed — sans binaire d'isolation OS, aucun code n'est exécuté.
+        check_backend_available(backend)
         program = self._preamble() + "\n" + code
         with tempfile.TemporaryDirectory(prefix="investia-sandbox-") as tmpdir:
             env = {
@@ -331,6 +375,10 @@ class RunPythonTool(BaseTool[RunPythonArgs]):
             result = await self._sandbox.run_code(args.code)
         except ToolError:
             raise
+        except SandboxUnavailableError as error:
+            raise ToolError(
+                self.name, f"sandbox OS indisponible, exécution refusée : {error}"
+            ) from error
         except Exception as error:
             raise ToolError(self.name, str(error)) from error
         return {

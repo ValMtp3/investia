@@ -158,6 +158,8 @@ async def test_run_code_bloque_par_precheck_sans_executer(tmp_path, monkeypatch)
 
 async def test_run_code_ajoute_le_backend_dans_le_resultat(monkeypatch):
     monkeypatch.setenv("INVESTIA_SANDBOX_BACKEND", "subprocess")
+    # 17c : backend subprocess explicite = opt-out fail-closed (dev local)
+    monkeypatch.setenv("INVESTIA_SANDBOX_FAIL_CLOSED", "0")
     sandbox = SubprocessPythonSandbox()
     result = await sandbox.run_code("print(40 + 2)")
     assert result["backend"] == "subprocess"
