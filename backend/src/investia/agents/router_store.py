@@ -7,6 +7,7 @@ succès du run ; `neighbors` renvoie les voisins avec leur agent individuel.
 """
 
 import json
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -17,6 +18,17 @@ from investia.memory.embeddings import Embeddings
 
 def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(str(v) for v in vector) + "]"
+
+
+def stats_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """20b : mapping pur lignes SQL -> stats par agent (testable sans DB)."""
+    return {
+        str(row["agent"]): {
+            "runs": float(row["runs"]),
+            "success_rate": float(row["success_rate"]),
+        }
+        for row in rows
+    }
 
 
 class DbAgentFeedback(AgentFeedbackStore):
@@ -86,6 +98,28 @@ class DbAgentFeedback(AgentFeedbackStore):
                     )
                 )
         return neighbors
+
+    async def stats(self) -> dict[str, dict[str, float]]:
+        """20b : métriques par agent — {agent: {"runs", "success_rate"}}."""
+        async with self._session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT a.agent AS agent, "
+                            "count(*) AS runs, "
+                            "count(*) FILTER (WHERE f.success)::float / count(*) "
+                            "AS success_rate "
+                            "FROM agent_feedback f, "
+                            "jsonb_array_elements_text(f.agents::jsonb) AS a(agent) "
+                            "GROUP BY a.agent"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return stats_from_rows([dict(r) for r in rows])
 
 
 __all__ = ["DbAgentFeedback"]

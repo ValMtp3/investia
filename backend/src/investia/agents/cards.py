@@ -64,17 +64,28 @@ def verify_agent_card(
 
 
 def build_agent_card(
-    name: str, base_url: str = "", signer: CardSigner | None = None
+    name: str,
+    base_url: str = "",
+    signer: CardSigner | None = None,
+    stats: dict[str, float] | None = None,
 ) -> AgentCard:
     """Card A2A v1.0 de l'agent `name`, servie sous /api/agents/<name>/.
 
     L'interface annonce l'URL absolue du endpoint JSON-RPC (les clients A2A
     envoient leurs requêtes directement à cette URL). Si `signer` est fourni,
-    la card est signée (JWS, 15b).
+    la card est signée (JWS, 15b). 20b : si `stats` ({"runs", "success_rate"})
+    est fourni avec runs > 0, la description est enrichie des métriques de
+    l'agent (feedbacks 18a) avant signature.
     """
     base = base_url or ""
     url = f"{base}/api/agents/{name}/jsonrpc"
     description = DESCRIPTIONS[name]
+    if stats is not None and float(stats.get("runs", 0.0)) > 0:
+        runs = float(stats["runs"])
+        rate = float(stats.get("success_rate", 0.0))
+        description += (
+            f"\n\nMétriques (feedbacks 18a) : {runs:.0f} runs, {rate:.0%} de succès."
+        )
     card = AgentCard(
         name=name,
         description=description,

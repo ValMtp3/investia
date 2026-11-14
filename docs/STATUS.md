@@ -134,6 +134,8 @@ Rapport consolidé de 8 sous-agents de veille (harness, mémoire, evals, garde-f
 
 **Étape 20a — MCP 2026 : tool annotations sur les 6 outils (P9.2) : TERMINÉE le 14/11/2026** (branche `feat/etape-20a-mcp-annotations`, spec `docs/specs/20a-mcp-tool-annotations.md`) : chaque `@mcp.tool` déclare ses `ToolAnnotations` (lectures marché = readOnly/idempotent/openWorld + title FR ; `get_portfolio` = readOnly interne ; `simulate_order` = non readOnly, non idempotent, non openWorld) — métadonnées uniquement, zéro changement de comportement. **Sampling non retenu** (D87) : déprécié dans la spec 2026-07-28 (SEP-2577 → MRTR), retiré de FastMCP 4.2.0 (`Context.sample` inexistant, vérifié en local), et contre-productif (nos LLM passent déjà par LiteLLM avec plafond 17f). 1 test TDD (`tools/list` annoté). Suite non-integration **636 passed / 1 skip** ; ruff/ty/format propres.
 
+**Étape 20b — agent cards A2A enrichies de métriques (P9.1 suite) : TERMINÉE le 14/11/2026** (branche `feat/etape-20b-cards-metriques`, spec `docs/specs/20b-agent-cards-metriques.md`) : `AgentFeedbackStore.stats()` + `DbAgentFeedback.stats()` (SQL groupé sur `jsonb_array_elements_text(agents)`) → `{agent: {runs, success_rate}}` ; `build_agent_card(..., stats=None)` enrichit la description (« Métriques (feedbacks 18a) : N runs, X% de succès », omis si runs=0), signature JWS 15b appliquée après ; la route well-known reconstruit la card à chaque GET via le `card_modifier` natif du SDK (ETag/304 conservés), erreur avalée → card statique ; câblé dans `main.py` quand le routeur 18a est actif. 8 tests (cards, route, mapping, 1 integration pgvector). Suite non-integration **644 passed / 1 skip** ; ruff/ty/format propres.
+
 ## Bloqueurs / à vérifier maintenant
 
 | # | Quoi | Pourquoi | Statut |
