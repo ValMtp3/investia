@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Agent from "../pages/Agent";
-import { jsonResponse, newTestQueryClient } from "./fakeBackend";
+import { historyBody, jsonResponse, newTestQueryClient } from "./fakeBackend";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -131,6 +131,17 @@ function stubAgentFetch(opts: AgentFetchOpts = {}) {
         ? jsonResponse({ status: "ok", decision: JSON.parse(String(init?.body)).decision })
         : jsonResponse({ detail: "approbation indisponible" }, approvalStatus);
     }
+    if (url.pathname === "/market/history") {
+      // 21b : HistoryChart (generative UI) fetch l'historique du symbole
+      const symbol = url.searchParams.get("symbol") ?? "";
+      return jsonResponse(
+        historyBody(symbol, "mock", "EUR", [
+          { time: "2026-10-01", value: 100 },
+          { time: "2026-10-02", value: 101 },
+          { time: "2026-10-03", value: 99 },
+        ]),
+      );
+    }
     return { ok: status < 400, status, body: sse };
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -173,6 +184,30 @@ describe("Page Agent — protocole AG-UI 21a (état partagé)", () => {
     const steps = screen.getByLabelText(/étapes de l'agent/i);
     expect(steps).toHaveTextContent(/Outil get_quote/);
     expect(await screen.findByText("AAPL vaut 344.63 $")).toBeInTheDocument();
+  });
+});
+
+describe("Page Agent — generative UI 21b (ui_component)", () => {
+  it("rend le composant whitelisté dans la bulle et ignore un composant inconnu", async () => {
+    const agui = [
+      'data: {"type":"RUN_STARTED","thread_id":"r9","run_id":"r9","input":{"messages":[{"role":"user","content":"historique AAPL","id":"m1"}]}}\n\n',
+      'data: {"type":"TOOL_CALL_START","tool_call_id":"c9","tool_call_name":"get_history"}\n\n',
+      'data: {"type":"TOOL_CALL_ARGS","tool_call_id":"c9","delta":"{\"symbol\":\"AAPL\",\"days\":30}"}\n\n',
+      'data: {"type":"CUSTOM","name":"ui_component","value":{"component":"HistoryChart","props":{"symbol":"AAPL","days":30}}}\n\n',
+      'data: {"type":"CUSTOM","name":"ui_component","value":{"component":"WidgetInconnu","props":{}}}\n\n',
+      'data: {"type":"TEXT_MESSAGE_CONTENT","message_id":"msg9","delta":"Voici l historique."}\n\n',
+      'data: {"type":"TEXT_MESSAGE_END","message_id":"msg9"}\n\n',
+      'data: {"type":"RUN_FINISHED","thread_id":"r9","run_id":"r9","result":{"status":"ok","turns":2,"cost_cents":0.01}}\n\n',
+    ].join("");
+    stubAgentFetch({ sse: [agui] });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "historique AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+    // composant whitelisté rendu (avec son aria-label)
+    expect(await screen.findByLabelText(/composant HistoryChart/i)).toBeInTheDocument();
+    // composant inconnu : ignoré, pas de crash
+    expect(screen.queryByLabelText(/WidgetInconnu/i)).toBeNull();
+    expect(await screen.findByText("Voici l historique.")).toBeInTheDocument();
   });
 });
 

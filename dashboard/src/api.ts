@@ -290,6 +290,10 @@ export type AgentEvent =
         agents: string[];
         steps: { kind: string; summary: string }[];
       };
+    }
+  | {
+      kind: "ui_component"; // 21b : generative UI (CustomEvent AG-UI ui_component)
+      payload: { component: string; props: Record<string, unknown> };
     };
 
 /** 21a : état partagé du run reçu via StateSnapshotEvent (AG-UI). */
@@ -360,7 +364,12 @@ function makeAguiAdapter(onEvent: (event: AgentEvent) => void): (kind: string, d
         onEvent({ kind: "state_snapshot", payload: evt.snapshot });
         break;
       case "CUSTOM":
-        onEvent({ kind: String(evt.name ?? "custom"), payload: evt.value } as AgentEvent);
+        if (evt.name === "ui_component") {
+          // 21b : generative UI — le registre whitelist côté Agent.tsx filtre
+          onEvent({ kind: "ui_component", payload: evt.value });
+        } else {
+          onEvent({ kind: String(evt.name ?? "custom"), payload: evt.value } as AgentEvent);
+        }
         break;
       default:
         onEvent({ kind: String(evt.type ?? "custom"), payload: evt } as AgentEvent);
