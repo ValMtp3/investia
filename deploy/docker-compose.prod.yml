@@ -44,7 +44,7 @@ services:
   # Sauvegarde quotidienne des bases (D52) : sur le VPS seulement, dans le volume `backups`.
   # Même image que PostgreSQL pour avoir un `pg_dump` de la même version (17).
   backup:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:0.8.7-pg17
     restart: unless-stopped
     depends_on:
       postgres:

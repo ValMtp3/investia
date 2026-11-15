@@ -4,7 +4,7 @@ name: investia
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:0.8.7-pg17
     networks:
       default:
         # Nom unique : Authelia atteint ce postgres par cet alias sur le réseau interne

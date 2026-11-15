@@ -8,9 +8,12 @@ Rien de ceci ne tourne en CI ni en local. Cocher au fur et à mesure.
 - [ ] `bash ~/investia/deploy/update.sh` à jour (main = `b073a61`, chantier 22a mergé)
 - [ ] `alembic upgrade head` OK (head attendu : `0010_agent_feedback`)
 
-## 1. Sécurité — bump LiteLLM (décision D-review chantier 17)
+## 1. Sécurité — LiteLLM (backdoors 2026, veille 15/11 D94/D95)
 
-- [ ] ⚠️ Image gateway `litellm:v1.106.5` < v1.109.1 (backdoor CVE-2026-33634, au CISA KEV) : bump dans `deploy/docker-compose.yml` vers ≥ v1.109.1 (dernière stable connue : v1.109.x+), puis `update.sh`, puis vérifier `GET /health` du gateway + un run chat simple.
+- [x] Bump version : image gateway déjà `ghcr.io/berriai/litellm:v1.109.1` (backport sécu #51254) dans `deploy/docker-compose.yml` — verrouillé par test (23a), plus de tag flottant
+- [ ] ⚠️ Backdoors 2026 à ne JAMAIS tirer : `1.82.7`/`1.82.8` (TeamPCP, mars) et `1.107.0` (21/10, MAL-2026-2144) — si l'une d'elles a tourné sur le VPS : **rotation de toutes les clés providers**
+- [ ] Pin par **digest** + vérification **cosign** (owner, hors CI) : `cosign verify --key cosign.pub ghcr.io/berriai/litellm:v1.109.1` puis `image: ...@sha256:<digest>` dans le compose prod
+- [ ] Après `update.sh` : vérifier `GET /health` du gateway + un run chat simple ; `internal_user_viewer` désactivé (GHSA-g5ff-637f-6q2m, lecture `/proc/self/environ` → master key)
 
 ## 2. Étape 11 — rôles PostgreSQL applicatifs (D68, one-shot)
 

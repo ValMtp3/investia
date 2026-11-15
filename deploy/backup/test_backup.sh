@@ -4,7 +4,7 @@
 # Usage : cd deploy && bash backup/test_backup.sh   (nécessite Docker)
 set -u
 
-IMAGE="pgvector/pgvector:pg17"
+IMAGE="pgvector/pgvector:0.8.7-pg17"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUFFIX="$$"
 NET="bktest-net-$SUFFIX"
