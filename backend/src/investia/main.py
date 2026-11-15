@@ -434,7 +434,7 @@ def create_app(
     @app.post("/agent/run")
     async def agent_run(
         body: AgentRunBody,
-        protocol: Literal["legacy", "agui"] = "legacy",
+        protocol: Literal["legacy", "agui", "a2ui"] = "legacy",
     ) -> Any:
         """Stream SSE de la boucle : start/llm_call/tool_call/guardrail/answer/done
         (+ approval_request/approval pour la validation humaine, D57).
@@ -446,6 +446,7 @@ def create_app(
         from fastapi.responses import StreamingResponse
 
         from investia.agent import run_agent
+        from investia.agent.a2ui import A2UIState, format_a2ui_sse
         from investia.agent.agui import RunStateAccumulator, format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
@@ -455,6 +456,8 @@ def create_app(
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         # 21a : état partagé — en mode agui, un StateSnapshotEvent après chaque event
         state_acc = RunStateAccumulator() if protocol == "agui" else None
+        # 23c : surfaces A2UI actives — en mode a2ui, nettoyées au prochain start
+        a2ui_state = A2UIState() if protocol == "a2ui" else None
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
@@ -463,6 +466,8 @@ def create_app(
             if protocol == "agui":
                 state_event = state_acc.event(kind, payload) if state_acc else None
                 return format_agui_sse(kind, payload, state_event=state_event)
+            if protocol == "a2ui":
+                return format_a2ui_sse(kind, payload, state=a2ui_state)
             return format_sse(kind, payload)
 
         async def generate():
@@ -555,16 +560,18 @@ def create_app(
     @app.post("/api/agents/run")
     async def agents_run(
         body: AgentRunBody,
-        protocol: Literal["legacy", "agui"] = "legacy",
+        protocol: Literal["legacy", "agui", "a2ui"] = "legacy",
     ) -> Any:
         """Stream SSE du mode multi-agents A2A (6.1) : start/a2a_delegate/.../done.
 
         protocol=agui (21a) : blocs AG-UI + StateSnapshotEvent (état partagé).
+        protocol=a2ui (23c) : blocs `data: {...}` au format A2UI 1.0.
         """
         import asyncio
 
         from fastapi.responses import StreamingResponse
 
+        from investia.agent.a2ui import A2UIState, format_a2ui_sse
         from investia.agent.agui import RunStateAccumulator, format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.agents import run_multi_agent
@@ -573,6 +580,7 @@ def create_app(
 
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         state_acc = RunStateAccumulator() if protocol == "agui" else None
+        a2ui_state = A2UIState() if protocol == "a2ui" else None
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
@@ -581,6 +589,8 @@ def create_app(
             if protocol == "agui":
                 state_event = state_acc.event(kind, payload) if state_acc else None
                 return format_agui_sse(kind, payload, state_event=state_event)
+            if protocol == "a2ui":
+                return format_a2ui_sse(kind, payload, state=a2ui_state)
             return format_sse(kind, payload)
 
         async def generate():
