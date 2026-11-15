@@ -290,3 +290,165 @@ async def test_k3_lookup_store_une_seule_fois():
     assert result.consensus == 1.0
     assert lookups == ["prix de AAPL ?"]  # une seule fois, pas 3
     assert stores == ["prix de AAPL ?"]  # idem
+
+
+# --- 23g : namespace + error budget + plancher de seuil (CVE-2026-89032) ------
+
+
+class FlakyCache:
+    """Cache inner qui échoue tant que `fail` > 0 (pour tester l'error budget)."""
+
+    def __init__(self, fail: int = 0):
+        self.fail = fail
+        self.lookups = 0
+        self.stores = 0
+
+    async def lookup(self, question: str) -> str | None:
+        self.lookups += 1
+        if self.fail > 0:
+            self.fail -= 1
+            raise RuntimeError("cache indisponible")
+        return "réponse en cache"
+
+    async def store(self, question: str, answer: str) -> None:
+        self.stores += 1
+        if self.fail > 0:
+            self.fail -= 1
+            raise RuntimeError("cache indisponible")
+
+
+async def test_budgeted_cache_degrade_apres_budget_erreurs_consecutives():
+    from investia.agent.semantic_cache import BudgetedSemanticCache
+
+    inner = FlakyCache(fail=5)
+    cache = BudgetedSemanticCache(inner, error_budget=5)
+    # 5 erreurs consécutives -> fail-open (None) puis mode dégradé
+    for _ in range(5):
+        assert await cache.lookup("q") is None
+    stats = cache.stats()
+    assert stats["errors"] == 5
+    assert stats["degraded"] is True
+    # en mode dégradé, on n'appelle plus le inner (fail-open, zéro coût)
+    assert await cache.lookup("q") is None
+    assert inner.lookups == 5
+    await cache.store("q", "a")
+    assert inner.stores == 0
+
+
+async def test_budgeted_cache_recupere_apres_un_succes():
+    from investia.agent.semantic_cache import BudgetedSemanticCache
+
+    inner = FlakyCache(fail=3)
+    cache = BudgetedSemanticCache(inner, error_budget=5)
+    for _ in range(3):
+        assert await cache.lookup("q") is None
+    assert cache.stats()["degraded"] is False  # sous le budget
+    assert await cache.lookup("q") == "réponse en cache"  # succès -> reset
+    assert cache.stats() == {
+        "lookups": 4,
+        "hits": 1,
+        "errors": 3,
+        "degraded": False,
+    }
+
+
+async def test_budgeted_cache_store_delegue_et_compte():
+    from investia.agent.semantic_cache import BudgetedSemanticCache
+
+    inner = FlakyCache(fail=0)
+    cache = BudgetedSemanticCache(inner, error_budget=5)
+    await cache.store("q", "a")
+    assert inner.stores == 1
+    assert cache.stats()["hits"] == 0  # store ne compte pas un hit
+
+
+def test_config_seuil_plancher_0_9(monkeypatch):
+    from pydantic import ValidationError
+
+    from investia.config import Settings
+
+    for var in ("DATABASE_URL", "REDIS_URL", "LITELLM_BASE_URL", "LITELLM_MASTER_KEY"):
+        monkeypatch.setenv(var, "x")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-admin-secret-0123456789abcdef")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, semantic_cache_threshold=0.5)  # < 0,9 interdit
+    ok = Settings(_env_file=None, semantic_cache_threshold=0.95)
+    assert ok.semantic_cache_threshold == 0.95
+    assert ok.semantic_cache_namespace == "default"
+
+
+def test_config_namespace_pattern(monkeypatch):
+    from pydantic import ValidationError
+
+    from investia.config import Settings
+
+    for var in ("DATABASE_URL", "REDIS_URL", "LITELLM_BASE_URL", "LITELLM_MASTER_KEY"):
+        monkeypatch.setenv(var, "x")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-admin-secret-0123456789abcdef")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, semantic_cache_namespace="mauvais ns!")
+    ok = Settings(_env_file=None, semantic_cache_namespace="user-42")
+    assert ok.semantic_cache_namespace == "user-42"
+
+
+def test_build_semantic_cache_injecte_namespace_et_seuil(monkeypatch):
+    from investia.agent.semantic_cache import BudgetedSemanticCache, DbSemanticCache
+    from investia.config import Settings
+    from investia.main import _build_semantic_cache
+
+    class FakeSessionFactory:
+        def __call__(self):
+            raise AssertionError("pas de session en test unitaire")
+
+    for var in ("DATABASE_URL", "REDIS_URL", "LITELLM_BASE_URL", "LITELLM_MASTER_KEY"):
+        monkeypatch.setenv(var, "x")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-admin-secret-0123456789abcdef")
+    settings = Settings(
+        _env_file=None,
+        semantic_cache_threshold=0.93,
+        semantic_cache_namespace="user-42",
+    )
+    cache = _build_semantic_cache(
+        settings, session_factory=FakeSessionFactory(), embeddings=FakeEmbeddings()
+    )
+    assert isinstance(cache, BudgetedSemanticCache)
+    inner = cache.inner
+    assert isinstance(inner, DbSemanticCache)
+    assert inner._namespace == "user-42"
+    assert inner._threshold == 0.93
+
+
+def test_build_semantic_cache_none_si_embeddings_indisponibles(monkeypatch):
+    from investia.config import Settings
+    from investia.main import _build_semantic_cache
+
+    for var in ("DATABASE_URL", "REDIS_URL", "LITELLM_BASE_URL", "LITELLM_MASTER_KEY"):
+        monkeypatch.setenv(var, "x")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-admin-secret-0123456789abcdef")
+    settings = Settings(_env_file=None)
+
+    def boom(_settings):
+        raise RuntimeError("pas d'embeddings")
+
+    monkeypatch.setattr("investia.memory.build_memory", boom)
+    # embeddings=None -> _build_semantic_cache tente build_memory -> exception -> None
+    assert (
+        _build_semantic_cache(settings, session_factory=None, embeddings=None) is None
+    )
+
+
+@pytest.mark.integration
+async def test_integration_namespace_isole_les_caches():
+    """Deux namespaces ne se voient pas (CVE-2026-89032 : pas de fuite cross-user)."""
+    from investia.db import get_session
+    from investia.memory.embeddings import FakeEmbeddingsForTests
+
+    cache_a = DbSemanticCache(
+        get_session(), FakeEmbeddingsForTests(), namespace="user-a"
+    )
+    cache_b = DbSemanticCache(
+        get_session(), FakeEmbeddingsForTests(), namespace="user-b"
+    )
+    await cache_a.store("prix de AAPL ?", "AAPL vaut 344.63 $")
+    assert await cache_a.lookup("prix de AAPL ?") == "AAPL vaut 344.63 $"
+    assert await cache_b.lookup("prix de AAPL ?") is None  # isolé
