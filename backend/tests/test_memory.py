@@ -42,6 +42,9 @@ class FakeMemoryStore:
     async def forget(self, memory_id: str) -> bool:
         return memory_id in self.memories
 
+    async def purge(self, memory_id: str, reason: str) -> bool:
+        return self.memories.pop(memory_id, None) is not None
+
     async def recall(
         self, query: str, k: int = 5, *, include_history: bool = False
     ) -> list[dict]:

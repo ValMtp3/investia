@@ -108,13 +108,18 @@ class UpdateMemoryTool(BaseTool[UpdateMemoryArgs]):
 
 class ForgetMemoryArgs(BaseModel):
     memory_id: str = Field(..., min_length=1, max_length=64)
+    # 23e : hard=True -> purge RGPD (suppression réelle + audit), défaut soft.
+    hard: bool = False
+    reason: str = Field(default="", max_length=500)
 
 
 class ForgetMemoryTool(BaseTool[ForgetMemoryArgs]):
     name = "forget_memory"
     description = (
-        "Oublie un souvenir actif (soft delete : il reste en base archivé, "
-        "il n'est plus retourné par recall_memory)."
+        "Oublie un souvenir actif (soft delete par défaut : il reste en base "
+        "archivé, il n'est plus retourné par recall_memory). Avec hard=true : "
+        "suppression réelle RGPD, la ligne est supprimée et un audit redacted "
+        "est conservé (demander un `reason`)."
     )
     args_schema = ForgetMemoryArgs
 
@@ -124,6 +129,9 @@ class ForgetMemoryTool(BaseTool[ForgetMemoryArgs]):
 
     async def run(self, args: ForgetMemoryArgs) -> dict[str, Any]:
         try:
+            if args.hard:
+                purged = await self._store.purge(args.memory_id, args.reason)
+                return {"purged": purged}
             forgotten = await self._store.forget(args.memory_id)
         except Exception as error:
             raise ToolError(self.name, str(error)) from error

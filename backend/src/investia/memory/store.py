@@ -3,7 +3,10 @@
 Schéma temporel (16a) : chaque souvenir a une période de validité
 (`valid_from`/`valid_until`), une provenance, un scope, et peut être remplacé
 par une version plus récente (`superseded_by`) ou « oublié » (soft delete).
-Aucune ligne n'est jamais supprimée : l'historique reste en base.
+
+23e : dédup en trois zones (supersede-pas-reject), scrub des secrets avant
+écriture (MemCut), et purge hard RGPD auditée (`memory_purge_audit`, 0011) —
+le soft delete reste le comportement par défaut de `forget`.
 """
 
 from dataclasses import dataclass
@@ -14,15 +17,46 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from investia.memory.embeddings import Embeddings
+from investia.redaction import RegexRedactor
 
 # Seuil de cosinus au-delà duquel un save est un doublon sémantique (idempotent).
 DEDUP_THRESHOLD = 0.97
+# 23e : entre SUPERSEDE_THRESHOLD et DEDUP_THRESHOLD, le save remplace l'ancien
+# (supersede automatique) au lieu de créer un doublon « courant » orphelin.
+SUPERSEDE_THRESHOLD = 0.85
+
+
+def dedup_action(
+    score: float,
+    dedup_threshold: float = DEDUP_THRESHOLD,
+    supersede_threshold: float = SUPERSEDE_THRESHOLD,
+) -> str:
+    """23e : trois zones — 'duplicate' (no-op), 'supersede', 'insert'."""
+    if score >= dedup_threshold:
+        return "duplicate"
+    if score >= supersede_threshold:
+        return "supersede"
+    return "insert"
+
+
+def scrub_content(content: str, redactor: Any | None = None) -> tuple[str, bool]:
+    """23e : masque secrets/PII avant embedding + INSERT (MemCut, arXiv 2610.21405).
+
+    Retourne (texte nettoyé, a_été_modifié). On embedde le texte nettoyé.
+    """
+    redactor = redactor or RegexRedactor()
+    cleaned = redactor.redact(content)
+    return cleaned, cleaned != content
 
 
 @dataclass(frozen=True)
 class SaveResult:
     id: str
     duplicate: bool
+    # 23e : id de l'ancien souvenir archivé (zone supersede), None sinon
+    superseded: str | None = None
+    # 23e : True si le contenu stocké a été nettoyé (secrets/PII masqués)
+    redacted: bool = False
 
 
 class MemoryStoreProtocol(Protocol):
@@ -34,6 +68,7 @@ class MemoryStoreProtocol(Protocol):
         provenance: str = "agent",
         scope: str = "global",
         dedup_threshold: float = DEDUP_THRESHOLD,
+        supersede_threshold: float = SUPERSEDE_THRESHOLD,
     ) -> SaveResult: ...
 
     async def supersede(
@@ -47,6 +82,10 @@ class MemoryStoreProtocol(Protocol):
     ) -> str: ...
 
     async def forget(self, memory_id: str) -> bool: ...
+
+    async def purge(self, memory_id: str, reason: str) -> bool:
+        """23e : suppression RÉELLE (RGPD) + ligne d'audit dans memory_purge_audit."""
+        ...
 
     async def recall(
         self, query: str, k: int = 5, *, include_history: bool = False
@@ -74,11 +113,14 @@ class DbMemoryStore:
         provenance: str = "agent",
         scope: str = "global",
         dedup_threshold: float = DEDUP_THRESHOLD,
+        supersede_threshold: float = SUPERSEDE_THRESHOLD,
     ) -> SaveResult:
+        # 23e : on nettoie le contenu AVANT d'embedder et d'insérer (MemCut) —
+        # un secret ne doit jamais atteindre la base, ni en clair ni en vecteur.
+        content, redacted = scrub_content(content)
         vector = embedding or (await self._embeddings.embed([content]))[0]
         async with self._session_factory() as session:
-            # Dédup sémantique : un souvenir courant quasi identique existe déjà
-            # -> on ne réinsère rien, on rend son id (écriture idempotente).
+            # Dédup sémantique sur les souvenirs courants (valid_until IS NULL).
             existing = await session.execute(
                 text(
                     "SELECT id::text FROM memories "
@@ -88,6 +130,7 @@ class DbMemoryStore:
                 {"e": _vector_literal(vector)},
             )
             nearest_id = existing.scalar_one_or_none()
+            superseded: str | None = None
             if nearest_id is not None:
                 nearest_score = await session.execute(
                     text(
@@ -96,8 +139,17 @@ class DbMemoryStore:
                     ),
                     {"e": _vector_literal(vector), "id": nearest_id},
                 )
-                if float(nearest_score.scalar_one()) >= dedup_threshold:
-                    return SaveResult(id=nearest_id, duplicate=True)
+                action = dedup_action(
+                    float(nearest_score.scalar_one()),
+                    dedup_threshold,
+                    supersede_threshold,
+                )
+                if action == "duplicate":
+                    # Quasi identique : on ne réinsère rien (écriture idempotente).
+                    return SaveResult(id=nearest_id, duplicate=True, redacted=redacted)
+                if action == "supersede":
+                    # 23e : version proche mais distincte -> l'ancien est archivé.
+                    superseded = nearest_id
             result = await session.execute(
                 text(
                     "INSERT INTO memories (content, embedding, provenance, scope, "
@@ -112,8 +164,19 @@ class DbMemoryStore:
                 },
             )
             memory_id = result.scalar_one()
+            if superseded is not None:
+                await session.execute(
+                    text(
+                        "UPDATE memories SET valid_until = now(), superseded_by = "
+                        "CAST(:new AS uuid) WHERE id = CAST(:old AS uuid) "
+                        "AND valid_until IS NULL"
+                    ),
+                    {"new": memory_id, "old": superseded},
+                )
             await session.commit()
-            return SaveResult(id=memory_id, duplicate=False)
+            return SaveResult(
+                id=memory_id, duplicate=False, superseded=superseded, redacted=redacted
+            )
 
     async def supersede(
         self,
@@ -124,6 +187,8 @@ class DbMemoryStore:
         provenance: str = "agent",
         scope: str = "global",
     ) -> str:
+        # 23e : scrub avant embedding + INSERT, comme dans save().
+        new_content, _ = scrub_content(new_content)
         vector = embedding or (await self._embeddings.embed([new_content]))[0]
         async with self._session_factory() as session:
             async with session.begin():
@@ -165,6 +230,41 @@ class DbMemoryStore:
             )
             await session.commit()
             return result.rowcount == 1
+
+    async def purge(self, memory_id: str, reason: str) -> bool:
+        """23e : suppression RÉELLE (droit à l'oubli RGPD) + audit.
+
+        DELETE hard de la ligne, puis INSERT dans memory_purge_audit avec le
+        contenu masqué (jamais le contenu brut, même dans l'audit). Les deux
+        écritures sont dans la même transaction.
+        """
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(
+                    text("SELECT content FROM memories WHERE id = CAST(:id AS uuid)"),
+                    {"id": memory_id},
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            cleaned, _ = scrub_content(str(row))
+            deleted = await session.execute(
+                text("DELETE FROM memories WHERE id = CAST(:id AS uuid)"),
+                {"id": memory_id},
+            )
+            if deleted.rowcount != 1:
+                await session.rollback()
+                return False
+            await session.execute(
+                text(
+                    "INSERT INTO memory_purge_audit "
+                    "(memory_id, content_redacted, reason) "
+                    "VALUES (CAST(:id AS uuid), :c, :r)"
+                ),
+                {"id": memory_id, "c": cleaned, "r": reason},
+            )
+            await session.commit()
+            return True
 
     async def recall(
         self, query: str, k: int = 5, *, include_history: bool = False

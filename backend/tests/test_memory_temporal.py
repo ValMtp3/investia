@@ -8,13 +8,21 @@ import pytest
 from test_memory import FakeEmbeddings
 from test_sse import FakeMarket
 
-from investia.memory.store import SaveResult
+from investia.memory.store import (
+    DEDUP_THRESHOLD,
+    SUPERSEDE_THRESHOLD,
+    SaveResult,
+    dedup_action,
+    scrub_content,
+)
 from investia.memory.tools import (
+    ForgetMemoryArgs,
     ForgetMemoryTool,
     RecallMemoryTool,
     SaveMemoryTool,
     UpdateMemoryTool,
 )
+from investia.redaction import REDACTED, RegexRedactor
 from investia.tools import build_tools
 from investia.tools.base import ToolError
 
@@ -24,6 +32,7 @@ class FakeTemporalMemoryStore:
 
     def __init__(self):
         self.rows: dict[str, dict] = {}
+        self.audit: list[dict] = []  # 23e : memory_purge_audit
         self._next = 0
 
     async def save(
@@ -33,15 +42,29 @@ class FakeTemporalMemoryStore:
         *,
         provenance: str = "agent",
         scope: str = "global",
-        dedup_threshold: float = 0.97,
+        dedup_threshold: float = DEDUP_THRESHOLD,
+        supersede_threshold: float = SUPERSEDE_THRESHOLD,
     ) -> SaveResult:
+        # 23e : scrub avant embedding + stockage, comme DbMemoryStore.
+        content, redacted = scrub_content(content)
         vector = embedding or (await FakeEmbeddings().embed([content]))[0]
+        # Voisin le plus proche parmi les souvenirs courants.
+        nearest_id: str | None = None
+        nearest_score = -1.0
         for row in self.rows.values():
-            if (
-                row["valid_until"] is None
-                and _cos(vector, row["embedding"]) >= dedup_threshold
-            ):
-                return SaveResult(id=row["id"], duplicate=True)
+            if row["valid_until"] is not None:
+                continue
+            score = _cos(vector, row["embedding"])
+            if score > nearest_score:
+                nearest_score = score
+                nearest_id = row["id"]
+        superseded: str | None = None
+        if nearest_id is not None:
+            action = dedup_action(nearest_score, dedup_threshold, supersede_threshold)
+            if action == "duplicate":
+                return SaveResult(id=nearest_id, duplicate=True, redacted=redacted)
+            if action == "supersede":
+                superseded = nearest_id
         self._next += 1
         memory_id = f"mem-{self._next}"
         self.rows[memory_id] = {
@@ -54,7 +77,13 @@ class FakeTemporalMemoryStore:
             "valid_until": None,
             "superseded_by": None,
         }
-        return SaveResult(id=memory_id, duplicate=False)
+        if superseded is not None:
+            old = self.rows[superseded]
+            old["valid_until"] = datetime.now(UTC)
+            old["superseded_by"] = memory_id
+        return SaveResult(
+            id=memory_id, duplicate=False, superseded=superseded, redacted=redacted
+        )
 
     async def supersede(
         self,
@@ -83,6 +112,22 @@ class FakeTemporalMemoryStore:
         if row is None or row["valid_until"] is not None:
             return False
         row["valid_until"] = datetime.now(UTC)
+        return True
+
+    async def purge(self, memory_id: str, reason: str) -> bool:
+        """23e : suppression réelle + audit redacted (fake de memory_purge_audit)."""
+        row = self.rows.get(memory_id)
+        if row is None:
+            return False
+        cleaned, _ = scrub_content(row["content"])
+        del self.rows[memory_id]
+        self.audit.append(
+            {
+                "memory_id": memory_id,
+                "content_redacted": cleaned,
+                "reason": reason,
+            }
+        )
         return True
 
     async def recall(
@@ -300,3 +345,85 @@ def test_memory_tools_expose_llm_contract(store, embeddings):
         )
     }
     assert names == {"save_memory", "recall_memory", "update_memory", "forget_memory"}
+
+
+# --- 23e : supersede auto (zone intermédiaire), scrub secrets, purge RGPD ---
+
+
+def test_dedup_action_trois_zones():
+    assert dedup_action(0.99) == "duplicate"
+    assert dedup_action(0.97) == "duplicate"
+    assert dedup_action(0.90) == "supersede"
+    assert dedup_action(SUPERSEDE_THRESHOLD) == "supersede"
+    assert dedup_action(0.84) == "insert"
+    assert dedup_action(0.0) == "insert"
+
+
+def test_scrub_content_masque_secrets_et_pii():
+    redactor = RegexRedactor(secrets=[])
+    text = "ma clé sk-ant-abcdef1234567890xx et mail jean@exemple.fr"
+    cleaned, changed = scrub_content(text, redactor=redactor)
+    assert changed is True
+    assert "sk-ant-abcdef1234567890xx" not in cleaned
+    assert "jean@exemple.fr" not in cleaned
+    assert cleaned.count(REDACTED) >= 2
+    clean, changed2 = scrub_content("AAPL clôture à 344.63 $", redactor=redactor)
+    assert changed2 is False
+    assert clean == "AAPL clôture à 344.63 $"  # pas de faux positif
+
+
+async def test_save_zone_intermediaire_supersede_automatiquement(store):
+    v1 = [1.0] + [0.0] * 1535
+    v2 = [0.9, math.sqrt(1 - 0.81)] + [0.0] * 1534  # cos(v1, v2) = 0.9
+    r1 = await store.save("fait A", v1)
+    assert r1.duplicate is False and r1.superseded is None
+    r2 = await store.save("fait A v2", v2)  # 0.9 ∈ [0.85, 0.97) → supersede
+    assert r2.duplicate is False
+    assert r2.superseded == r1.id
+    old = store.rows[r1.id]
+    assert old["valid_until"] is not None
+    assert old["superseded_by"] == r2.id
+    recalled = await store.recall("fait A", k=5)
+    assert all(r["id"] != r1.id for r in recalled)  # l'ancien n'est plus courant
+
+
+async def test_save_quasi_identique_reste_noop(store):
+    r1 = await store.save("fait A", None)
+    r2 = await store.save("fait A", None)  # même contenu → cos 1.0 → duplicate
+    assert r2.duplicate is True
+    assert r2.superseded is None
+    assert r2.id == r1.id
+
+
+async def test_purge_hard_supprime_et_audite(store):
+    r = await store.save("secret sk-ant-abcdef1234567890zz", None)
+    ok = await store.purge(r.id, reason="demande RGPD")
+    assert ok is True
+    assert r.id not in store.rows  # suppression réelle
+    assert store.audit and store.audit[0]["memory_id"] == r.id
+    assert store.audit[0]["reason"] == "demande RGPD"
+    assert "sk-ant-" not in store.audit[0]["content_redacted"]  # audit redacted
+    assert await store.recall("secret", include_history=True) == []
+    assert await store.history(r.id) == []
+
+
+async def test_purge_inconnu_retourne_false(store):
+    assert await store.purge("mem-999", reason="x") is False
+
+
+async def test_forget_memory_hard_appelle_purge(store, embeddings):
+    r = await store.save("fait", None)
+    tool = ForgetMemoryTool(store, embeddings)
+    out = await tool.run(ForgetMemoryArgs(memory_id=r.id, hard=True))
+    assert out["purged"] is True
+    assert r.id not in store.rows
+
+
+async def test_forget_memory_soft_par_defaut_inchange(store, embeddings):
+    """Zéro régression 16a : sans hard, forget reste un soft delete."""
+    r = await store.save("fait 2", None)
+    tool = ForgetMemoryTool(store, embeddings)
+    out = await tool.run(ForgetMemoryArgs(memory_id=r.id))
+    assert out == {"forgotten": True}
+    assert r.id in store.rows  # la ligne reste en base
+    assert store.rows[r.id]["valid_until"] is not None
