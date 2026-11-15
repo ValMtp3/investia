@@ -495,3 +495,142 @@ describe("Page Agent — mode multi-agents A2A (6.1)", () => {
     expect(document.activeElement).toHaveAttribute("role", "status");
   });
 });
+
+describe("Page Agent — 23f : markdown streamé (streamdown)", () => {
+  it("rend la réponse en markdown (titre + liste), pas en texte brut", async () => {
+    const mdRun = [
+      'id: 1\nevent: start\ndata: {"question":"analyse AAPL","max_turns":8,"run_id":"run-md-1"}\n\n',
+      'id: 2\nevent: answer\ndata: {"turn":1,"text":"## Synthèse\\n\\n- Cours : 344.63 $\\n- Tendance : haussière"}\n\n',
+      'id: 3\nevent: done\ndata: {"turns":1,"cost_cents":0.02,"status":"ok"}\n\n',
+    ].join("");
+    stubAgentFetch({ sse: [mdRun] });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "analyse AAPL");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    // streamdown rend un vrai h2 et une vraie liste (pas le texte brut avec ##)
+    expect(await screen.findByRole("heading", { name: "Synthèse" })).toBeInTheDocument();
+    expect(screen.getByText("Cours : 344.63 $")).toBeInTheDocument();
+    expect(screen.queryByText(/## Synthèse/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Page Agent — 23f : reconnexion SSE Last-Event-ID", () => {
+  it("après une coupure réseau, re-POST avec run_id + Last-Event-ID et affiche la suite", async () => {
+    const encoder = new TextEncoder();
+    const runCalls: Array<[string, RequestInit]> = [];
+    let sseCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/portfolio") return jsonResponse(PORTFOLIO);
+      if (url.pathname === "/agent/run") {
+        sseCalls += 1;
+        runCalls.push([String(input), init ?? {}]);
+        if (sseCalls === 1) {
+          // coupure réseau après 2 événements (id 1 et 2)
+          return {
+            ok: true,
+            status: 200,
+            body: new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    'id: 1\nevent: start\ndata: {"question":"q","max_turns":8,"run_id":"run-abc-123"}\n\n' +
+                      'id: 2\nevent: answer\ndata: {"turn":1,"text":"début de réponse"}\n\n',
+                  ),
+                );
+                // error() vide la file : on diffère pour laisser le chunk être lu
+                setTimeout(() => controller.error(new Error("réseau coupé")), 20);
+              },
+            }),
+          };
+        }
+        // reconnexion : le backend replay les events seq > 2
+        return {
+          ok: true,
+          status: 200,
+          body: sseBody([
+            'id: 3\nevent: answer\ndata: {"turn":2,"text":"fin de réponse"}\n\n',
+            'id: 4\nevent: done\ndata: {"turns":2,"cost_cents":0.03,"status":"ok"}\n\n',
+          ]),
+        };
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "q");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    expect(await screen.findByText("fin de réponse", undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(sseCalls).toBe(2);
+    const [, retryInit] = runCalls[1];
+    // le re-POST rejoue le run avec le dernier id reçu
+    expect(JSON.parse(String(retryInit.body))).toMatchObject({ run_id: "run-abc-123" });
+    expect((retryInit.headers as Record<string, string>)["Last-Event-ID"]).toBe("2");
+  });
+
+  it("sur event detached (run encore actif), replie en polling GET /traces/{id}", async () => {
+    const encoder = new TextEncoder();
+    let sseCalls = 0;
+    let tracePolls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/portfolio") return jsonResponse(PORTFOLIO);
+      if (url.pathname === "/agent/run") {
+        sseCalls += 1;
+        if (sseCalls === 1) {
+          return {
+            ok: true,
+            status: 200,
+            body: new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    'id: 1\nevent: start\ndata: {"question":"q","max_turns":8,"run_id":"run-abc-123"}\n\n',
+                  ),
+                );
+                setTimeout(() => controller.error(new Error("réseau coupé")), 20);
+              },
+            }),
+          };
+        }
+        // replay du run encore actif côté serveur : detached
+        return {
+          ok: true,
+          status: 200,
+          body: sseBody(['id: 2\nevent: detached\ndata: {"run_id":"run-abc-123"}\n\n']),
+        };
+      }
+      if (url.pathname === "/traces/run-abc-123") {
+        tracePolls += 1;
+        const status = tracePolls === 1 ? "running" : "ok";
+        return jsonResponse({
+          run: {
+            id: "run-abc-123",
+            question: "q",
+            status,
+            model: "gpt-6-luna",
+            turns: 2,
+            total_cost_cents: 0.03,
+            created_at: "2026-11-15T12:00:00+00:00",
+            answer: "réponse finale",
+          },
+          steps: [],
+          spans: [],
+        });
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "q");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    // après detached : poll de la trace jusqu'au statut final, puis le résumé s'affiche
+    expect(
+      await screen.findByText(/Terminé en 2 tours/, undefined, { timeout: 6000 }),
+    ).toBeInTheDocument();
+    expect(tracePolls).toBeGreaterThanOrEqual(2);
+  });
+});

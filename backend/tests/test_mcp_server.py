@@ -219,6 +219,12 @@ def app(monkeypatch, portfolio):
         async def get_run(self, run_id):
             return {"run": None, "steps": []}
 
+        async def append_event(self, run_id, seq, event, payload):
+            pass
+
+        async def events_after(self, run_id, last_seq):
+            return []
+
     return create_app(
         portfolio_service=portfolio,
         llm=FakeLlm(),

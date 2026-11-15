@@ -80,7 +80,16 @@ class FakeTraceStore:
 
     def __init__(self):
         self.runs: dict[str, dict] = {}
+        self.events: dict[str, list[dict]] = {}  # 23f : run_events en mémoire
         self._next = 0
+
+    async def append_event(self, run_id, seq, event, payload):
+        self.events.setdefault(run_id, []).append(
+            {"seq": seq, "event": event, "payload": payload}
+        )
+
+    async def events_after(self, run_id, last_seq):
+        return [e for e in self.events.get(run_id, []) if e["seq"] > last_seq]
 
     async def start_run(self, question):
         self._next += 1
