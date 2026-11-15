@@ -96,6 +96,9 @@ def test_memory_tools_added_when_store_available():
         async def forget(self, memory_id):
             return True
 
+        async def purge(self, memory_id, reason):
+            return True
+
         async def recall(self, query, k=5, *, include_history=False):
             return []
 
