@@ -48,7 +48,9 @@ class Neighbor:
 
 
 class RouterFeedbackStore(Protocol):
-    async def record(self, question: str, model: str, success: bool) -> None: ...
+    async def record(
+        self, question: str, model: str, success: bool, cost_cents: float = 0.0
+    ) -> None: ...
 
     async def neighbors(self, question: str, k: int) -> list[Neighbor]: ...
 
@@ -94,5 +96,8 @@ class LearnedRouter:
             return self._fallback(question), "rules"
         return ("small" if score_small >= score_large else "large"), "learned"
 
-    async def record(self, question: str, model: str, success: bool) -> None:
-        await self._store.record(question, model, success)
+    async def record(
+        self, question: str, model: str, success: bool, cost_cents: float = 0.0
+    ) -> None:
+        # 23d : cost_cents transmis au store (colonne ajoutée en migration 0012)
+        await self._store.record(question, model, success, cost_cents=cost_cents)

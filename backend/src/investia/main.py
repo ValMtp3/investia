@@ -158,6 +158,8 @@ def create_app(
     # 18a : routeur d'agents A2A appris ; construit plus bas seulement si la
     # vraie base est montée, None sinon (pipeline fixe, zéro régression).
     agent_router = None
+    # 12h/23d : routeur de modèle petit/gros, None = règles D44 seules.
+    model_router = None
     if market is None or portfolio_service is None:
         from investia.db import get_session
         from investia.evals.store import EvalStore
@@ -196,6 +198,33 @@ def create_app(
         except Exception:
             logging.getLogger(__name__).warning(
                 "routeur d'agents A2A indisponible : pipeline fixe (18a)"
+            )
+        # 12h/23d : routeur de modèle (knn par défaut ; linucb si ROUTER_MODE=linucb).
+        # Indisponible -> None = règles D44 seules (zéro régression).
+        try:
+            from investia.llm.linucb import LinUCBRouter
+            from investia.llm.models import load_models_config
+            from investia.llm.router import LearnedRouter
+            from investia.llm.router_store import DbLinUCBStore, DbRouterFeedback
+            from investia.memory import build_memory
+
+            _memory_store, embeddings = build_memory(settings)
+            feedback_store = DbRouterFeedback(get_session(), embeddings)
+            if settings.router_mode == "linucb":
+                model_router = LinUCBRouter(
+                    feedback_store,
+                    DbLinUCBStore(get_session()),
+                    models=load_models_config(),
+                    alpha=settings.router_linucb_alpha,
+                    epsilon=settings.router_linucb_epsilon,
+                    cost_weight=settings.router_linucb_cost_weight,
+                    budget_cents=settings.llm_budget_cents_per_call,
+                )
+            else:
+                model_router = LearnedRouter(feedback_store)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "routeur de modèle indisponible : règles D44 (12h/23d)"
             )
         forecaster = None
         if settings.mistral_api_key is not None:
@@ -490,6 +519,7 @@ def create_app(
                     context_max_tokens=settings.context_max_tokens or None,
                     keep_last_turns=settings.compaction_keep_last_turns,
                     memory_store=memory_store,
+                    router=model_router,  # 12h/23d : None = règles D44
                     # 17e : tool policy pré-schéma (DISABLED_TOOLS + sandbox os KO)
                     tool_policy=tool_policy_from_settings(settings),
                 )
