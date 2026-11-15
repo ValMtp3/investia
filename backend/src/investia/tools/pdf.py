@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from investia.guardrails.egress import pinned_async_client
 from investia.guardrails.ssrf import SsrfBlockedError, assert_public_http_url
 from investia.tools.base import BaseTool, ToolError
 
@@ -60,7 +61,9 @@ class NutrientPdfReader:
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._client = http_client or httpx.AsyncClient(timeout=timeout)
+        # 23b : client egress pinné (anti DNS rebinding) — l'URL téléchargée est
+        # fournie par le modèle, chaque connexion vise l'IP validée à ce moment.
+        self._client = http_client or pinned_async_client(timeout=timeout)
 
     async def extract_text(self, url: str, max_pages: int) -> str:
         if self._api_key is None:

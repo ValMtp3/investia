@@ -27,6 +27,12 @@ Rien de ceci ne tourne en CI ni en local. Cocher au fur et à mesure.
 - [ ] Comparer la réponse brute (curl `POST https://api.mistral.ai/v1/forecast` avec la clé VPS, modèle `timestral-1-0-209m`) au schéma attendu par `market/forecast.py` (quantiles 0.1/0.5/0.9, horizon) — le parseur est tolérant, confirmer qu'aucun champ utile n'est ignoré
 - [ ] Noter tout écart dans `docs/STATUS.md` (⚠️ de l'étape 17a)
 
+## 3b. Étape 23b — guard d'injection ONNX local (optionnel)
+
+- [ ] Télécharger le modèle épinglé en local sur le VPS : `Horizon-Labs/prompt-injection-guard-small` (mmBERT 140M, ONNX, Apache-2.0, maj 09/11/2026 — entraîné sur Nemotron indirect-injection + llmail), fichier `.onnx` + tokenizer dans `/opt/models/prompt-injection-guard-small/`
+- [ ] Renseigner `INJECTION_GUARD_MODEL_PATH` dans le `.env` VPS + `update.sh`
+- [ ] Vérifier au démarrage d'un run que le scanner est actif (sinon repli regex 13b, zéro crash) ; `onnxruntime`/`transformers` s'installent côté backend si présents (imports lazy, jamais de téléchargement réseau au runtime)
+
 ## 4. Étape 17b — gotcha `reasoning_content` (DeepSeek Flash, tier « small »)
 
 - [ ] Lancer **3+ runs consécutifs multi-outils** en prod avec le tier small (questions qui déclenchent `get_quote` + `get_history` + `get_news`)

@@ -287,3 +287,53 @@ async def test_policy_invalide_rejetee():
         await run_agent(
             "question ?", llm, build_tools(FakeMarket()), injection_policy="yolo"
         )
+
+
+# --- 23b : session ONNX stubée (le vrai modèle est un fichier local, owner) ---
+
+
+def test_onnx_session_stub_verdicts(monkeypatch, tmp_path):
+    """23b : avec un modèle local présent, le scanner ONNX produit les 3 verdicts."""
+    import sys
+    import types
+
+    model_file = tmp_path / "guard.onnx"
+    model_file.write_bytes(b"fake")
+    logits = {"value": [0.0, 5.0]}  # softmax ≈ 0.993 → blocked
+
+    class FakeSession:
+        def __init__(self, path, providers=None):
+            pass
+
+        def get_inputs(self):
+            return [types.SimpleNamespace(name="input_ids")]
+
+        def run(self, out, feeds):
+            return [[logits["value"]]]
+
+    class FakeEnc:
+        def astype(self, _t):
+            return [1, 2, 3]
+
+    class FakeTokenizer:
+        def __call__(self, text, return_tensors=None, truncation=None, max_length=None):
+            return {"input_ids": FakeEnc()}
+
+    ort = types.ModuleType("onnxruntime")
+    setattr(ort, "InferenceSession", FakeSession)
+    tr = types.ModuleType("transformers")
+    setattr(
+        tr,
+        "AutoTokenizer",
+        types.SimpleNamespace(from_pretrained=lambda d: FakeTokenizer()),
+    )
+    monkeypatch.setitem(sys.modules, "onnxruntime", ort)
+    monkeypatch.setitem(sys.modules, "transformers", tr)
+
+    scanner = OnnxInjectionScanner(model_path=str(model_file))
+    assert scanner.active is True
+    assert scanner.scan("texte").verdict == "blocked"
+    logits["value"] = [5.0, 0.0]  # ≈ 0.007 → clean
+    assert scanner.scan("texte").verdict == "clean"
+    logits["value"] = [1.0, 1.2]  # ≈ 0.55 → suspicious
+    assert scanner.scan("texte").verdict == "suspicious"
