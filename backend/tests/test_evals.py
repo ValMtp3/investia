@@ -740,3 +740,23 @@ async def test_load_cases_a2a_champs():
     # cas mono-agent existants : champ à zéro, zéro régression
     assert cases["routeur-learned"].multi_agent is False
     assert cases["routeur-learned"].expected_agents is None
+
+
+# --- 22a : CLI evals — garde-fous --live / --limit ---
+
+
+def test_cli_evals_live_limit_plafonne_a_100():
+    """22a : --limit > 100 est refusé (garde-fou batch live)."""
+    import argparse
+
+    from investia.evals.__main__ import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["--live", "--limit", "20"])
+    assert args.live is True and args.limit == 20
+    try:
+        parser.parse_args(["--live", "--limit", "101"])
+    except (SystemExit, argparse.ArgumentError):
+        pass
+    else:
+        raise AssertionError("--limit 101 aurait dû être refusé")

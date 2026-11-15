@@ -300,8 +300,13 @@ async def run_evals(
     web_searcher=None,
     pdf_reader=None,
     python_sandbox=None,
+    llm: Any | None = None,
 ) -> dict[str, Any]:
-    """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni."""
+    """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni.
+
+    22a : `llm` fourni (mode live) -> vrai client LLM partagé entre les cas ;
+    sinon MockLlm déterministe par cas (mode mock, zéro régression).
+    """
     market = market or MockMarket()
     tools = build_tools(
         market,
@@ -338,6 +343,8 @@ async def run_evals(
         router = None
         if case.mock_router_neighbors is not None:
             router = LearnedRouter(FakeRouterFeedbackStore(case.mock_router_neighbors))
+        # 22a : llm réel partagé (mode live) ou MockLlm par cas (mode mock)
+        case_llm = llm if llm is not None else MockLlm(case)
         if case.multi_agent:
             # 18b : cas multi-agent — délégation A2A mockée via run_multi_agent
             from investia.agents.orchestrator import run_multi_agent
@@ -350,7 +357,7 @@ async def run_evals(
                 )
             agent_result = await run_multi_agent(
                 case.question,
-                llm=MockLlm(case),
+                llm=case_llm,
                 tools=tools,
                 caller=FakeAgentCaller(case),
                 router=agent_router,
@@ -358,11 +365,11 @@ async def run_evals(
         else:
             agent_result = await run_agent(
                 case.question,
-                MockLlm(case),
+                case_llm,
                 tools,
                 reasoning=reasoning,
                 consistency_k=case.consistency_k,
-                llm_factory=llm_factory,
+                llm_factory=llm_factory if llm is None else None,
                 decision_client=FakeDecisionClient(case)
                 if case.mock_decision
                 else None,
