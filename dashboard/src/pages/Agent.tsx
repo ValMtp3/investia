@@ -11,6 +11,7 @@ import {
 import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
 import Module from "../components/Module";
+import Skeleton from "../components/Skeleton";
 import PageHeader from "../components/PageHeader";
 import Stat from "../components/Stat";
 import { isAbortError } from "../lib/errors";
@@ -267,9 +268,7 @@ export default function Agent() {
 
       <Module title="Portefeuille simulé" className="mb-3">
         {portfolio.isLoading && (
-          <p role="status" className="text-muted">
-            Chargement du portefeuille…
-          </p>
+          <Skeleton label="Chargement du portefeuille…" />
         )}
         {portfolio.isError && (
           <ErrorNotice>

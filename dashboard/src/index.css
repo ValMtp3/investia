@@ -70,6 +70,62 @@ body {
   top: 0.5rem;
 }
 
+/* 20d — finition (DA D63 inchangée) : transitions ciblées (jamais `all`),
+   entrée douce des modules, skeleton de chargement, zebrage des tableaux.
+   Le bloc prefers-reduced-motion ci-dessous coupe tout ça pour qui le demande. */
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-enter {
+  animation: enter 200ms ease-out both;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.skeleton {
+  background: var(--color-wash);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+/* Interactifs : mêmes propriétés partout, 150 ms — retargetables mid-motion. */
+button,
+a {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+tbody tr {
+  transition-property: background-color;
+  transition-duration: 150ms;
+}
+
+/* Zebrage subtil des tableaux de données. */
+.zebra tbody tr:nth-child(odd) {
+  background: rgb(29 33 38 / 0.5); /* wash à 50 % */
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
