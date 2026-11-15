@@ -56,7 +56,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _verify_main(argv: list[str]) -> int:
+    """23h : `verify --cases PATH [--sha256 H]` — vérifie le dataset pinné."""
+    import hashlib
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        prog="investia.evals verify",
+        description="Vérifie le sha256 d'un fichier de cas (dataset pinning, 23h)",
+    )
+    parser.add_argument("--cases", required=True, help="chemin du fichier de cas YAML")
+    parser.add_argument(
+        "--sha256",
+        default=None,
+        help="hash attendu ; sinon lu dans <cases>.sha256 à côté du fichier",
+    )
+    args = parser.parse_args(argv)
+    path = Path(args.cases)
+    if not path.exists():
+        print(f"ERREUR : {path} introuvable")
+        return 1
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    expected = args.sha256
+    if expected is None:
+        sidecar = Path(str(path) + ".sha256")
+        if not sidecar.exists():
+            print(f"ERREUR : ni --sha256 ni {sidecar}")
+            return 1
+        expected = sidecar.read_text(encoding="utf-8").strip()
+    if actual == expected:
+        print(f"OK : {path} (sha256 {actual[:12]}…)")
+        return 0
+    print(f"ECHEC : {path} — attendu {expected[:12]}…, obtenu {actual[:12]}…")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "verify":
+        return _verify_main(argv[1:])
     args = build_parser().parse_args(argv)
     cases = load_cases(args.cases)
     store = EvalStore(get_session())
@@ -82,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                 llm=llm,
                 market=market,
                 portfolio_service=portfolio_service,
+                cases_path=args.cases,  # 23h : dataset pinning
             )
         )
     else:
@@ -96,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
                 web_searcher=FakeWebSearcher(),
                 pdf_reader=FakePdfReader(),
                 python_sandbox=FakePythonSandbox(),
+                cases_path=args.cases,  # 23h : dataset pinning
             )
         )
 

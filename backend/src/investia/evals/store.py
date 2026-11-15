@@ -12,14 +12,17 @@ class EvalStore:
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
 
-    async def start_eval_run(self, model: str, mode: str) -> str:
+    async def start_eval_run(
+        self, model: str, mode: str, dataset_sha256: str | None = None
+    ) -> str:
+        """23h : `dataset_sha256` = pinning du fichier de cas (bench reproductible)."""
         async with self._session_factory() as session:
             result = await session.execute(
                 text(
-                    "INSERT INTO eval_runs (model, mode) "
-                    "VALUES (:m, :mo) RETURNING id::text"
+                    "INSERT INTO eval_runs (model, mode, dataset_sha256) "
+                    "VALUES (:m, :mo, :ds) RETURNING id::text"
                 ),
-                {"m": model, "mo": mode},
+                {"m": model, "mo": mode, "ds": dataset_sha256},
             )
             run_id = result.scalar_one()
             await session.commit()
@@ -51,8 +54,9 @@ class EvalStore:
                 (
                     await session.execute(
                         text(
-                            "SELECT id::text AS id, started_at, model, commit, mode "
-                            "FROM eval_runs ORDER BY started_at DESC, id DESC"
+                            "SELECT id::text AS id, started_at, model, commit, mode, "
+                            "dataset_sha256 FROM eval_runs "
+                            "ORDER BY started_at DESC, id DESC"
                         )
                     )
                 )

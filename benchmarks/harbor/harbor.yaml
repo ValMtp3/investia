@@ -1,0 +1,31 @@
+# Config Harbor pinnée — Investia (étape 23h, D102)
+# Pattern Harbor / Terminal-Bench 4.1 (arXiv 2611.08417) : benchmark = logiciel,
+# dataset pinné par sha256, verifier externe à l'agent et rejouable.
+#
+# Pins (ne pas modifier sans bump de version de ce fichier) :
+#   - harbor (laude-institute/harbor) : pinné par commit, voir README.md de ce dossier
+#   - dataset : evals/cases.yaml pinné par sha256 ci-dessous
+version: v1
+dataset:
+  name: investia-evals
+  description: >-
+    Cas d'evals du harness Investia (portefeuille simulé, aucun conseil financier
+    réel) rejoués comme tâches Harbor par un verifier externe (anti-reward-hacking).
+  source:
+    path: ../../evals/cases.yaml
+    sha256: "4c7bc516698cb6691195493f93b024ae267a7536c79266652906217d334ea107"
+  n_cases: pinned-by-sha256  # le sha256 ci-dessus fait foi, pas un compteur
+agent:
+  name: investia-harness
+  # L'agent tourne conteneurisé (Dockerfile de environment/), le verifier tourne
+  # dans un conteneur séparé : il ne partage aucun état avec l'agent.
+  image: investia-agent:latest
+verifier:
+  # Reward binaire par cas, écrit dans /logs/verifier/reward.txt (monté par Harbor) :
+  # 1.0 si toutes les métriques gate valent 1.0 (tool_used, format_ok, disclaimer_ok,
+  # numbers_sourced, safety_*), 0.0 sinon — rejouable hors de l'agent.
+  script: tests/verify_case.py
+  reward_file: /logs/verifier/reward.txt
+notes:
+  - "TB 4.1 est un benchmark d'agents *coding* : scores faibles attendus ici,"
+  - "la valeur est le pipeline reproductible (pinning + verifier externe)."
