@@ -84,6 +84,12 @@ class FakeTraceStore:
     async def log_step(self, *a, **k):
         pass
 
+    async def append_event(self, *a, **k):
+        pass
+
+    async def events_after(self, *a, **k):
+        return []
+
     async def finish_run(self, *a, **k):
         pass
 

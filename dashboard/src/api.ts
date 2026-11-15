@@ -281,6 +281,8 @@ export type AgentEvent =
       };
     }
   | { kind: "done"; payload: { turns: number; cost_cents: number; status: string } }
+  // 23f : replay d'un run encore actif côté serveur -> le client replie en polling
+  | { kind: "detached"; payload: { run_id: string } }
   | {
       kind: "state_snapshot"; // 21a : état partagé AG-UI (StateSnapshotEvent)
       payload: {
@@ -395,47 +397,78 @@ function makeA2uiAdapter(onEvent: (event: AgentEvent) => void): (kind: string, d
 
 type AgentProtocol = "legacy" | "agui" | "a2ui";
 
-/** Stream SSE de la boucle agent : POST /agent/run. `protocol="agui"` (21a) / `"a2ui"` (23c). */
+/** 23f : infos de reconnexion — le backend rejoue les events seq > lastEventId. */
+export interface StreamResume {
+  runId: string;
+  lastEventId: number | null;
+}
+
+/** Stream SSE de la boucle agent : POST /agent/run. `protocol="agui"` (21a) / `"a2ui"` (23c).
+ *  23f : `resume` (runId + lastEventId) → body `run_id` + header `Last-Event-ID` (replay). */
 export function streamAgentRun(
   question: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent, eventId?: number | null) => void,
   signal?: AbortSignal,
   protocol: AgentProtocol = "legacy",
+  resume?: StreamResume,
 ): Promise<void> {
   const query = protocol === "legacy" ? "" : `?protocol=${protocol}`;
   const url = `${API_URL}/agent/run${query}`;
+  const body: Record<string, unknown> = { question };
+  const headers: Record<string, string> = {};
+  if (resume) {
+    body.run_id = resume.runId;
+    if (resume.lastEventId !== null) headers["Last-Event-ID"] = String(resume.lastEventId);
+  }
+  // 23f : l'id SSE courant est forwardé à onEvent (2e arg) quel que soit le protocole
+  let lastId: number | null = null;
+  const emit = (evt: AgentEvent) => onEvent(evt, lastId);
+  const adapter =
+    protocol === "agui"
+      ? makeAguiAdapter(emit)
+      : protocol === "a2ui"
+        ? makeA2uiAdapter(emit)
+        : null;
   return streamSse(url, {
     method: "POST",
-    body: { question },
+    body,
     signal,
-    onEvent:
-      protocol === "agui"
-        ? makeAguiAdapter(onEvent)
-        : protocol === "a2ui"
-          ? makeA2uiAdapter(onEvent)
-          : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+    headers,
+    onEvent: (kind, data, id) => {
+      lastId = id;
+      if (adapter) adapter(kind, data);
+      else emit({ kind, payload: data } as AgentEvent);
+    },
   });
 }
 
 /** Stream SSE du mode multi-agents A2A (étape 6.1) : POST /api/agents/run. */
 export function streamMultiAgentRun(
   question: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent, eventId?: number | null) => void,
   signal?: AbortSignal,
   protocol: AgentProtocol = "legacy",
 ): Promise<void> {
   const query = protocol === "legacy" ? "" : `?protocol=${protocol}`;
   const url = `${API_URL}/api/agents/run${query}`;
+  // 23f : même forward de l'id SSE que streamAgentRun
+  let lastId: number | null = null;
+  const emit = (evt: AgentEvent) => onEvent(evt, lastId);
+  const adapter =
+    protocol === "agui"
+      ? makeAguiAdapter(emit)
+      : protocol === "a2ui"
+        ? makeA2uiAdapter(emit)
+        : null;
   return streamSse(url, {
     method: "POST",
     body: { question },
     signal,
-    onEvent:
-      protocol === "agui"
-        ? makeAguiAdapter(onEvent)
-        : protocol === "a2ui"
-          ? makeA2uiAdapter(onEvent)
-          : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+    onEvent: (kind, data, id) => {
+      lastId = id;
+      if (adapter) adapter(kind, data);
+      else emit({ kind, payload: data } as AgentEvent);
+    },
   });
 }
 

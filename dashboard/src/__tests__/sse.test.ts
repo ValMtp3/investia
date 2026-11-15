@@ -114,3 +114,58 @@ describe("streamSse", () => {
     expect(controller.signal.aborted).toBe(true);
   });
 });
+
+describe("SseParser id (23f — Last-Event-ID)", () => {
+  it("parse la ligne id: et la met sur l'event", () => {
+    const parser = new SseParser();
+    const events = parser.push('id: 7\nevent: answer\ndata: {"text":"x"}\n\n');
+    expect(events).toEqual([{ event: "answer", data: '{"text":"x"}', id: 7 }]);
+  });
+
+  it("sans ligne id:, le champ id est absent", () => {
+    const parser = new SseParser();
+    const events = parser.push('event: done\ndata: {}\n\n');
+    expect(events[0].id).toBeUndefined();
+  });
+});
+
+describe("streamSse (23f — replay)", () => {
+  function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+  }
+
+  it("passe l'id à onEvent (3e argument) et envoie les headers custom (Last-Event-ID)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: sseStream([
+        'id: 3\nevent: answer\ndata: {"text":"suite"}\n\n',
+        'id: 4\nevent: done\ndata: {"status":"ok"}\n\n',
+      ]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const received: Array<{ event: string; data: unknown; id: number | null }> = [];
+    await streamSse("http://api/agent/run", {
+      method: "POST",
+      body: { question: "q", run_id: "run-1" },
+      headers: { "Last-Event-ID": "2" },
+      onEvent: (event, data, id) => received.push({ event, data, id: id ?? null }),
+    });
+
+    expect(received).toEqual([
+      { event: "answer", data: { text: "suite" }, id: 3 },
+      { event: "done", data: { status: "ok" }, id: 4 },
+    ]);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Last-Event-ID"]).toBe("2");
+    expect(JSON.parse(init.body as string)).toEqual({ question: "q", run_id: "run-1" });
+  });
+});

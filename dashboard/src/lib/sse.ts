@@ -5,6 +5,8 @@
 export interface SseEvent {
   event: string;
   data: string;
+  /** 23f : ligne `id:` du bloc SSE (absente si le serveur n'en envoie pas). */
+  id?: number;
 }
 
 /** Parser incrémental : un bloc SSE peut arriver coupé entre deux chunks. */
@@ -27,10 +29,15 @@ export class SseParser {
 
   private parseBlock(block: string): SseEvent | null {
     let event = "message";
+    let id: number | undefined;
     const dataLines: string[] = [];
     for (const line of block.split("\n")) {
       if (line.startsWith("event:")) {
         event = line.slice("event:".length).trim();
+      } else if (line.startsWith("id:")) {
+        // 23f : id numériques uniquement (Last-Event-ID côté reconnexion)
+        const raw = line.slice("id:".length).trim();
+        id = /^\d+$/.test(raw) ? Number(raw) : undefined;
       } else if (line.startsWith("data:")) {
         // Spec SSE : un seul espace optionnel après ':' est retiré.
         dataLines.push(line.slice("data:".length).replace(/^ /, ""));
@@ -38,7 +45,9 @@ export class SseParser {
       // Les lignes commençant par ':' sont des commentaires (heartbeat) : ignorées.
     }
     if (dataLines.length === 0) return null;
-    return { event, data: dataLines.join("\n") };
+    const parsed: SseEvent = { event, data: dataLines.join("\n") };
+    if (id !== undefined) parsed.id = id;
+    return parsed;
   }
 }
 
@@ -46,7 +55,10 @@ export interface StreamSseOptions {
   method?: string;
   body?: unknown;
   signal?: AbortSignal;
-  onEvent: (event: string, data: unknown) => void;
+  /** 23f : headers additionnels (ex. Last-Event-ID pour le replay). */
+  headers?: Record<string, string>;
+  /** 23f : le 3e argument est l'`id:` de l'event (null si absent). */
+  onEvent: (event: string, data: unknown, id: number | null) => void;
 }
 
 /**
@@ -57,7 +69,10 @@ export async function streamSse(
   url: string,
   options: StreamSseOptions,
 ): Promise<void> {
-  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  const headers: Record<string, string> = {
+    Accept: "text/event-stream",
+    ...options.headers,
+  };
   let body: string | undefined;
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -82,14 +97,14 @@ export async function streamSse(
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   const dispatch = (events: SseEvent[]) => {
-    for (const { event, data } of events) {
+    for (const { event, data, id } of events) {
       let parsed: unknown = data;
       try {
         parsed = JSON.parse(data);
       } catch {
         // data texte brut : on garde la chaîne
       }
-      options.onEvent(event, parsed);
+      options.onEvent(event, parsed, id ?? null);
     }
   };
   try {

@@ -35,6 +35,15 @@ class TraceStoreProtocol(Protocol):
         status: str,
     ) -> None: ...
 
+    # 23f : journal des événements SSE d'un run (replay Last-Event-ID)
+    async def append_event(
+        self, run_id: str, seq: int, event: str, payload: dict
+    ) -> None: ...
+
+    async def events_after(
+        self, run_id: str, last_seq: int
+    ) -> list[dict[str, Any]]: ...
+
 
 def _truncate(payload: dict[str, Any]) -> dict[str, Any]:
     blob = json.dumps(payload, default=str, ensure_ascii=False)
@@ -112,6 +121,53 @@ class DbTraceStore:
                 },
             )
             await session.commit()
+
+    async def append_event(
+        self, run_id: str, seq: int, event: str, payload: dict
+    ) -> None:
+        """23f : persiste un événement SSE d'un run (idempotent sur (run_id, seq))."""
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO run_events (run_id, seq, event, payload) "
+                    "VALUES (CAST(:r AS uuid), :s, :e, CAST(:p AS jsonb)) "
+                    "ON CONFLICT (run_id, seq) DO NOTHING"
+                ),
+                {
+                    "r": run_id,
+                    "s": seq,
+                    "e": event,
+                    "p": json.dumps(
+                        redact_value(payload, self._redactor), ensure_ascii=False
+                    ),
+                },
+            )
+            await session.commit()
+
+    async def events_after(self, run_id: str, last_seq: int) -> list[dict[str, Any]]:
+        """23f : événements stockés du run avec seq > last_seq, ordre croissant."""
+        async with self._session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT seq, event, payload FROM run_events "
+                            "WHERE run_id = CAST(:r AS uuid) AND seq > :s ORDER BY seq"
+                        ),
+                        {"r": run_id, "s": last_seq},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "seq": int(row["seq"]),
+                "event": str(row["event"]),
+                "payload": dict(row["payload"]),
+            }
+            for row in rows
+        ]
 
     async def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         """Exécutions récentes (sans la réponse, réservée au détail)."""

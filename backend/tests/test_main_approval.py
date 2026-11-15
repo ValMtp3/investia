@@ -108,6 +108,12 @@ class FakeTraceStore:
     async def log_step(self, run_id, turn, kind, payload):
         self.steps.append((run_id, turn, kind, payload))
 
+    async def append_event(self, run_id, seq, event, payload):
+        pass
+
+    async def events_after(self, run_id, last_seq):
+        return []
+
     async def finish_run(self, run_id, *, answer, model, turns, cost_cents, status):
         self.runs[run_id].update(status=status, answer=answer)
 

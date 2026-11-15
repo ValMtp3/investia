@@ -13,6 +13,12 @@ class FakeTraceStore:
     async def list_runs(self, limit=50):
         return [{"id": rid, **run} for rid, run in list(self._runs.items())[:limit]]
 
+    async def append_event(self, run_id, seq, event, payload):
+        pass
+
+    async def events_after(self, run_id, last_seq):
+        return []
+
     async def get_run(self, run_id):
         return {
             "run": {"id": run_id, **self._runs[run_id]},

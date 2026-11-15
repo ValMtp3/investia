@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ComponentType, type FormEvent } from 
 import { Link } from "@tanstack/react-router";
 import { A2UIStore, type A2UISurfaceModel } from "../a2ui";
 import {
+  fetchTrace,
   isPortfolioPayload,
   respondApproval,
   streamAgentRun,
@@ -9,11 +10,13 @@ import {
   usePortfolio,
   type AgentEvent,
   type RunState,
+  type StreamResume,
 } from "../api";
 import A2UISurface from "../components/A2UISurface";
 import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
 import HistoryChart from "../components/HistoryChart";
+import Markdown from "../components/Markdown";
 import Module from "../components/Module";
 import Skeleton from "../components/Skeleton";
 import PageHeader from "../components/PageHeader";
@@ -58,6 +61,16 @@ interface ChatMessage {
 const UI_COMPONENTS: Record<string, ComponentType<any>> = {
   HistoryChart,
 };
+
+// 23f : reconnexion SSE (Last-Event-ID) — backoff puis abandon après 3 essais.
+const RETRY_DELAYS_MS = [500, 1000, 2000];
+// 23f : après un event `detached` (run encore actif côté serveur), on poll la trace.
+const POLL_INTERVAL_MS = 2000;
+const POLL_MAX = 150; // ~5 min max
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Questions prêtes à l'emploi : un clic remplit le champ (l'envoi reste manuel). */
 const SUGGESTIONS = [
@@ -140,6 +153,10 @@ export default function Agent() {
   const abortRef = useRef<AbortController | null>(null);
   const stepIdRef = useRef(0);
   const statusRef = useRef<HTMLParagraphElement | null>(null);
+  // 23f : reconnexion — dernier id SSE reçu, run_id courant, flag detached
+  const lastEventIdRef = useRef<number | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  const detachedRef = useRef(false);
   // Résumé du portefeuille simulé (l'agent y a accès via l'outil get_portfolio).
   const portfolio = usePortfolio();
   // 23c : ?protocol=a2ui branche le flux A2UI 1.0 (défaut : agui, 21a).
@@ -182,11 +199,12 @@ export default function Agent() {
     ]);
     a2uiStoreRef.current = new A2UIStore();
     setA2uiSurfaces([]);
-    try {
-      const stream = mode === "multi" ? streamMultiAgentRun : streamAgentRun;
-      await stream(
-        question,
-        (evt) => {
+    lastEventIdRef.current = null;
+    runIdRef.current = null;
+    detachedRef.current = false;
+
+    /** Met à jour la dernière bulle assistant selon l'event (21a/23c/23f). */
+    const handleEvent = (evt: AgentEvent) => {
           if (evt.kind === "state_snapshot") {
             // 21a : état partagé AG-UI — panneau « État du run » mis à jour en direct
             patchLastAssistant((msg) => ({ ...msg, runState: evt.payload }));
@@ -219,8 +237,13 @@ export default function Agent() {
               steps: [...msg.steps, { id, text: step.text, ok: step.ok }],
             }));
           } else if (evt.kind === "start") {
-            // Le run est tracé côté backend : on garde son id pour le lien « voir la trace ».
+            // Le run est tracé côté backend : on garde son id pour le lien « voir la trace »
+            // et pour la reconnexion 23f (re-POST avec run_id + Last-Event-ID).
+            if (evt.payload.run_id) runIdRef.current = evt.payload.run_id;
             patchLastAssistant((msg) => ({ ...msg, runId: evt.payload.run_id ?? null }));
+          } else if (evt.kind === "detached") {
+            // 23f : run encore actif côté serveur -> on replie en polling de la trace
+            detachedRef.current = true;
           } else if (evt.kind === "answer") {
             patchLastAssistant((msg) => ({ ...msg, answer: evt.payload.text }));
           } else if (evt.kind === "done") {
@@ -252,10 +275,72 @@ export default function Agent() {
               answer: `Erreur pendant le run : ${evt.payload.message}`,
             }));
           }
-        },
-        controller.signal,
-        protocol, // 21a : AG-UI par défaut ; 23c : A2UI 1.0 avec ?protocol=a2ui
-      );
+    };
+
+    /** 23f : poll GET /traces/{run_id} jusqu'au statut final (repli après detached). */
+    const pollRunUntilFinished = async (runId: string) => {
+      for (let i = 0; i < POLL_MAX; i++) {
+        const trace = await fetchTrace(runId, controller.signal);
+        const run = trace.run;
+        if (!run || run.status !== "running") {
+          if (run) {
+            if (run.answer) {
+              patchLastAssistant((msg) => ({ ...msg, answer: run.answer ?? msg.answer }));
+            }
+            patchLastAssistant((msg) => ({
+              ...msg,
+              summary: `Terminé en ${run.turns} tours · coût ${run.total_cost_cents} c · statut ${run.status}`,
+            }));
+          }
+          return;
+        }
+        await sleep(POLL_INTERVAL_MS);
+      }
+    };
+
+    try {
+      let resume: StreamResume | null = null;
+      let attempt = 0;
+      for (;;) {
+        try {
+          if (mode === "multi") {
+            // 23f hors périmètre : le multi-agents n'a pas de replay (v2)
+            await streamMultiAgentRun(
+              question,
+              (evt, eventId) => {
+                if (eventId != null) lastEventIdRef.current = eventId;
+                handleEvent(evt);
+              },
+              controller.signal,
+              protocol, // 21a : AG-UI par défaut ; 23c : A2UI 1.0 avec ?protocol=a2ui
+            );
+          } else {
+            await streamAgentRun(
+              question,
+              (evt, eventId) => {
+                if (eventId != null) lastEventIdRef.current = eventId;
+                handleEvent(evt);
+              },
+              controller.signal,
+              protocol,
+              resume ?? undefined, // 23f : replay du run avec le dernier id reçu
+            );
+          }
+          break;
+        } catch (err) {
+          if (isAbortError(err)) throw err; // stop volontaire -> gestionnaire externe
+          if (detachedRef.current) break; // run actif ailleurs -> polling ci-dessous
+          if (runIdRef.current) {
+            resume = { runId: runIdRef.current, lastEventId: lastEventIdRef.current };
+          }
+          attempt += 1;
+          if (!resume || attempt > RETRY_DELAYS_MS.length) throw err;
+          await sleep(RETRY_DELAYS_MS[attempt - 1]);
+        }
+      }
+      if (detachedRef.current && runIdRef.current) {
+        await pollRunUntilFinished(runIdRef.current);
+      }
     } catch (err) {
       if (isAbortError(err)) {
         patchLastAssistant((msg) => ({ ...msg, stopped: true }));
@@ -545,7 +630,12 @@ export default function Agent() {
                   )}
                 </div>
               )}
-              {msg.answer && <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{msg.answer}</div>}
+              {msg.answer && (
+                <div className="[overflow-wrap:anywhere]">
+                  {/* 23f : markdown streamé (streamdown) — la DA du conteneur est inchangée */}
+                  <Markdown>{msg.answer}</Markdown>
+                </div>
+              )}
               {msg.summary && <div className="mt-2 text-muted">{msg.summary}</div>}
               {msg.runId && (
                 <div className="mt-2">
