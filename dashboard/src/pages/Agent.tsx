@@ -7,6 +7,7 @@ import {
   streamMultiAgentRun,
   usePortfolio,
   type AgentEvent,
+  type RunState,
 } from "../api";
 import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
@@ -42,6 +43,8 @@ interface ChatMessage {
   stopped?: boolean;
   runId?: string | null;
   approval?: PendingApproval;
+  /** 21a : état partagé du run (StateSnapshotEvent AG-UI), mis à jour en direct. */
+  runState?: RunState;
 }
 
 /** Questions prêtes à l'emploi : un clic remplit le champ (l'envoi reste manuel). */
@@ -165,6 +168,11 @@ export default function Agent() {
       await stream(
         question,
         (evt) => {
+          if (evt.kind === "state_snapshot") {
+            // 21a : état partagé AG-UI — panneau « État du run » mis à jour en direct
+            patchLastAssistant((msg) => ({ ...msg, runState: evt.payload }));
+            return;
+          }
           const step = stepText(evt);
           if (step) {
             stepIdRef.current += 1;
@@ -209,6 +217,7 @@ export default function Agent() {
           }
         },
         controller.signal,
+        "agui", // 21a : protocole AG-UI (état partagé) — le rendu legacy reste identique
       );
     } catch (err) {
       if (isAbortError(err)) {
@@ -418,6 +427,29 @@ export default function Agent() {
                     </li>
                   ))}
                 </ul>
+              )}
+              {msg.runState && (
+                <div
+                  aria-label="État du run"
+                  className="mb-2 mt-1 border border-rule bg-wash/50 p-2 text-xs text-muted"
+                >
+                  <p className="mb-1 flex flex-wrap items-center gap-2">
+                    <span>État du run</span>
+                    <Badge tone={msg.runState.status === "ok" ? "gain" : "neutral"}>
+                      {msg.runState.status}
+                    </Badge>
+                    {msg.runState.agents.map((a) => (
+                      <Badge key={a}>{a}</Badge>
+                    ))}
+                  </p>
+                  <ol aria-label="Étapes structurées du run" className="space-y-0.5">
+                    {msg.runState.steps.slice(-8).map((s, i) => (
+                      <li key={i} className="[overflow-wrap:anywhere]">
+                        {s.summary}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
               )}
               {msg.approval && (
                 <div

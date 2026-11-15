@@ -279,19 +279,111 @@ export type AgentEvent =
         quantity: number;
       };
     }
-  | { kind: "done"; payload: { turns: number; cost_cents: number; status: string } };
+  | { kind: "done"; payload: { turns: number; cost_cents: number; status: string } }
+  | {
+      kind: "state_snapshot"; // 21a : état partagé AG-UI (StateSnapshotEvent)
+      payload: {
+        question: string;
+        mode: string;
+        run_id: string;
+        status: string;
+        agents: string[];
+        steps: { kind: string; summary: string }[];
+      };
+    };
 
-/** Stream SSE de la boucle agent : POST /agent/run. */
+/** 21a : état partagé du run reçu via StateSnapshotEvent (AG-UI). */
+export type RunState = Extract<AgentEvent, { kind: "state_snapshot" }>["payload"];
+
+/** 21a : traduit les blocs AG-UI (`data: {"type": ...}` sans ligne event:) en AgentEvent legacy. */
+function makeAguiAdapter(onEvent: (event: AgentEvent) => void): (kind: string, data: unknown) => void {
+  const texts = new Map<string, string>();
+  const toolNames = new Map<string, string>();
+  const toolArgs = new Map<string, string>();
+  return (kind, data) => {
+    if (kind !== "message" || typeof data !== "object" || data === null) {
+      onEvent({ kind, payload: data } as AgentEvent);
+      return;
+    }
+    const evt = data as Record<string, any>;
+    switch (evt.type) {
+      case "RUN_STARTED": {
+        const msgs = evt.input?.messages ?? [];
+        onEvent({
+          kind: "start",
+          payload: {
+            question: String(msgs.at(-1)?.content ?? ""),
+            run_id: evt.run_id ?? null,
+          },
+        });
+        break;
+      }
+      case "TEXT_MESSAGE_CONTENT":
+        texts.set(evt.message_id, (texts.get(evt.message_id) ?? "") + String(evt.delta ?? ""));
+        break;
+      case "TEXT_MESSAGE_END":
+        onEvent({ kind: "answer", payload: { text: texts.get(evt.message_id) ?? "" } });
+        texts.delete(evt.message_id);
+        break;
+      case "TOOL_CALL_START":
+        toolNames.set(evt.tool_call_id, String(evt.tool_call_name ?? ""));
+        toolArgs.set(evt.tool_call_id, "");
+        break;
+      case "TOOL_CALL_ARGS": {
+        toolArgs.set(evt.tool_call_id, (toolArgs.get(evt.tool_call_id) ?? "") + String(evt.delta ?? ""));
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(toolArgs.get(evt.tool_call_id) ?? "{}");
+        } catch {
+          args = {};
+        }
+        onEvent({
+          kind: "tool_call",
+          payload: { turn: 0, name: toolNames.get(evt.tool_call_id) ?? "", arguments: args, ok: true },
+        });
+        break;
+      }
+      case "RUN_FINISHED":
+        onEvent({
+          kind: "done",
+          payload: {
+            turns: Number(evt.result?.turns ?? 0),
+            cost_cents: Number(evt.result?.cost_cents ?? 0),
+            status: String(evt.result?.status ?? "ok"),
+          },
+        });
+        break;
+      case "RUN_ERROR":
+        onEvent({ kind: "error", payload: { message: String(evt.message ?? "erreur") } });
+        break;
+      case "STATE_SNAPSHOT":
+        onEvent({ kind: "state_snapshot", payload: evt.snapshot });
+        break;
+      case "CUSTOM":
+        onEvent({ kind: String(evt.name ?? "custom"), payload: evt.value } as AgentEvent);
+        break;
+      default:
+        onEvent({ kind: String(evt.type ?? "custom"), payload: evt } as AgentEvent);
+    }
+  };
+}
+
+/** Stream SSE de la boucle agent : POST /agent/run. `protocol="agui"` (21a) : blocs AG-UI + état partagé. */
 export function streamAgentRun(
   question: string,
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
+  protocol: "legacy" | "agui" = "legacy",
 ): Promise<void> {
-  return streamSse(`${API_URL}/agent/run`, {
+  const url = `${API_URL}/agent/run${protocol === "agui" ? "?protocol=agui" : ""}`;
+  return streamSse(url, {
     method: "POST",
     body: { question },
     signal,
-    onEvent: (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+    onEvent:
+      protocol === "agui"
+        ? makeAguiAdapter(onEvent)
+        : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
   });
 }
 
@@ -300,12 +392,17 @@ export function streamMultiAgentRun(
   question: string,
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
+  protocol: "legacy" | "agui" = "legacy",
 ): Promise<void> {
-  return streamSse(`${API_URL}/api/agents/run`, {
+  const url = `${API_URL}/api/agents/run${protocol === "agui" ? "?protocol=agui" : ""}`;
+  return streamSse(url, {
     method: "POST",
     body: { question },
     signal,
-    onEvent: (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+    onEvent:
+      protocol === "agui"
+        ? makeAguiAdapter(onEvent)
+        : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
   });
 }
 

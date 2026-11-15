@@ -192,10 +192,12 @@ async def test_agent_run_agui_protocol_emits_agui_events_without_event_lines(app
     assert "TOOL_CALL_START" in types
     assert "TOOL_CALL_ARGS" in types
     assert "TEXT_MESSAGE_CONTENT" in types
-    assert types[-1] == "RUN_FINISHED"
+    # 21a : chaque event AG-UI est suivi d'un STATE_SNAPSHOT (dernier bloc)
+    assert types[-1] == "STATE_SNAPSHOT"
+    assert "RUN_FINISHED" in types
     started = blocks[0]
     assert started["input"]["messages"][0]["content"] == "prix AAPL ?"
-    finished = blocks[-1]
+    finished = next(b for b in blocks if b["type"] == "RUN_FINISHED")
     assert finished["result"]["status"] == "ok"
     assert finished["result"]["turns"] >= 2
     content = next(b for b in blocks if b["type"] == "TEXT_MESSAGE_CONTENT")
@@ -212,3 +214,72 @@ async def test_agent_run_default_protocol_stays_legacy(app):
     assert "event: start" in raw
     assert "event: done" in raw
     assert '"type": "RUN_STARTED"' not in raw
+
+
+# --- 21a : état partagé du run (StateSnapshotEvent) -----------------------------
+
+
+def test_run_state_accumulator_cycle_complet():
+    """21a : l'accumulateur tient l'état du run et émet un STATE_SNAPSHOT par event."""
+    from investia.agent.agui import RunStateAccumulator
+
+    acc = RunStateAccumulator()
+    ev = acc.event("start", {"question": "prix AAPL ?", "mode": "solo", "run_id": "r1"})
+    assert ev is not None
+    assert ev.type == "STATE_SNAPSHOT"
+    assert ev.snapshot["status"] == "running"
+    assert ev.snapshot["question"] == "prix AAPL ?"
+    assert ev.snapshot["steps"] == []
+
+    acc.event("a2a_route", {"agents": ["analyste", "risque"], "source": "learned"})
+    acc.event(
+        "tool_call",
+        {"name": "get_quote", "arguments": {"symbol": "AAPL"}, "ok": True},
+    )
+    ev_done = acc.event("done", {"status": "ok", "turns": 2, "cost_cents": 0.03})
+    snap = ev_done.snapshot
+    assert snap["status"] == "ok"
+    assert snap["agents"] == ["analyste", "risque"]
+    assert any(
+        s["kind"] == "tool_call" and "get_quote" in s["summary"] for s in snap["steps"]
+    )
+
+
+def test_format_agui_sse_avec_state_event():
+    """21a : format_agui_sse insère le bloc STATE_SNAPSHOT si state_event fourni."""
+    from investia.agent.agui import RunStateAccumulator, format_agui_sse
+
+    acc = RunStateAccumulator()
+    state_event = acc.event("start", {"question": "q", "run_id": "r"})
+    out = format_agui_sse(
+        "start", {"question": "q", "run_id": "r"}, state_event=state_event
+    )
+    assert '"type":"STATE_SNAPSHOT"' in out.replace(" ", "")
+    # sans state_event (legacy 15c) : aucun STATE_SNAPSHOT
+    assert "STATE_SNAPSHOT" not in format_agui_sse(
+        "start", {"question": "q", "run_id": "r"}
+    )
+
+
+async def test_agent_run_agui_emet_state_snapshots(app):
+    """21a : en protocol=agui, chaque event est suivi d'un STATE_SNAPSHOT à jour."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        raw = await _read_raw_stream(
+            client, "/agent/run?protocol=agui", {"question": "prix AAPL ?"}
+        )
+    blocks = _parse_agui_blocks(raw)
+    snapshots = [b for b in blocks if b["type"] == "STATE_SNAPSHOT"]
+    assert snapshots, "aucun STATE_SNAPSHOT émis"
+    assert snapshots[0]["snapshot"]["status"] == "running"
+    assert snapshots[0]["snapshot"]["question"] == "prix AAPL ?"
+    assert snapshots[-1]["snapshot"]["status"] == "ok"
+    assert any(s["kind"] == "tool_call" for s in snapshots[-1]["snapshot"]["steps"])
+
+
+async def test_agent_run_legacy_jamais_de_state_snapshot(app):
+    """21a zéro régression : protocol=legacy -> aucun bloc STATE_SNAPSHOT."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        raw = await _read_raw_stream(client, "/agent/run", {"question": "prix AAPL ?"})
+    assert "STATE_SNAPSHOT" not in raw
