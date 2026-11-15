@@ -283,3 +283,55 @@ async def test_agent_run_legacy_jamais_de_state_snapshot(app):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         raw = await _read_raw_stream(client, "/agent/run", {"question": "prix AAPL ?"})
     assert "STATE_SNAPSHOT" not in raw
+
+
+# --- 21b : generative UI (CustomEvent ui_component) -----------------------------
+
+
+def test_tool_call_get_history_emet_aussi_ui_component():
+    """21b : get_history -> ToolCall AG-UI + CustomEvent ui_component HistoryChart."""
+    events = to_agui_events(
+        "tool_call",
+        {
+            "turn": 1,
+            "name": "get_history",
+            "arguments": {"symbol": "AAPL", "days": 90},
+            "ok": True,
+        },
+    )
+    types = [e.type for e in events]
+    assert "TOOL_CALL_START" in types
+    customs = [e for e in events if isinstance(e, agui_events.CustomEvent)]
+    ui = [c for c in customs if c.name == "ui_component"]
+    assert len(ui) == 1
+    assert ui[0].value == {
+        "component": "HistoryChart",
+        "props": {"symbol": "AAPL", "days": 90},
+    }
+
+
+def test_tool_call_non_chartable_n_emet_pas_ui_component():
+    """21b : get_quote (pas dans la whitelist) -> aucun ui_component."""
+    events = to_agui_events(
+        "tool_call",
+        {"turn": 1, "name": "get_quote", "arguments": {"symbol": "AAPL"}, "ok": True},
+    )
+    customs = [e for e in events if isinstance(e, agui_events.CustomEvent)]
+    assert all(c.name != "ui_component" for c in customs)
+
+
+def test_format_agui_sse_inclut_le_bloc_ui_component():
+    """21b : le flux agui sérialisé contient le bloc CUSTOM ui_component."""
+    from investia.agent.agui import format_agui_sse
+
+    out = format_agui_sse(
+        "tool_call",
+        {
+            "turn": 1,
+            "name": "get_history",
+            "arguments": {"symbol": "AAPL", "days": 90},
+            "ok": True,
+        },
+    )
+    assert '"name":"ui_component"' in out.replace(" ", "")
+    assert "HistoryChart" in out

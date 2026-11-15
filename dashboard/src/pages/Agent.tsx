@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   isPortfolioPayload,
@@ -11,6 +11,7 @@ import {
 } from "../api";
 import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
+import HistoryChart from "../components/HistoryChart";
 import Module from "../components/Module";
 import Skeleton from "../components/Skeleton";
 import PageHeader from "../components/PageHeader";
@@ -45,7 +46,16 @@ interface ChatMessage {
   approval?: PendingApproval;
   /** 21a : état partagé du run (StateSnapshotEvent AG-UI), mis à jour en direct. */
   runState?: RunState;
+  /** 21b : composants poussés par l'agent (generative UI), rendus via la whitelist. */
+  components?: { component: string; props: Record<string, unknown> }[];
 }
+
+/** 21b : whitelist des composants rendus depuis le flux AG-UI — rien d'autre ne peut
+ *  être instancié (un composant inconnu est ignoré, jamais de HTML arbitraire).
+ *  `any` sur les props : la whitelist est la barrière, le composant valide lui-même. */
+const UI_COMPONENTS: Record<string, ComponentType<any>> = {
+  HistoryChart,
+};
 
 /** Questions prêtes à l'emploi : un clic remplit le champ (l'envoi reste manuel). */
 const SUGGESTIONS = [
@@ -171,6 +181,18 @@ export default function Agent() {
           if (evt.kind === "state_snapshot") {
             // 21a : état partagé AG-UI — panneau « État du run » mis à jour en direct
             patchLastAssistant((msg) => ({ ...msg, runState: evt.payload }));
+            return;
+          }
+          if (evt.kind === "ui_component") {
+            // 21b : generative UI — whitelist : composant inconnu ignoré
+            if (!(evt.payload.component in UI_COMPONENTS)) return;
+            patchLastAssistant((msg) => ({
+              ...msg,
+              components: [
+                ...(msg.components ?? []),
+                { component: evt.payload.component, props: evt.payload.props },
+              ],
+            }));
             return;
           }
           const step = stepText(evt);
@@ -428,6 +450,19 @@ export default function Agent() {
                   ))}
                 </ul>
               )}
+              {msg.components?.map((c, i) => {
+                const Comp = UI_COMPONENTS[c.component];
+                if (!Comp) return null;
+                return (
+                  <div
+                    key={i}
+                    aria-label={`Composant ${c.component}`}
+                    className="mb-2 mt-1 border border-rule bg-wash/50 p-2"
+                  >
+                    <Comp {...c.props} />
+                  </div>
+                );
+              })}
               {msg.runState && (
                 <div
                   aria-label="État du run"

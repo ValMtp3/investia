@@ -80,7 +80,7 @@ def to_agui_events(kind: str, payload: dict[str, Any]) -> list[BaseEvent]:
 
     if kind == "tool_call":
         tool_call_id = str(payload.get("tool_call_id") or f"call-{uuid4().hex}")
-        return [
+        events: list[BaseEvent] = [
             agui_events.ToolCallStartEvent(
                 tool_call_id=tool_call_id,
                 tool_call_name=str(payload.get("name") or ""),
@@ -90,6 +90,19 @@ def to_agui_events(kind: str, payload: dict[str, Any]) -> list[BaseEvent]:
                 delta=json.dumps(payload.get("arguments") or {}, ensure_ascii=False),
             ),
         ]
+        # 21b : generative UI — un outil chartable pousse aussi un composant à
+        # rendre dans le chat (whitelist stricte, props dérivés des arguments).
+        ui = UI_COMPONENT_BY_TOOL.get(str(payload.get("name") or ""))
+        if ui is not None:
+            component, props_of = ui
+            arguments = payload.get("arguments") or {}
+            events.append(
+                agui_events.CustomEvent(
+                    name="ui_component",
+                    value={"component": component, "props": props_of(arguments)},
+                )
+            )
+        return events
 
     if kind == "done":
         return [
@@ -126,6 +139,18 @@ def format_agui_sse(
         f"data: {event.model_dump_json(by_alias=True)}\n\n" for event in events
     )
 
+
+# 21b : whitelist outil -> (composant UI, props depuis les arguments).
+# Le frontend a sa propre whitelist : un composant inconnu y est ignoré.
+UI_COMPONENT_BY_TOOL: dict[str, tuple[str, Any]] = {
+    "get_history": (
+        "HistoryChart",
+        lambda args: {
+            "symbol": str(args.get("symbol") or ""),
+            "days": int(args.get("days") or 30),
+        },
+    ),
+}
 
 # 21a : kinds qui alimentent les steps de l'état partagé (résumé court).
 _STEP_KINDS = frozenset(
