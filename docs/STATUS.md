@@ -1,6 +1,6 @@
 # STATUS — où en est le projet
 
-> **Mis à jour le : 14/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
+> **Mis à jour le : 15/11/2026.** C'est le seul endroit qui dit l'état *actuel*. Le reste des docs décrit la cible, pas le présent.
 
 ## Étape en cours
 
@@ -143,6 +143,25 @@ Rapport consolidé de 8 sous-agents de veille (harness, mémoire, evals, garde-f
 **Étape 21a — AG-UI : état partagé du run (StateSnapshotEvent, P9.3) : TERMINÉE le 14/11/2026** (branche `feat/etape-21a-agui-etat-partage`, spec `docs/specs/21a-agui-etat-partage.md`) : nouveau `RunStateAccumulator` (`agent/agui.py`) émet un `StateSnapshotEvent` après chaque event en mode `?protocol=agui` sur `/agent/run` **et** `/api/agents/run` (legacy = défaut, zéro régression 15c) ; `format_agui_sse(..., state_event=...)` ; côté dashboard, adaptateur AG-UI dans `api.ts` (décode les blocs `data: {"type":…}` en AgentEvent legacy : RUN_STARTED→start, TEXT_MESSAGE_*→answer, TOOL_CALL_*→tool_call, RUN_FINISHED→done, CUSTOM→kind nommé, STATE_SNAPSHOT→`state_snapshot`) et panneau « État du run » en direct dans la page Agent (statut, agents, steps structurés). 4 tests backend + 1 test frontend. Backend **656 passed / 1 skip**, ruff/ty/format propres ; dashboard **112 tests**, tsc/build propres. Suite 21b : generative UI (CustomEvent ui_component rendu dans le chat).
 
 **Étape 21b — AG-UI : generative UI (CustomEvent ui_component, P9.3 fin) : TERMINÉE le 14/11/2026** (branche `feat/etape-21b-agui-generative-ui`, spec `docs/specs/21b-agui-generative-ui.md`) : whitelist backend `get_history` → `HistoryChart` dans `to_agui_events` (émis en CUSTOM `ui_component` en plus du ToolCall, uniquement en protocol=agui — legacy inchangé) ; frontend : type `ui_component`, registre whitelist `UI_COMPONENTS` (composant inconnu ignoré des deux côtés — jamais de HTML arbitraire), nouveau composant `HistoryChart` (fetch `useMarketHistory` → Skeleton/PriceChart) rendu dans la bulle du chat. 3 tests backend + 1 test frontend. Backend **659 passed / 1 skip**, ruff/ty/format propres ; dashboard **113 tests**, tsc/build propres. **P9.3 terminé.**
+
+**Chantier 22a — dataset d'evals depuis les traces + batch live : EN COURS le 15/11/2026** (branche `feat/etape-22a-dataset-live`, spec `docs/specs/22a-dataset-traces-batch-live.md`, D93) : (1) `export_traces.py` gagne `tools_used` (noms des outils des steps `tool_call`, dédupliqués, ordre d'appel) dans chaque ligne JSONL ; (2) nouveau `evals/build_dataset.py` + CLI `python -m investia.evals.build_dataset --in …jsonl --out …cases-live.yaml --limit 50 --seed 42` — filtre status=ok + question/answer non vides, dédup par question normalisée (garde la plus récente), `random.Random(seed).sample`, YAML relisable par `load_cases` (id `trace-<id8>`, `expected_tool` = premier tools_used, `mock_final` = réponse de référence) ; (3) `evals/__main__.py` refactorisé avec `build_parser()` + `--live` (vrais `build_llm_client`/`build_market_service`, `run_evals(mode="live", llm=…)` sans fakes, nouveau param `llm` dans le runner) et `--limit` (défaut 20, max 100 refusé au-delà) — mock reste le défaut, zéro régression. 6 tests TDD (export tools_used, build_dataset filtre/dédup/seed/limit, CLI garde-fou). Suite non-integration **665 passed / 1 skip** ; ruff/format/ty propres ; dashboard inchangé.
+
+### Procédure VPS — batch live 22a (à exécuter par le propriétaire, clés réelles)
+
+```bash
+# 1. exporter les traces de prod (read-only) dans le conteneur backend
+docker compose exec backend uv run python -m investia.evals.export_traces --limit 200
+# 2. construire le jeu de cas (déterministe, seed 42)
+docker compose exec backend uv run python -m investia.evals.build_dataset \
+  --in evals/generated/traces_dataset.jsonl \
+  --out evals/generated/cases-live.yaml --limit 30 --seed 42
+# 3. lancer le batch live (plafond budget 17f actif, --limit max 100)
+docker compose exec backend uv run python -m investia.evals --live \
+  --cases evals/generated/cases-live.yaml --limit 30
+# 4. lire les métriques du run (routeur_choix, routeur_agent, tool_used…) dans /traces
+```
+
+⚠️ Jamais en CI, jamais en local ici : le batch live consomme de vrais crédits LLM.
 
 ## Bloqueurs / à vérifier maintenant
 

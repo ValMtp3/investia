@@ -41,6 +41,14 @@ async def export_dataset(
     for run in runs:
         detail = await store.get_run(str(run["id"]))
         steps = detail.get("steps") or []
+        # 22a : noms des outils appelés (steps tool_call), dédupliqués, ordre d'appel
+        tools_used: list[str] = []
+        for step in steps:
+            if step.get("kind") != "tool_call":
+                continue
+            name = (step.get("payload") or {}).get("name")
+            if name and name not in tools_used:
+                tools_used.append(str(name))
         entry = {
             "id": str(run["id"]),
             "question": run.get("question"),
@@ -51,6 +59,7 @@ async def export_dataset(
             "total_cost_cents": run.get("total_cost_cents"),
             "created_at": str(run.get("created_at")),
             "step_kinds": [step.get("kind") for step in steps],
+            "tools_used": tools_used,
         }
         lines.append(json.dumps(entry, ensure_ascii=False, default=str))
     content = "\n".join(lines) + ("\n" if lines else "")

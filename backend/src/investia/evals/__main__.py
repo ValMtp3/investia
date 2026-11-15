@@ -1,4 +1,9 @@
-"""Commande unique : uv run python -m investia.evals [--mock] [--cases PATH]."""
+"""Commande unique : uv run python -m investia.evals [--mock] [--live] [--cases PATH].
+
+Mode mock (défaut) : déterministe, zéro réseau, tous les cas.
+Mode --live (22a) : vrais LLM/market via build_llm_client/build_market_service,
+--limit cas (défaut 20, max 100) — à lancer sur le VPS (clés réelles), jamais en CI.
+"""
 
 import argparse
 import asyncio
@@ -14,8 +19,19 @@ from investia.evals.runner import (
 )
 from investia.portfolio.service import PortfolioService
 
+MAX_LIVE_LIMIT = 100  # garde-fou batch live (spec 22a)
 
-def main(argv: list[str] | None = None) -> int:
+
+def _limit_arg(value: str) -> int:
+    n = int(value)
+    if n < 1 or n > MAX_LIVE_LIMIT:
+        raise argparse.ArgumentTypeError(
+            f"--limit doit être entre 1 et {MAX_LIVE_LIMIT} (garde-fou batch live 22a)"
+        )
+    return n
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="investia.evals", description="Lancer les evals de l'agent"
     )
@@ -25,24 +41,63 @@ def main(argv: list[str] | None = None) -> int:
         default=True,
         help="mode mock (défaut, déterministe)",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="mode live : vrais LLM/market (VPS uniquement, clés réelles)",
+    )
     parser.add_argument("--cases", default=None, help="chemin du fichier de cas YAML")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--limit",
+        type=_limit_arg,
+        default=20,
+        help=f"nb max de cas en mode --live (défaut 20, max {MAX_LIVE_LIMIT})",
+    )
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     cases = load_cases(args.cases)
     store = EvalStore(get_session())
-    # Portefeuille câblé aussi dans les evals (spec 4.6), valorisé via le marché mock.
-    portfolio_service = PortfolioService(get_session(), MockMarket())
-    summary = asyncio.run(
-        run_evals(
-            cases,
-            eval_store=store,
-            mode="mock",
-            portfolio_service=portfolio_service,
-            web_searcher=FakeWebSearcher(),
-            pdf_reader=FakePdfReader(),
-            python_sandbox=FakePythonSandbox(),
+
+    if args.live:
+        # 22a : batch live — vrais services, zéro fake. Le plafond budget par
+        # appel (17f) reste actif ; ne se lance que là où les clés sont présentes.
+        from investia.config import get_settings
+        from investia.llm import build_llm_client
+        from investia.market import build_market_service
+
+        settings = get_settings()
+        llm = build_llm_client(settings)
+        market = build_market_service(settings)
+        portfolio_service = PortfolioService(get_session(), market)
+        cases = cases[: args.limit]
+        print(f"batch live : {len(cases)} cas, plafond budget actif (17f)")
+        summary = asyncio.run(
+            run_evals(
+                cases,
+                eval_store=store,
+                mode="live",
+                llm=llm,
+                market=market,
+                portfolio_service=portfolio_service,
+            )
         )
-    )
+    else:
+        # mock (défaut, zéro régression) : tous les cas, fakes déterministes.
+        portfolio_service = PortfolioService(get_session(), MockMarket())
+        summary = asyncio.run(
+            run_evals(
+                cases,
+                eval_store=store,
+                mode="mock",
+                portfolio_service=portfolio_service,
+                web_searcher=FakeWebSearcher(),
+                pdf_reader=FakePdfReader(),
+                python_sandbox=FakePythonSandbox(),
+            )
+        )
 
     n_cases = len(summary["results"])
     print(f"eval run {summary['run_id']} ({summary['mode']}) — {n_cases} cas")

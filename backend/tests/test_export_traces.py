@@ -79,3 +79,26 @@ async def test_export_sans_filtre_garde_tout(tmp_path):
     out = tmp_path / "all.jsonl"
     info = await export_dataset(_store(), out)
     assert info["count"] == 2
+
+
+async def test_export_inclut_tools_used_depuis_les_steps(tmp_path):
+    """22a : chaque ligne JSONL gagne tools_used (dédupliqué, ordre d'appel)."""
+
+    class StoreWithTools(FakeTraceStore):
+        async def get_run(self, run_id):
+            return {
+                "run": {"id": run_id, **self._runs[run_id]},
+                "steps": [
+                    {"kind": "tool_call", "payload": {"name": "get_quote"}},
+                    {"kind": "tool_call", "payload": {"name": "get_history"}},
+                    {"kind": "tool_call", "payload": {"name": "get_quote"}},
+                    {"kind": "guardrail", "payload": {}},
+                ],
+                "spans": [],
+            }
+
+    out = tmp_path / "ds.jsonl"
+    await export_dataset(StoreWithTools(_store()._runs), out)
+    lines = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    by_id = {line["id"]: line for line in lines}
+    assert by_id["run-ok"]["tools_used"] == ["get_quote", "get_history"]
