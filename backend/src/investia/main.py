@@ -130,6 +130,45 @@ def _is_valid_admin_token(provided: str | None, expected: str) -> bool:
     return secrets.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
+def _build_semantic_cache(
+    settings: Any,
+    session_factory: Any | None = None,
+    embeddings: Any | None = None,
+) -> Any | None:
+    """23g : cache sémantique prod — namespace + seuil + error budget.
+
+    Construit DbSemanticCache (namespace/threshold depuis la config) enveloppé
+    dans BudgetedSemanticCache (fail-open). Toute erreur -> None (pas de cache).
+    `session_factory`/`embeddings` injectables pour les tests.
+    """
+    try:
+        from investia.agent.semantic_cache import (
+            BudgetedSemanticCache,
+            DbSemanticCache,
+        )
+
+        if session_factory is None:
+            from investia.db import get_session
+
+            session_factory = get_session()
+        if embeddings is None:
+            from investia.memory import build_memory
+
+            embeddings = build_memory(settings)[1]
+        inner = DbSemanticCache(
+            session_factory,
+            embeddings,
+            threshold=settings.semantic_cache_threshold,
+            namespace=settings.semantic_cache_namespace,
+        )
+        return BudgetedSemanticCache(inner)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "cache sémantique indisponible : désactivé (23g)"
+        )
+        return None
+
+
 def create_app(
     portfolio_service: Any | None = None,
     llm: Any | None = None,
@@ -140,6 +179,7 @@ def create_app(
     backtest_service: Any | None = None,
     memory_store: Any | None = None,
     forecaster: Any | None = None,
+    semantic_cache: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
@@ -228,6 +268,10 @@ def create_app(
             logging.getLogger(__name__).warning(
                 "routeur de modèle indisponible : règles D44 (12h/23d)"
             )
+        # 12e/23g : cache sémantique prod (namespace + error budget) ; indisponible
+        # -> None = pas de cache (zéro régression).
+        if semantic_cache is None:
+            semantic_cache = _build_semantic_cache(settings)
         forecaster = None
         if settings.mistral_api_key is not None:
             # 17a : prévision Timestral, câblée seulement si la clé est là.
@@ -580,6 +624,7 @@ def create_app(
                     keep_last_turns=settings.compaction_keep_last_turns,
                     memory_store=memory_store,
                     router=model_router,  # 12h/23d : None = règles D44
+                    semantic_cache=semantic_cache,  # 12e/23g : None = pas de cache
                     # 17e : tool policy pré-schéma (DISABLED_TOOLS + sandbox os KO)
                     tool_policy=tool_policy_from_settings(settings),
                 )

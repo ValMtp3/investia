@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     router_linucb_epsilon: float = Field(default=0.05, ge=0, le=1)
     router_linucb_cost_weight: float = Field(default=0.1, ge=0)
 
+    # 23g : cache sémantique durci (CVE-2026-89032) — plancher de seuil 0,9
+    # (veille) et namespace d'isolation (par déploiement ; par requête quand
+    # le multi-user arrivera)
+    semantic_cache_threshold: float = Field(default=0.92, ge=0.9, le=1.0)
+    semantic_cache_namespace: str = Field(
+        default="default", pattern="^[a-z0-9_-]{1,64}$"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
