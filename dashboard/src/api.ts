@@ -1,5 +1,6 @@
 // Client API : tout passe par le backend (les clés API restent côté serveur).
 import { useQuery } from "@tanstack/react-query";
+import type { A2UIMessage } from "./a2ui";
 import { streamSse } from "./lib/sse";
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
@@ -294,6 +295,10 @@ export type AgentEvent =
   | {
       kind: "ui_component"; // 21b : generative UI (CustomEvent AG-UI ui_component)
       payload: { component: string; props: Record<string, unknown> };
+    }
+  | {
+      kind: "a2ui"; // 23c : message A2UI 1.0 (bloc data-only, protocole=a2ui)
+      payload: A2UIMessage;
     };
 
 /** 21a : état partagé du run reçu via StateSnapshotEvent (AG-UI). */
@@ -377,14 +382,28 @@ function makeAguiAdapter(onEvent: (event: AgentEvent) => void): (kind: string, d
   };
 }
 
-/** Stream SSE de la boucle agent : POST /agent/run. `protocol="agui"` (21a) : blocs AG-UI + état partagé. */
+/** 23c : adaptateur A2UI — chaque bloc data-only est un message A2UI JSON. */
+function makeA2uiAdapter(onEvent: (event: AgentEvent) => void): (kind: string, data: unknown) => void {
+  return (kind, data) => {
+    if (kind === "message" && typeof data === "object" && data !== null) {
+      onEvent({ kind: "a2ui", payload: data as A2UIMessage });
+      return;
+    }
+    onEvent({ kind, payload: data } as AgentEvent);
+  };
+}
+
+type AgentProtocol = "legacy" | "agui" | "a2ui";
+
+/** Stream SSE de la boucle agent : POST /agent/run. `protocol="agui"` (21a) / `"a2ui"` (23c). */
 export function streamAgentRun(
   question: string,
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
-  protocol: "legacy" | "agui" = "legacy",
+  protocol: AgentProtocol = "legacy",
 ): Promise<void> {
-  const url = `${API_URL}/agent/run${protocol === "agui" ? "?protocol=agui" : ""}`;
+  const query = protocol === "legacy" ? "" : `?protocol=${protocol}`;
+  const url = `${API_URL}/agent/run${query}`;
   return streamSse(url, {
     method: "POST",
     body: { question },
@@ -392,7 +411,9 @@ export function streamAgentRun(
     onEvent:
       protocol === "agui"
         ? makeAguiAdapter(onEvent)
-        : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+        : protocol === "a2ui"
+          ? makeA2uiAdapter(onEvent)
+          : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
   });
 }
 
@@ -401,9 +422,10 @@ export function streamMultiAgentRun(
   question: string,
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
-  protocol: "legacy" | "agui" = "legacy",
+  protocol: AgentProtocol = "legacy",
 ): Promise<void> {
-  const url = `${API_URL}/api/agents/run${protocol === "agui" ? "?protocol=agui" : ""}`;
+  const query = protocol === "legacy" ? "" : `?protocol=${protocol}`;
+  const url = `${API_URL}/api/agents/run${query}`;
   return streamSse(url, {
     method: "POST",
     body: { question },
@@ -411,7 +433,9 @@ export function streamMultiAgentRun(
     onEvent:
       protocol === "agui"
         ? makeAguiAdapter(onEvent)
-        : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
+        : protocol === "a2ui"
+          ? makeA2uiAdapter(onEvent)
+          : (kind, data) => onEvent({ kind, payload: data } as AgentEvent),
   });
 }
 

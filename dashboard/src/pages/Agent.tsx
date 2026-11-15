@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
+import { A2UIStore, type A2UISurfaceModel } from "../a2ui";
 import {
   isPortfolioPayload,
   respondApproval,
@@ -9,6 +10,7 @@ import {
   type AgentEvent,
   type RunState,
 } from "../api";
+import A2UISurface from "../components/A2UISurface";
 import Badge from "../components/Badge";
 import ErrorNotice from "../components/ErrorNotice";
 import HistoryChart from "../components/HistoryChart";
@@ -140,6 +142,11 @@ export default function Agent() {
   const statusRef = useRef<HTMLParagraphElement | null>(null);
   // Résumé du portefeuille simulé (l'agent y a accès via l'outil get_portfolio).
   const portfolio = usePortfolio();
+  // 23c : ?protocol=a2ui branche le flux A2UI 1.0 (défaut : agui, 21a).
+  const protocol: "agui" | "a2ui" =
+    new URLSearchParams(window.location.search).get("protocol") === "a2ui" ? "a2ui" : "agui";
+  const a2uiStoreRef = useRef(new A2UIStore());
+  const [a2uiSurfaces, setA2uiSurfaces] = useState<A2UISurfaceModel[]>([]);
 
   // Quitter la page coupe le flux : sinon le run continue (et coûte des appels au modèle).
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -173,6 +180,8 @@ export default function Agent() {
       { role: "user", text: question, steps: [] },
       { role: "assistant", steps: [] },
     ]);
+    a2uiStoreRef.current = new A2UIStore();
+    setA2uiSurfaces([]);
     try {
       const stream = mode === "multi" ? streamMultiAgentRun : streamAgentRun;
       await stream(
@@ -181,6 +190,12 @@ export default function Agent() {
           if (evt.kind === "state_snapshot") {
             // 21a : état partagé AG-UI — panneau « État du run » mis à jour en direct
             patchLastAssistant((msg) => ({ ...msg, runState: evt.payload }));
+            return;
+          }
+          if (evt.kind === "a2ui") {
+            // 23c : message A2UI 1.0 — surfaces rendues via le catalogue whitelisté
+            a2uiStoreRef.current.apply(evt.payload);
+            setA2uiSurfaces(a2uiStoreRef.current.list());
             return;
           }
           if (evt.kind === "ui_component") {
@@ -239,7 +254,7 @@ export default function Agent() {
           }
         },
         controller.signal,
-        "agui", // 21a : protocole AG-UI (état partagé) — le rendu legacy reste identique
+        protocol, // 21a : AG-UI par défaut ; 23c : A2UI 1.0 avec ?protocol=a2ui
       );
     } catch (err) {
       if (isAbortError(err)) {
@@ -552,6 +567,14 @@ export default function Agent() {
           ),
         )}
       </ol>
+
+      {a2uiSurfaces.length > 0 && (
+        <div aria-label="Surfaces A2UI" className="mt-3">
+          {a2uiSurfaces.map((surface) => (
+            <A2UISurface key={surface.surfaceId} surface={surface} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
