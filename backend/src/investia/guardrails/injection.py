@@ -145,6 +145,13 @@ def default_injection_scanner() -> InjectionScanner:
     return RegexInjectionScanner()
 
 
-def wrap_untrusted(text: str) -> str:
-    """Délimite un contenu externe (spotlighting) avant injection dans le contexte."""
-    return f"{UNTRUSTED_BEGIN}\n{text}\n{UNTRUSTED_END}"
+def wrap_untrusted(text: str, canary: str | None = None) -> str:
+    """Délimite un contenu externe (spotlighting) avant injection dans le contexte.
+
+    23b : si `canary` est fourni (marqueur du run), il est injecté dans le
+    délimiteur — s'il réapparaît ailleurs, c'est une exfiltration (canary_hit).
+    """
+    header = UNTRUSTED_BEGIN
+    if canary:
+        header = f"{UNTRUSTED_BEGIN}\ncanary={canary}"
+    return f"{header}\n{text}\n{UNTRUSTED_END}"

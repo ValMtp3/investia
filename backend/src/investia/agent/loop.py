@@ -21,6 +21,11 @@ from investia.agent.reasoning import (
     vote,
 )
 from investia.guardrails import run_all_checks
+from investia.guardrails.canary import (
+    CANARY_BLOCKED_MESSAGE,
+    CanaryDetector,
+    generate_canary,
+)
 from investia.guardrails.injection import (
     BLOCKED_MESSAGE,
     InjectionScanner,
@@ -116,6 +121,7 @@ class AgentResult:
         default_factory=list
     )  # étape 18b : agents A2A délégués (multi-agent uniquement)
     injections_blocked: int = 0  # étape 13b : sorties d'outils externes bloquées
+    canary_hits: int = 0  # étape 23b : canary du run retrouvé hors contenu externe
     compactions: int = 0  # étape 16c : compactions du contexte effectuées
     cached_tokens: int = 0  # 17f : tokens input servis depuis le cache prompt
 
@@ -159,6 +165,7 @@ async def _run_once(
     router_source: str = "rules",
     injection_scanner: InjectionScanner | None = None,
     injection_policy: str = "block",
+    canary_token: str | None = None,
     context_max_tokens: int | None = None,
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
@@ -251,6 +258,10 @@ async def _run_once(
     else:
         scanner = default_injection_scanner()
     injections_blocked = 0
+    # 23b : canary token du run — injecté dans le contenu externe wrappé, puis
+    # recherché dans les tool_calls suivants et la réponse finale (exfiltration).
+    canary_detector = CanaryDetector(canary_token or generate_canary())
+    canary_hits = 0
     compactions = 0
 
     for turn in range(1, max_turns + 1):
@@ -362,7 +373,26 @@ async def _run_once(
                 }
             )
             for call in response.tool_calls:
-                if (
+                # 23b : le canary du run dans les arguments = exfiltration de
+                # contenu externe → on compte, on trace, et en policy "block"
+                # le tool_call n'est pas exécuté.
+                leaked = canary_detector.scan(json.dumps(call.arguments))
+                if leaked:
+                    canary_hits += 1
+                    await emit(
+                        "canary_hit",
+                        {"turn": turn, "tool": call.name, "where": "arguments"},
+                    )
+                    if store is not None and run_id is not None:
+                        await store.log_step(
+                            run_id,
+                            turn,
+                            "canary_hit",
+                            {"tool": call.name, "where": "arguments"},
+                        )
+                if leaked and injection_policy == "block":
+                    result_text = CANARY_BLOCKED_MESSAGE
+                elif (
                     call.name == "simulate_order"
                     and approval_registry is not None
                     and run_id is not None
@@ -408,7 +438,10 @@ async def _run_once(
                             )
                         result_text = BLOCKED_MESSAGE
                     else:
-                        result_text = wrap_untrusted(result_text)
+                        # 23b : le canary du run est injecté dans le délimiteur.
+                        result_text = wrap_untrusted(
+                            result_text, canary=canary_detector.token
+                        )
                 entry = ToolCallLog(
                     tool=call.name,
                     arguments=call.arguments,
@@ -513,9 +546,19 @@ async def _run_once(
         if reflection_failed is not None:
             failed.append(reflection_failed)
         if not failed:
-            await emit("answer", {"turn": turn, "text": response.content})
+            # 23b : canary dans la réponse finale → on trace et on rédige.
+            final_text = response.content
+            if canary_detector.scan(final_text):
+                canary_hits += 1
+                await emit("canary_hit", {"turn": turn, "where": "answer"})
+                if store is not None and run_id is not None:
+                    await store.log_step(
+                        run_id, turn, "canary_hit", {"where": "answer"}
+                    )
+                final_text = canary_detector.redact(final_text)
+            await emit("answer", {"turn": turn, "text": final_text})
             result = AgentResult(
-                answer=response.content,
+                answer=final_text,
                 turns=turn,
                 tool_calls=log,
                 total_cost_cents=total_cost,
@@ -528,6 +571,7 @@ async def _run_once(
                 router_source=router_source,
                 model_key=model_key,
                 injections_blocked=injections_blocked,
+                canary_hits=canary_hits,
                 compactions=compactions,
                 cached_tokens=llm.cached_tokens,
             )
@@ -681,6 +725,7 @@ async def run_agent(
     router: Any | None = None,
     injection_scanner: InjectionScanner | None = None,
     injection_policy: str = "block",
+    canary_token: str | None = None,
     context_max_tokens: int | None = None,
     keep_last_turns: int = 4,
     memory_store: Any | None = None,
@@ -792,6 +837,7 @@ async def run_agent(
             router_source=router_source,
             injection_scanner=injection_scanner,
             injection_policy=injection_policy,
+            canary_token=canary_token,
             context_max_tokens=context_max_tokens,
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
@@ -824,6 +870,7 @@ async def run_agent(
             router_source=router_source,
             injection_scanner=injection_scanner,
             injection_policy=injection_policy,
+            canary_token=canary_token,
             context_max_tokens=context_max_tokens,
             keep_last_turns=keep_last_turns,
             memory_store=memory_store,
