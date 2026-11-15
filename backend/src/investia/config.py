@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     # propre plafond max_budget dans deploy/litellm/config.yaml)
     llm_budget_cents_per_call: float = Field(default=100.0, gt=0)
 
+    # 23d : routeur de modèle — "knn" (12h, défaut, zéro régression) ou "linucb"
+    router_mode: Literal["knn", "linucb"] = "knn"
+    # 23d : hyperparams LinUCB (surchargés par la calibration offline, CLI
+    # investia.evals.calibrate_router -> evals/generated/router_calibration.json)
+    router_linucb_alpha: float = Field(default=0.5, gt=0)
+    router_linucb_epsilon: float = Field(default=0.05, ge=0, le=1)
+    router_linucb_cost_weight: float = Field(default=0.1, ge=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -15,7 +15,9 @@ class FakeStore:
     async def neighbors(self, question: str, k: int = 7) -> list[Neighbor]:
         return self._neighbors[:k]
 
-    async def record(self, question: str, model: str, success: bool) -> None:
+    async def record(
+        self, question: str, model: str, success: bool, cost_cents: float = 0.0
+    ) -> None:
         self.recorded.append((question, model, success))
 
 
@@ -150,7 +152,9 @@ class FlippingRouter:
         self.calls += 1
         return ("small" if self.calls == 1 else "large"), "learned"
 
-    async def record(self, question: str, model: str, success: bool) -> None:
+    async def record(
+        self, question: str, model: str, success: bool, cost_cents: float = 0.0
+    ) -> None:
         return None
 
 

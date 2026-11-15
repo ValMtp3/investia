@@ -188,7 +188,9 @@ class FakeRouter:
     async def choose(self, question: str) -> tuple[str, str]:
         return self._choice
 
-    async def record(self, question: str, model: str, success: bool) -> None:
+    async def record(
+        self, question: str, model: str, success: bool, cost_cents: float = 0.0
+    ) -> None:
         if self._raises:
             raise RuntimeError("store indisponible")
         self.recorded.append((question, model, success))

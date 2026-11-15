@@ -778,12 +778,15 @@ async def run_agent(
         except Exception:
             pass
 
-    async def record_feedback(status: str) -> None:
-        """Feedback du routeur appris (12h) ; une erreur ne bloque jamais le run."""
+    async def record_feedback(status: str, cost_cents: float = 0.0) -> None:
+        """Feedback du routeur appris (12h/23d) ; une erreur ne bloque jamais le run."""
         if router is None:
             return
         try:
-            await router.record(question, resolved_model, status == "ok")
+            # 23d : le coût réel du run alimente le reward LinUCB
+            await router.record(
+                question, resolved_model, status == "ok", cost_cents=cost_cents
+            )
         except Exception:
             pass
 
@@ -846,7 +849,7 @@ async def run_agent(
         )
         if result.status == "ok":
             await store_cache(result.answer)
-        await record_feedback(result.status)
+        await record_feedback(result.status, result.total_cost_cents)
         return result
 
     await emit("start", {"question": question, "consistency_k": consistency_k})
@@ -897,7 +900,7 @@ async def run_agent(
     )
     if result.status == "ok":
         await store_cache(result.answer)
-    await record_feedback(result.status)
+    await record_feedback(result.status, result.total_cost_cents)
     await emit("answer", {"turn": result.turns, "text": result.answer})
     await emit(
         "done",
