@@ -66,8 +66,9 @@ def test_local_override_binds_every_port_to_localhost():
 
 
 def test_postgres_image_is_pgvector_pg17():
+    # 23a : pin 0.8.7-pg17 (CVE-2026-103484, RCE IVFFlat ≤ 0.8.6)
     compose = load_compose("docker-compose.yml")
-    assert compose["services"]["postgres"]["image"] == "pgvector/pgvector:pg17"
+    assert compose["services"]["postgres"]["image"] == "pgvector/pgvector:0.8.7-pg17"
 
 
 def test_redis_image_is_redis_8():

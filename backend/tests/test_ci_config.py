@@ -26,7 +26,8 @@ def test_pytest_job_runs_coverage_with_threshold_80():
 
 def test_pytest_job_has_postgres_pgvector_and_redis_services():
     services = load_ci()["jobs"]["pytest"]["services"]
-    assert services["postgres"]["image"] == "pgvector/pgvector:pg17"
+    # 23a : pgvector pinné 0.8.7-pg17 (CVE-2026-103484, RCE IVFFlat ≤ 0.8.6)
+    assert services["postgres"]["image"] == "pgvector/pgvector:0.8.7-pg17"
     assert services["redis"]["image"] == "redis:8"
 
 

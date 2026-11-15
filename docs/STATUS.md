@@ -165,6 +165,8 @@ docker compose exec backend uv run python -m investia.evals --live \
 
 ⚠️ Jamais en CI, jamais en local ici : le batch live consomme de vrais crédits LLM.
 
+**Chantier 23a — sécurité supply-chain (pins CVE 2026 + scan OSV/MAL) : EN COURS le 15/11/2026** (branche `feat/etape-23a-supply-chain`, spec `docs/specs/23a-securite-supply-chain.md`, D95, issu de la veille `docs/veille-oss-2026-11-15.md`) : (1) image pgvector pinnée `0.8.7-pg17` partout (compose local+prod, CI, test_backup.sh) — CVE-2026-103484 (RCE build IVFFlat ≤ 0.8.6) nous concernait via le tag flottant `pg17` ; (2) tests de régression supply-chain : image litellm ≥ v1.109.1 et hors versions backdoorées {1.82.7, 1.82.8, 1.107.0}, certifi ≥ 2026.10.19 (CA eMudhra), react/react-dom ≥ 19.3.1 (CVE-2026-126187), fastmcp ≥ 4.2.0 / mcp ≥ 2.3.0 (CVE MCP 2026) — `test_supply_chain.py` + `test_deploy.py` ; (3) workflow `cve-alerts.yml` gagne un job `osv` (osv-scanner **v2.7.1** épinglé, binaire release GitHub) qui scanne `uv.lock` + `package-lock.json` et échoue sur **tout** finding incl. les entrées `MAL-` (paquets malveillants), avec issue auto via le job `alerte` désormais branché sur `osv` aussi. Suite non-integration **671 passed / 1 skip** ; ruff/format/ty propres. ⚠️ run réel du workflow CVE Alerts à vérifier via Actions après merge (comme 17h) ; vérification cosign/digest de l'image litellm = procédure owner (checklist VPS).
+
 ## Bloqueurs / à vérifier maintenant
 
 | # | Quoi | Pourquoi | Statut |
