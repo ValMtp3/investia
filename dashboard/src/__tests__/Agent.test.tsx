@@ -144,6 +144,38 @@ function agentRunCall(fetchMock: ReturnType<typeof vi.fn>) {
   return call as [string, RequestInit];
 }
 
+describe("Page Agent — protocole AG-UI 21a (état partagé)", () => {
+  it("décode les blocs AG-UI : panneau « État du run » + steps texte conservés", async () => {
+    const agui = [
+      'data: {"type":"RUN_STARTED","thread_id":"r1","run_id":"r1","input":{"messages":[{"role":"user","content":"prix AAPL ?","id":"m1"}]}}\n\n',
+      'data: {"type":"STATE_SNAPSHOT","snapshot":{"question":"prix AAPL ?","mode":"solo","run_id":"r1","status":"running","agents":[],"steps":[]}}\n\n',
+      'data: {"type":"TOOL_CALL_START","tool_call_id":"c1","tool_call_name":"get_quote"}\n\n',
+      'data: {"type":"TOOL_CALL_ARGS","tool_call_id":"c1","delta":"{\\"symbol\\":\\"AAPL\\"}"}\n\n',
+      'data: {"type":"STATE_SNAPSHOT","snapshot":{"question":"prix AAPL ?","mode":"solo","run_id":"r1","status":"running","agents":[],"steps":[{"kind":"tool_call","summary":"tool get_quote"}]}}\n\n',
+      'data: {"type":"TEXT_MESSAGE_START","message_id":"msg1","role":"assistant"}\n\n',
+      'data: {"type":"TEXT_MESSAGE_CONTENT","message_id":"msg1","delta":"AAPL vaut 344.63 $"}\n\n',
+      'data: {"type":"TEXT_MESSAGE_END","message_id":"msg1"}\n\n',
+      'data: {"type":"RUN_FINISHED","thread_id":"r1","run_id":"r1","result":{"status":"ok","turns":2,"cost_cents":0.03}}\n\n',
+      'data: {"type":"STATE_SNAPSHOT","snapshot":{"question":"prix AAPL ?","mode":"solo","run_id":"r1","status":"ok","agents":[],"steps":[{"kind":"tool_call","summary":"tool get_quote"}]}}\n\n',
+    ].join("");
+    stubAgentFetch({ sse: [agui] });
+    await renderAgent();
+    await userEvent.type(screen.getByLabelText(/question/i), "prix AAPL ?");
+    await userEvent.click(screen.getByRole("button", { name: /envoyer/i }));
+
+    // Panneau état partagé alimenté par les STATE_SNAPSHOT
+    const etat = await screen.findByLabelText(/état du run/i);
+    await waitFor(() => {
+      expect(etat).toHaveTextContent("ok");
+      expect(etat).toHaveTextContent("tool get_quote");
+    });
+    // Le rendu texte des steps et la réponse passent toujours par l'adaptateur AG-UI
+    const steps = screen.getByLabelText(/étapes de l'agent/i);
+    expect(steps).toHaveTextContent(/Outil get_quote/);
+    expect(await screen.findByText("AAPL vaut 344.63 $")).toBeInTheDocument();
+  });
+});
+
 describe("Page Agent (chat streaming SSE)", () => {
   it("affiche les étapes en direct puis la réponse et le récap", async () => {
     const fetchMock = stubAgentFetch({ sse: [FULL_RUN] });

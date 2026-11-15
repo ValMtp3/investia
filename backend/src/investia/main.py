@@ -446,20 +446,23 @@ def create_app(
         from fastapi.responses import StreamingResponse
 
         from investia.agent import run_agent
-        from investia.agent.agui import format_agui_sse
+        from investia.agent.agui import RunStateAccumulator, format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
         from investia.tools import build_tools
         from investia.tools.policy import tool_policy_from_settings
 
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        # 21a : état partagé — en mode agui, un StateSnapshotEvent après chaque event
+        state_acc = RunStateAccumulator() if protocol == "agui" else None
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
 
         def render(kind: str, payload: dict[str, Any]) -> str:
             if protocol == "agui":
-                return format_agui_sse(kind, payload)
+                state_event = state_acc.event(kind, payload) if state_acc else None
+                return format_agui_sse(kind, payload, state_event=state_event)
             return format_sse(kind, payload)
 
         async def generate():
@@ -550,21 +553,35 @@ def create_app(
         }
 
     @app.post("/api/agents/run")
-    async def agents_run(body: AgentRunBody) -> Any:
-        """Stream SSE du mode multi-agents A2A (6.1) : start/a2a_delegate/.../done."""
+    async def agents_run(
+        body: AgentRunBody,
+        protocol: Literal["legacy", "agui"] = "legacy",
+    ) -> Any:
+        """Stream SSE du mode multi-agents A2A (6.1) : start/a2a_delegate/.../done.
+
+        protocol=agui (21a) : blocs AG-UI + StateSnapshotEvent (état partagé).
+        """
         import asyncio
 
         from fastapi.responses import StreamingResponse
 
+        from investia.agent.agui import RunStateAccumulator, format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.agents import run_multi_agent
         from investia.sse import format_sse
         from investia.tools import build_tools
 
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        state_acc = RunStateAccumulator() if protocol == "agui" else None
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
             await queue.put((kind, payload))
+
+        def render(kind: str, payload: dict[str, Any]) -> str:
+            if protocol == "agui":
+                state_event = state_acc.event(kind, payload) if state_acc else None
+                return format_agui_sse(kind, payload, state_event=state_event)
+            return format_sse(kind, payload)
 
         async def generate():
             task = asyncio.create_task(
@@ -583,15 +600,15 @@ def create_app(
                     kind, payload = await asyncio.wait_for(
                         queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
                     )
-                    yield format_sse(kind, payload)
+                    yield render(kind, payload)
                     if kind == "done":
                         break
             except asyncio.CancelledError:
                 task.cancel()
                 raise
             except Exception as error:
-                yield format_sse("error", {"message": str(error)})
-                yield format_sse("done", {"status": "error"})
+                yield render("error", {"message": str(error)})
+                yield render("done", {"status": "error"})
             finally:
                 if not task.done():
                     task.cancel()

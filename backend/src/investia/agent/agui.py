@@ -111,9 +111,84 @@ def to_agui_events(kind: str, payload: dict[str, Any]) -> list[BaseEvent]:
     return [agui_events.CustomEvent(name=kind, value=payload)]
 
 
-def format_agui_sse(kind: str, payload: dict[str, Any]) -> str:
-    """Sérialise les événements AG-UI en blocs SSE `data: {json}\n\n`."""
+def format_agui_sse(
+    kind: str, payload: dict[str, Any], state_event: BaseEvent | None = None
+) -> str:
+    """Sérialise les événements AG-UI en blocs SSE `data: {json}\n\n`.
+
+    21a : si `state_event` est fourni (StateSnapshotEvent de l'accumulateur),
+    il est émis après les événements du kind.
+    """
+    events = to_agui_events(kind, payload)
+    if state_event is not None:
+        events.append(state_event)
     return "".join(
-        f"data: {event.model_dump_json(by_alias=True)}\n\n"
-        for event in to_agui_events(kind, payload)
+        f"data: {event.model_dump_json(by_alias=True)}\n\n" for event in events
     )
+
+
+# 21a : kinds qui alimentent les steps de l'état partagé (résumé court).
+_STEP_KINDS = frozenset(
+    {"llm_call", "tool_call", "guardrail", "a2a_route", "a2a_delegate", "a2a_event"}
+)
+
+
+class RunStateAccumulator:
+    """21a : état partagé du run — un StateSnapshotEvent par event reçu.
+
+    L'état est un JSON simple : {question, mode, run_id, status, agents, steps}.
+    La boucle n'est pas modifiée : l'accumulateur vit côté sink (routes).
+    """
+
+    def __init__(self) -> None:
+        self._state: dict[str, Any] = {
+            "question": "",
+            "mode": "",
+            "run_id": "",
+            "status": "running",
+            "agents": [],
+            "steps": [],
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        return json.loads(json.dumps(self._state, ensure_ascii=False))
+
+    def _summary(self, kind: str, payload: dict[str, Any]) -> str:
+        if kind == "tool_call":
+            return f"tool {payload.get('name', '')}"
+        if kind == "llm_call":
+            return f"llm tour {payload.get('turn', '?')} · {payload.get('model', '')}"
+        if kind == "guardrail":
+            return f"garde-fou {payload.get('check', '')}"
+        if kind == "a2a_route":
+            agents = ", ".join(payload.get("agents", []))
+            return f"route {payload.get('source', '')} → {agents}"
+        if kind == "a2a_delegate":
+            return (
+                f"délégation {payload.get('agent', '')} ({payload.get('status', '')})"
+            )
+        if kind == "a2a_event":
+            return f"{payload.get('agent', '')} · {payload.get('event_kind', '')}"
+        return kind
+
+    def event(
+        self, kind: str, payload: dict[str, Any]
+    ) -> agui_events.StateSnapshotEvent:
+        """Met à jour l'état selon (kind, payload) et renvoie le snapshot AG-UI."""
+        if kind == "start":
+            self._state.update(
+                question=str(payload.get("question") or ""),
+                mode=str(payload.get("mode") or ""),
+                run_id=str(payload.get("run_id") or ""),
+                status="running",
+                steps=[],
+            )
+        elif kind == "a2a_route":
+            self._state["agents"] = list(payload.get("agents") or [])
+        elif kind in ("done", "error"):
+            self._state["status"] = str(payload.get("status") or "error")
+        if kind in _STEP_KINDS:
+            self._state["steps"].append(
+                {"kind": kind, "summary": self._summary(kind, payload)}
+            )
+        return agui_events.StateSnapshotEvent(snapshot=self.snapshot())
