@@ -12,6 +12,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Agent from "../pages/Agent";
 import { historyBody, jsonResponse, newTestQueryClient } from "./fakeBackend";
 
+// jsdom n'a pas de canvas : on mocke lightweight-charts (21b rend un PriceChart via HistoryChart)
+vi.mock("lightweight-charts", () => ({
+  createChart: () => ({
+    addSeries: () => ({ setData: () => {} }),
+    timeScale: () => ({ fitContent: () => {} }),
+    remove: () => {},
+  }),
+  ColorType: { Solid: 0 },
+  LineSeries: {},
+  AreaSeries: {},
+}));
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
