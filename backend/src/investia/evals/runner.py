@@ -1,5 +1,6 @@
 """Runner d'evals : exécute le jeu de cas sur l'agent (mock déterministe) et score."""
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -303,11 +304,14 @@ async def run_evals(
     pdf_reader=None,
     python_sandbox=None,
     llm: Any | None = None,
+    cases_path: Any | None = None,
 ) -> dict[str, Any]:
     """Lance tous les cas, calcule les métriques, enregistre si eval_store fourni.
 
     22a : `llm` fourni (mode live) -> vrai client LLM partagé entre les cas ;
     sinon MockLlm déterministe par cas (mode mock, zéro régression).
+    23h : `cases_path` -> sha256 du fichier de cas enregistré dans l'eval run
+    (dataset pinning, reproductibilité du benchmark).
     """
     market = market or MockMarket()
     tools = build_tools(
@@ -319,8 +323,13 @@ async def run_evals(
     )
     run_id = None
     if eval_store is not None:
+        dataset_sha256 = None
+        if cases_path is not None:
+            dataset_sha256 = hashlib.sha256(Path(cases_path).read_bytes()).hexdigest()
         run_id = await eval_store.start_eval_run(
-            model="mock" if mode == "mock" else "live", mode=mode
+            model="mock" if mode == "mock" else "live",
+            mode=mode,
+            dataset_sha256=dataset_sha256,
         )
     results = []
     for case in cases:

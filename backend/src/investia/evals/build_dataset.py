@@ -11,8 +11,10 @@ CLI : uv run python -m investia.evals.build_dataset
 """
 
 import argparse
+import hashlib
 import json
 import random
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -86,11 +88,31 @@ def build_dataset(
     picked = rng.sample(traces, min(limit, len(traces))) if traces else []
     cases = [_trace_to_case(t) for t in picked]
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        yaml.safe_dump({"cases": cases}, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
-    return {"path": str(out_path), "count": len(cases), "total_ok": len(traces)}
+    content = yaml.safe_dump({"cases": cases}, allow_unicode=True, sort_keys=False)
+    out_path.write_text(content, encoding="utf-8")
+    # 23h : dataset pinning — sha256 à côté du YAML + changelog (pattern Harbor/TB)
+    sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    Path(str(out_path) + ".sha256").write_text(sha256 + "\n", encoding="utf-8")
+    src_sha = hashlib.sha256(src_path.read_bytes()).hexdigest()
+    changelog = out_path.parent / "DATASET_CHANGELOG.md"
+    if not changelog.exists():
+        changelog.write_text(
+            "# Changelog des datasets de cas (23h)\n\n"
+            "| date UTC | sha256 YAML | nb cas | sha256 source JSONL | limit |\n"
+            "|---|---|---|---|---|\n",
+            encoding="utf-8",
+        )
+    with changelog.open("a", encoding="utf-8") as handle:
+        handle.write(
+            f"| {datetime.now(UTC).isoformat(timespec='seconds')} | {sha256} "
+            f"| {len(cases)} | {src_sha} | {limit} |\n"
+        )
+    return {
+        "path": str(out_path),
+        "count": len(cases),
+        "total_ok": len(traces),
+        "sha256": sha256,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
