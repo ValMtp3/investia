@@ -1,0 +1,19 @@
+# Config garak pinnée — Investia (étape 23j, D104)
+# garak v0.17.1 (NVIDIA, Apache-2.0). Reproductible : seed fixe.
+# Probes retenues (justifiées par nos défenses maison) :
+# - promptinject / dan : injection directe + jailbreak (garde-fous 12d, canary 23b)
+# - latentinjection : injection via contenu d'outil (wrapper 13b — read_pdf/web_search)
+# - encoding : fuite de secrets encodés (redaction secrets 12g/23b)
+# - packagehallucination : noms de packages inventés (pertinent pour run_python 12g/23i)
+run:
+  seed: 20261115
+  report_dir: garak_runs
+  report_prefix: investia
+garak:
+  version_pin: "0.17.1"
+probes:
+  - promptinject
+  - latentinjection
+  - dan
+  - encoding
+  - packagehallucination
