@@ -188,6 +188,39 @@ def _build_python_sandbox() -> Any | None:
     return None
 
 
+def _sse_replay_response(
+    trace_store: Any,
+    redis_client: Any | None,
+    run_id: str,
+    last_seq: int,
+    status: str,
+) -> Any:
+    """23k : réponse SSE de replay — events stockés (23f) puis, si le run est
+    encore actif et Redis OK, live-attach pub/sub jusqu'à l'event final ;
+    sinon event `detached` (fallback 23f, zéro régression)."""
+    from fastapi.responses import StreamingResponse
+
+    from investia.sse import format_sse
+    from investia.sse_live import LiveAttachUnavailable, live_attach
+
+    async def replay() -> Any:
+        stored = await trace_store.events_after(run_id, last_seq)
+        for event in stored:
+            yield format_sse(event["event"], event["payload"], event_id=event["seq"])
+        if status == "running":
+            last_id = stored[-1]["seq"] if stored else last_seq
+            if redis_client is not None:
+                try:
+                    async for ev in live_attach(redis_client, run_id, last_id):
+                        yield format_sse(ev["event"], ev["payload"], event_id=ev["seq"])
+                    return
+                except LiveAttachUnavailable:
+                    pass  # fallback detached ci-dessous
+            yield format_sse("detached", {"run_id": run_id}, event_id=last_id + 1)
+
+    return StreamingResponse(replay(), media_type="text/event-stream")
+
+
 def create_app(
     portfolio_service: Any | None = None,
     llm: Any | None = None,
@@ -199,12 +232,25 @@ def create_app(
     memory_store: Any | None = None,
     forecaster: Any | None = None,
     semantic_cache: Any | None = None,
+    redis_client: Any | None = None,
 ) -> FastAPI:
     """Crée l'app. Services injectables (tests) ; sinon construits sur la vraie base.
 
     Si la configuration est invalide : message clair sur stderr (noms des
     variables manquantes, sans stack trace) puis exit code 1.
     """
+
+    def _redis() -> Any | None:
+        """23k : client Redis pour le live-attach (injecté en test, sinon singleton)."""
+        if redis_client is not None:
+            return redis_client
+        try:
+            from investia.cache import get_redis
+
+            return get_redis()
+        except Exception:
+            return None
+
     try:
         settings = get_settings()
     except ValidationError as error:
@@ -546,8 +592,9 @@ def create_app(
         protocol=agui (15c) : blocs `data: {"type": ...}` au format AG-UI.
 
         23f : avec `body.run_id` + header `Last-Event-ID`, mode replay — renvoie les
-        événements stockés du run (seq > last) avec leur `id:`, puis `detached` si
-        le run est encore actif côté serveur (le client replie en polling
+        événements stockés du run (seq > last) avec leur `id:`.
+        23k : si le run est encore actif et Redis OK, live-attach pub/sub jusqu'à
+        l'event final ; sinon `detached` (fallback 23f, le client replie en polling
         GET /traces/{run_id})."""
         import asyncio
         import uuid as uuid_module
@@ -559,10 +606,11 @@ def create_app(
         from investia.agent.agui import RunStateAccumulator, format_agui_sse
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.sse import format_sse
+        from investia.sse_live import publish_event
         from investia.tools import build_tools
         from investia.tools.policy import tool_policy_from_settings
 
-        # 23f : mode replay (run_id fourni) — rejoue les events persistés, pas de boucle
+        # 23f/23k : mode replay (run_id fourni) — rejoue les events, pas de boucle
         if body.run_id is not None:
             try:
                 uuid_module.UUID(body.run_id)
@@ -577,23 +625,10 @@ def create_app(
                 raise HTTPException(status_code=404, detail="run inconnu")
             last_header = request.headers.get("last-event-id", "")
             last_seq = int(last_header) if last_header.isdigit() else 0
-            stored = await trace_store.events_after(body.run_id, last_seq)
             status = run["run"].get("status", "running")
-
-            async def replay() -> Any:
-                for event in stored:
-                    yield format_sse(
-                        event["event"], event["payload"], event_id=event["seq"]
-                    )
-                if status == "running":
-                    # run encore actif ailleurs : on ne peut pas s'y attacher (v1),
-                    # on dit au client de replier en polling.
-                    last_id = stored[-1]["seq"] if stored else last_seq
-                    yield format_sse(
-                        "detached", {"run_id": body.run_id}, event_id=last_id + 1
-                    )
-
-            return StreamingResponse(replay(), media_type="text/event-stream")
+            return _sse_replay_response(
+                trace_store, _redis(), body.run_id, last_seq, status
+            )
 
         queue: asyncio.Queue[tuple[str, dict[str, Any], int]] = asyncio.Queue()
         # 21a : état partagé — en mode agui, un StateSnapshotEvent après chaque event
@@ -618,6 +653,12 @@ def create_app(
                         "persistance event SSE échouée (run %s seq %s)",
                         stream_state["run_id"],
                         seq,
+                    )
+                # 23k : publie aussi sur Redis pour le live-attach des replays
+                redis_conn = _redis()
+                if redis_conn is not None:
+                    await publish_event(
+                        redis_conn, stream_state["run_id"], seq, kind, payload
                     )
             await queue.put((kind, payload, seq))
 
@@ -722,6 +763,7 @@ def create_app(
 
     @app.post("/api/agents/run")
     async def agents_run(
+        request: Request,
         body: AgentRunBody,
         protocol: Literal["legacy", "agui", "a2ui"] = "legacy",
     ) -> Any:
@@ -729,8 +771,12 @@ def create_app(
 
         protocol=agui (21a) : blocs AG-UI + StateSnapshotEvent (état partagé).
         protocol=a2ui (23c) : blocs `data: {...}` au format A2UI 1.0.
+
+        23k : comme /agent/run — `body.run_id` + Last-Event-ID = replay, avec
+        live-attach Redis si le run est encore actif (sinon `detached`).
         """
         import asyncio
+        import uuid as uuid_module
 
         from fastapi.responses import StreamingResponse
 
@@ -739,22 +785,65 @@ def create_app(
         from investia.agent.loop import DEFAULT_APPROVAL_TIMEOUT
         from investia.agents import run_multi_agent
         from investia.sse import format_sse
+        from investia.sse_live import publish_event
         from investia.tools import build_tools
 
-        queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        # 23k : mode replay (identique à /agent/run)
+        if body.run_id is not None:
+            try:
+                uuid_module.UUID(body.run_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422, detail="run_id invalide (UUID attendu)"
+                ) from None
+            if trace_store is None:
+                raise HTTPException(status_code=503, detail="traces non disponibles")
+            run = await trace_store.get_run(body.run_id)
+            if run is None or run.get("run") is None:
+                raise HTTPException(status_code=404, detail="run inconnu")
+            last_header = request.headers.get("last-event-id", "")
+            last_seq = int(last_header) if last_header.isdigit() else 0
+            status = run["run"].get("status", "running")
+            return _sse_replay_response(
+                trace_store, _redis(), body.run_id, last_seq, status
+            )
+
+        queue: asyncio.Queue[tuple[str, dict[str, Any], int]] = asyncio.Queue()
         state_acc = RunStateAccumulator() if protocol == "agui" else None
         a2ui_state = A2UIState() if protocol == "a2ui" else None
+        # 23k : seq des events + run_id (lu dans le payload de l'event start)
+        stream_state: dict[str, Any] = {"run_id": None, "seq": 0}
 
         async def sink(kind: str, payload: dict[str, Any]) -> None:
-            await queue.put((kind, payload))
+            if kind == "start" and payload.get("run_id"):
+                stream_state["run_id"] = str(payload["run_id"])
+            stream_state["seq"] += 1
+            seq = stream_state["seq"]
+            if trace_store is not None and stream_state["run_id"]:
+                try:
+                    await trace_store.append_event(
+                        stream_state["run_id"], seq, kind, payload
+                    )
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "persistance event SSE multi échouée (run %s seq %s)",
+                        stream_state["run_id"],
+                        seq,
+                    )
+                redis_conn = _redis()
+                if redis_conn is not None:
+                    await publish_event(
+                        redis_conn, stream_state["run_id"], seq, kind, payload
+                    )
+            await queue.put((kind, payload, seq))
 
-        def render(kind: str, payload: dict[str, Any]) -> str:
+        def render(kind: str, payload: dict[str, Any], seq: int) -> str:
             if protocol == "agui":
                 state_event = state_acc.event(kind, payload) if state_acc else None
                 return format_agui_sse(kind, payload, state_event=state_event)
             if protocol == "a2ui":
                 return format_a2ui_sse(kind, payload, state=a2ui_state)
-            return format_sse(kind, payload)
+            return format_sse(kind, payload, event_id=seq)
 
         async def generate():
             task = asyncio.create_task(
@@ -774,18 +863,18 @@ def create_app(
             )
             try:
                 while True:
-                    kind, payload = await asyncio.wait_for(
+                    kind, payload, seq = await asyncio.wait_for(
                         queue.get(), timeout=DEFAULT_APPROVAL_TIMEOUT + 30
                     )
-                    yield render(kind, payload)
+                    yield render(kind, payload, seq)
                     if kind == "done":
                         break
             except asyncio.CancelledError:
                 task.cancel()
                 raise
             except Exception as error:
-                yield render("error", {"message": str(error)})
-                yield render("done", {"status": "error"})
+                yield render("error", {"message": str(error)}, stream_state["seq"] + 1)
+                yield render("done", {"status": "error"}, stream_state["seq"] + 2)
             finally:
                 if not task.done():
                     task.cancel()
