@@ -1,0 +1,31 @@
+# Redteam garak (23j, D104) — PAS sur les PR : schedule hebdo + manuel uniquement.
+# Smoke hors-ligne (test.Blank, zéro clé LLM) : prouve que le pipeline garak
+# tourne et produit un rapport. Le vrai scan LLM = procédure VPS (README redteam/).
+# ⚠️ garak tire torch/transformers (~1,8 Go de venv) : job lourd, d'où le schedule.
+name: Redteam garak
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # lundi 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  garak-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: redteam
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run python run_redteam.py --smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: garak-smoke-report
+          path: |
+            redteam/garak_runs/
+            ${{ env.XDG_DATA_HOME }}/garak/garak_runs/
+          if-no-files-found: warn

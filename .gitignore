@@ -32,3 +32,6 @@ deploy/authelia/users_database.yml
 
 # Dataset de traces régénérable (spec 14b)
 backend/evals/generated/
+
+# 23j : rapports garak générés localement
+redteam/garak_runs/
