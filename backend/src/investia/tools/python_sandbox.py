@@ -21,6 +21,7 @@ import tempfile
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+import httpx
 from pydantic import BaseModel, Field
 
 from investia.tools.base import BaseTool, ToolError
@@ -83,7 +84,10 @@ DANGEROUS_OS_ATTRS = frozenset(
 )
 
 BACKEND_ENV = "INVESTIA_SANDBOX_BACKEND"
-VALID_BACKENDS = frozenset({"nsjail", "seatbelt", "subprocess"})
+# 23i : sidecar Go (Landlock+seccomp) — 4e backend, communiquant par unix socket.
+SIDECAR_SOCK_ENV = "INVESTIA_SANDBOX_SIDECAR_SOCK"
+DEFAULT_SIDECAR_SOCK = "/run/investia/sandbox.sock"
+VALID_BACKENDS = frozenset({"nsjail", "seatbelt", "subprocess", "sidecar"})
 FAIL_CLOSED_ENV = "INVESTIA_SANDBOX_FAIL_CLOSED"
 
 # Binaire attendu par backend OS (pré-vérification avant chaque spawn, 17c).
@@ -108,8 +112,17 @@ def check_backend_available(backend: str) -> None:
     """Pré-vérifie le binaire d'isolation avant chaque exécution (17c).
 
     - backend nsjail/seatbelt : le binaire doit exister et être exécutable ;
+    - backend sidecar (23i) : le socket unix du sidecar Go doit exister ;
     - backend subprocess : refusé si fail-closed (sauf opt-out explicite).
     """
+    if backend == "sidecar":
+        sock = os.environ.get(SIDECAR_SOCK_ENV, DEFAULT_SIDECAR_SOCK)
+        if not os.path.exists(sock):
+            raise SandboxUnavailableError(
+                f"backend 'sidecar' demandé mais socket {sock!r} absent — "
+                "exécution refusée (fail-closed)"
+            )
+        return
     binary = BACKEND_BINARIES.get(backend)
     if binary is not None:
         path = shutil.which(binary)
@@ -187,6 +200,10 @@ def detect_os_backend() -> str:
                 f"(attendu : auto | {' | '.join(sorted(VALID_BACKENDS))})"
             )
         return choice
+    # 23i : auto = sidecar si son socket est monté (déploiement volontaire), prioritaire
+    sidecar_sock = os.environ.get(SIDECAR_SOCK_ENV, DEFAULT_SIDECAR_SOCK)
+    if os.path.exists(sidecar_sock):
+        return "sidecar"
     if platform.system() == "Linux" and shutil.which("nsjail"):
         return "nsjail"
     if platform.system() == "Darwin" and shutil.which("sandbox-exec"):
@@ -367,6 +384,92 @@ class SubprocessPythonSandbox:
             "stderr": err[: self._max_output_chars],
             "truncated": truncated,
             "backend": backend,
+        }
+
+
+class SidecarSandbox:
+    """23i : délègue l'exécution au sidecar Go (Landlock+seccomp) via unix socket.
+
+    Fail-closed : socket absent ou sidecar indisponible (503) ->
+    SandboxUnavailableError, aucun code n'est exécuté localement. Le pre-check
+    statique 13c reste appliqué ici avant tout envoi.
+    """
+
+    def __init__(
+        self,
+        sock_path: str | os.PathLike | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_code_chars: int = MAX_CODE_CHARS,
+        max_output_chars: int = MAX_OUTPUT_CHARS,
+        client_timeout: float | None = None,
+    ) -> None:
+        self._sock_path = str(
+            sock_path or os.environ.get(SIDECAR_SOCK_ENV, DEFAULT_SIDECAR_SOCK)
+        )
+        self._timeout = timeout
+        self._max_code_chars = max_code_chars
+        self._max_output_chars = max_output_chars
+        self._client_timeout = (
+            client_timeout if client_timeout is not None else timeout + 5.0
+        )
+
+    async def run_code(self, code: str) -> dict[str, Any]:
+        if len(code) > self._max_code_chars:
+            raise ToolError(
+                "run_python",
+                f"code trop long ({len(code)} > {self._max_code_chars} car.)",
+            )
+        issues = static_precheck(code)
+        if issues:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": "bloqué par le pre-check statique : " + "; ".join(issues),
+                "truncated": False,
+                "precheck": issues,
+                "backend": "sidecar",
+            }
+        if not os.path.exists(self._sock_path):
+            raise SandboxUnavailableError(
+                f"sidecar indisponible : socket {self._sock_path} absent — "
+                "exécution refusée (fail-closed)"
+            )
+        payload = {
+            "code": code,
+            "timeout_s": self._timeout,
+            "max_output_chars": self._max_output_chars,
+        }
+        transport = httpx.AsyncHTTPTransport(uds=self._sock_path)
+        try:
+            async with httpx.AsyncClient(
+                transport=transport, timeout=self._client_timeout
+            ) as client:
+                response = await client.post("http://sidecar/run", json=payload)
+        except httpx.HTTPError as error:
+            raise SandboxUnavailableError(
+                f"sidecar injoignable (timeout ou délai dépassé) : {error}"
+            ) from error
+        if response.status_code == 503:
+            raise SandboxUnavailableError(
+                "sidecar refuse l'exécution (isolation noyau indisponible) : "
+                f"{response.text[:200]}"
+            )
+        response.raise_for_status()
+        data = response.json()
+        secrets = _secret_values()
+        out = _redact(str(data.get("stdout", "")), secrets)
+        err = _redact(str(data.get("stderr", "")), secrets)
+        truncated = (
+            bool(data.get("truncated"))
+            or len(out) > self._max_output_chars
+            or len(err) > self._max_output_chars
+        )
+        return {
+            "exit_code": int(data.get("exit_code", -1)),
+            "stdout": out[: self._max_output_chars],
+            "stderr": err[: self._max_output_chars],
+            "truncated": truncated,
+            "backend": data.get("backend", "sidecar-go"),
         }
 
 
