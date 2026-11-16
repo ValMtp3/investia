@@ -5,8 +5,8 @@ Rien de ceci ne tourne en CI ni en local. Cocher au fur et à mesure.
 
 ## 0. Prérequis
 
-- [ ] `bash ~/investia/deploy/update.sh` à jour (main = `b073a61`, chantier 22a mergé)
-- [ ] `alembic upgrade head` OK (head attendu : `0010_agent_feedback`)
+- [ ] `bash ~/investia/deploy/update.sh` à jour (main = `9b730ad`, chantiers 23a-23k mergés)
+- [ ] `alembic upgrade head` OK (head attendu : `0015_eval_runs_dataset_sha256` — migrations 0011 purge audit, 0012 LinUCB, 0013 run_events, 0014 cache namespace, 0015 dataset_sha256)
 
 ## 1. Sécurité — LiteLLM (backdoors 2026, veille 15/11 D94/D95)
 
@@ -70,3 +70,35 @@ docker compose exec backend uv run python -m investia.evals --live \
 - [ ] Batch live : « batch live : 30 cas, plafond budget actif (17f) » puis métriques par cas ; plafond `--limit` max 100 respecté
 - [ ] Lecture des métriques du run live dans `/traces` : `routeur_choix`, `routeur_agent`, `tool_used` — à comparer au run mock de référence
 - [ ] Coût total du batch noté (centimes) pour calibrer les prochains batchs
+
+## 9. Chantiers 23g-23k du 15/11 (D101-D105) — après update.sh
+
+### 23g — cache sémantique câblé en prod (D101)
+- [ ] `.env` VPS : `SEMANTIC_CACHE_THRESHOLD=0.92` (plancher 0,9), `SEMANTIC_CACHE_NAMESPACE=prod`
+- [ ] Au démarrage backend : pas de warning « cache indisponible » ; un run répété 2x montre `cache_hit` dans `/traces`
+- [ ] Error budget : couper Redis/Postgres brièvement → mode dégradé fail-open (warning loggé), pas de crash
+
+### 23d — routeur LinUCB (D99)
+- [ ] `.env` VPS : `ROUTER_MODE=linucb` (+ hyperparams `ROUTER_LINUCB_*` si ajustés)
+- [ ] Quelques runs : `router_source` = `linucb` dans les traces (cold start < 5 feedbacks → `rules`, normal)
+- [ ] Calibration offline : `uv run python -m investia.evals.calibrate_router` sur le VPS → `evals/generated/router_calibration.json`
+
+### 23f + 23k — replay SSE + live-attach Redis (D100/D105)
+- [ ] Couper le réseau client pendant un run, rebrancher : le client renvoie `Last-Event-ID`, reçoit les events manqués puis le flux **live** jusqu'à `done` (plus de polling `detached` quand Redis est up)
+- [ ] `run_events` se remplit (migration 0013) — surveiller la taille (⚠️ pas de rétention en v1, D100)
+
+### 23h — dataset pinning (D102)
+- [ ] `uv run python -m investia.evals verify --cases ../../evals/cases.yaml` → exit 0 (sha256 `4c7bc516…`)
+- [ ] Les nouveaux eval runs ont `dataset_sha256` renseigné (`SELECT dataset_sha256 FROM eval_runs ORDER BY started_at DESC LIMIT 5`)
+
+### 23i — sidecar Go sandboxing (D103)
+- [ ] `.env` VPS : `INVESTIA_SANDBOX_BACKEND=sidecar`, `INVESTIA_SANDBOX_SIDECAR_SOCK=/run/investia/sandbox.sock`
+- [ ] `docker compose up -d sandbox-sidecar` → healthy (le healthcheck connecte le socket)
+- [ ] Depuis le conteneur backend : `curl --unix-socket /run/investia/sandbox.sock -d '{"code":"print(42)","timeout_s":5}' http://sidecar/run` → `{"exit_code":0,"stdout":"42...","backend":"sidecar-go"}`
+- [ ] Test négatif : code `import socket; socket.create_connection(("1.1.1.1",443))` → refusé (Landlock deny-all TCP), exit != 0
+- [ ] ⚠️ Si le noyau de la VM < 6.12 (Landlock ABI < v6) : le sidecar répond **503 fail-closed** — run_python refusera proprement (pas de fallback subprocess). Noter l'ABI : `cat /proc/version`
+- [ ] Un run agent avec `run_python` en prod passe par le sidecar (backend `sidecar` dans la réponse de l'outil)
+
+### 23j — redteam garak (D104) — procédure VPS, jamais en CI
+- [ ] `cd redteam && uv sync` puis, clés réelles chargées : `uv run python run_redteam.py --live`
+- [ ] Lire `garak_runs/*.report.jsonl` + `*.hitlog.jsonl` → **revue humaine des hits**, résumé dans `docs/redteam-<date>.md`
