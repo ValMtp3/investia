@@ -64,10 +64,19 @@ services:
       - COINGECKO_DEMO_API_KEY
       - STOOQ_API_KEY
       - FRONTEND_ORIGIN
+      # 23i : sidecar Go de sandboxing (run_python). Absentes de .env = auto
+      # (détecte le socket monté ci-dessous) ; =sidecar pour forcer.
+      - INVESTIA_SANDBOX_BACKEND
+      - INVESTIA_SANDBOX_SIDECAR_SOCK
+    volumes:
+      # 23i : socket unix partagé avec le sidecar (run_python sandboxé).
+      - sandbox_sock:/run/investia:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      sandbox-sidecar:
         condition: service_healthy
     healthcheck:
       test:
@@ -129,5 +138,28 @@ services:
       retries: 5
       start_period: 5s
 
+  # 23i : sidecar Go de sandboxing — binaire statique, Landlock+seccomp
+  # fail-closed (Linux >= 6.12 requis dans la VM/conteneur, sinon 503).
+  sandbox-sidecar:
+    build:
+      context: ../sandbox
+      dockerfile: Dockerfile
+    volumes:
+      - sandbox_sock:/run/investia
+    healthcheck:
+      # vivant = le socket unix répond (connect seul suffit, même 503 Landlock)
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/run/investia/sandbox.sock')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
 volumes:
   postgres_data:
+  sandbox_sock:

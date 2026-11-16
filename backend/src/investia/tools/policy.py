@@ -17,6 +17,7 @@ from investia.tools.python_sandbox import (
     BACKEND_BINARIES,
     SandboxUnavailableError,
     check_backend_available,
+    detect_os_backend,
     fail_closed_enabled,
 )
 
@@ -25,7 +26,16 @@ if TYPE_CHECKING:
 
 
 def any_sandbox_backend_available() -> bool:
-    """True si au moins un binaire d'isolation OS est présent et exécutable."""
+    """True si au moins un backend d'isolation est disponible.
+
+    23i : le sidecar Go compte (socket unix présent), comme nsjail/sandbox-exec.
+    """
+    try:
+        if detect_os_backend() == "sidecar":
+            check_backend_available("sidecar")
+            return True
+    except (SandboxUnavailableError, ValueError):
+        pass
     for backend in BACKEND_BINARIES:
         try:
             check_backend_available(backend)

@@ -169,6 +169,25 @@ def _build_semantic_cache(
         return None
 
 
+def _build_python_sandbox() -> Any | None:
+    """23i : sandbox Python prod, uniquement via le sidecar Go (opt-in).
+
+    Retourne un SidecarSandbox si le backend détecté est "sidecar" (env
+    INVESTIA_SANDBOX_BACKEND=sidecar, ou auto avec le socket monté), sinon None
+    (comportement actuel : run_python non branché en prod).
+    """
+    try:
+        from investia.tools.python_sandbox import SidecarSandbox, detect_os_backend
+
+        if detect_os_backend() == "sidecar":
+            return SidecarSandbox()
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "INVESTIA_SANDBOX_BACKEND invalide : run_python non branché (23i)"
+        )
+    return None
+
+
 def create_app(
     portfolio_service: Any | None = None,
     llm: Any | None = None,
@@ -336,7 +355,15 @@ def create_app(
     from investia.agents.orchestrator import default_base_url
     from investia.tools import build_tools as _build_tools
 
-    _tools = _build_tools(market_service, portfolio_service=portfolio_service)
+    # 23i : run_python en prod uniquement via le sidecar Go (opt-in par
+    # INVESTIA_SANDBOX_BACKEND=sidecar + socket monté) — sinon aucun sandbox
+    # n'est branché ici (comportement actuel inchangé).
+    _python_sandbox = _build_python_sandbox()
+    _tools = _build_tools(
+        market_service,
+        portfolio_service=portfolio_service,
+        python_sandbox=_python_sandbox,
+    )
     executors = {
         "analyste": AnalysteExecutor(llm, _tools),
         "risque": RisqueExecutor(),
@@ -612,6 +639,7 @@ def create_app(
                         market,
                         portfolio_service=portfolio_service,
                         forecaster=forecaster,
+                        python_sandbox=_python_sandbox,  # 23i
                     ),
                     max_turns=body.max_turns,
                     trace_store=trace_store,
@@ -733,7 +761,11 @@ def create_app(
                 run_multi_agent(
                     body.question,
                     llm,
-                    build_tools(market, portfolio_service=portfolio_service),
+                    build_tools(
+                        market,
+                        portfolio_service=portfolio_service,
+                        python_sandbox=_python_sandbox,  # 23i
+                    ),
                     trace_store=trace_store,
                     event_sink=sink,
                     router=agent_router,  # 18a : None = pipeline fixe (6.1)

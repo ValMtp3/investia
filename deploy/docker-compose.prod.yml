@@ -11,6 +11,10 @@ services:
     restart: unless-stopped
   backend:
     restart: unless-stopped
+  sandbox-sidecar:
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
   litellm:
     restart: unless-stopped
   dashboard:
