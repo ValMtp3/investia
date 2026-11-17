@@ -395,6 +395,8 @@ def create_app(
     from investia.agents import mount_agents
     from investia.agents.executors import (
         AnalysteExecutor,
+        MacroExecutor,
+        NewsExecutor,
         RedacteurExecutor,
         RisqueExecutor,
     )
@@ -414,6 +416,10 @@ def create_app(
         "analyste": AnalysteExecutor(llm, _tools),
         "risque": RisqueExecutor(),
         "redacteur": RedacteurExecutor(llm, _tools),
+        # 24b : agents racine, appelés en parallèle de l'analyste quand le
+        # routeur learned (18a) les choisit — jamais dans le pipeline fixe.
+        "macro": MacroExecutor(llm, _tools),
+        "news": NewsExecutor(llm, _tools),
     }
     # 15b : signature JWS des Agent Cards si une clé est configurée.
     card_signer = None

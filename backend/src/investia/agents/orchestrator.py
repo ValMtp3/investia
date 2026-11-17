@@ -171,7 +171,7 @@ async def run_multi_agent(
     du niveau puis bloque le run. Le pipeline canonique est une chaîne linéaire
     : comportement strictement identique. `parallel=False` = boucle séquentielle.
     """
-    from investia.agents.plan import topological_levels
+    from investia.agents.plan import produced_fields, topological_levels
     from investia.agents.router import CANONICAL_PIPELINE, RISK_AGENT
 
     caller = caller or HttpA2ACaller()
@@ -306,7 +306,11 @@ async def run_multi_agent(
                 text = str(
                     data.get("analysis") or data.get("answer") or data.get("text") or ""
                 )
-                context["analysis"] = text
+                # 24b : chaque agent racine écrit son propre champ du contexte
+                # (analyste -> "analysis", macro -> "macro", news -> "news"),
+                # lu depuis la clé correspondante de son artifact.
+                for field_name in produced_fields(agent):
+                    context[field_name] = str(data.get(field_name) or text)
                 if level_idx == last_level_idx and agent == level[-1]:
                     answer = text
 

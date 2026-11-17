@@ -12,6 +12,8 @@ preuves (< min_feedbacks voisins ou aucun agent au-dessus du seuil).
 from dataclasses import dataclass
 from typing import Protocol
 
+from investia.agents.plan import AGENT_SPECS
+
 # Ordre canonique du pipeline fixe (6.1, D60).
 CANONICAL_PIPELINE = ["analyste", "risque", "redacteur"]
 RISK_AGENT = "risque"
@@ -97,8 +99,10 @@ class LearnedAgentRouter:
         }
         if not selected:
             return await self._fallback.choose(question)
-        # ordre canonique, gate risque toujours présente si du learned est retenu
+        # 24b : ordre généralisé — pipeline canonique d'abord, puis les autres
+        # agents connus (macro, news…), gate risque toujours présente.
         chosen = [a for a in CANONICAL_PIPELINE if a in selected]
+        chosen += [a for a in AGENT_SPECS if a in selected and a not in chosen]
         if RISK_AGENT not in chosen:
             chosen.insert(1 if chosen else 0, RISK_AGENT)
         return chosen, "learned"

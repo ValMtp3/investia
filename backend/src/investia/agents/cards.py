@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
-AGENT_NAMES = ("analyste", "risque", "redacteur")
+AGENT_NAMES = ("analyste", "risque", "redacteur", "macro", "news")
 
 DESCRIPTIONS = {
     "analyste": (
@@ -25,6 +25,16 @@ DESCRIPTIONS = {
         "Rédige la réponse finale structurée (thèse, risques, confiance, sources, "
         "disclaimer « Simulation — pas un conseil en investissement ») à partir de "
         "l'analyse et du verdict du risque."
+    ),
+    # 24b : agents racine, appelés en parallèle de l'analyste (plan topologique)
+    "macro": (
+        "Produit une analyse macroéconomique (taux, inflation, banques centrales, "
+        "géopolitique) à partir des actualités et du web. Agent racine : tourne en "
+        "parallèle de l'analyste."
+    ),
+    "news": (
+        "Produit une synthèse des actualités récentes sur les valeurs citées dans la "
+        "question (outil get_news). Agent racine : tourne en parallèle de l'analyste."
     ),
 }
 

@@ -153,8 +153,90 @@ class RisqueExecutor(AgentExecutor):
         await updater.cancel()
 
 
+class MacroExecutor(AgentExecutor):
+    """24b : l'agent macro — contexte macroéconomique, agent racine (parallèle)."""
+
+    def __init__(self, llm: Any, tools: dict[str, Any]) -> None:
+        self._llm = llm
+        self._tools = tools
+
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = await _begin_task(context, event_queue)
+        await updater.start_work()
+        question = _user_text(context)
+        prompt = (
+            "Tu es l'agent macro d'une chaîne d'agents (simulation). "
+            "Contexte de la question :\n"
+            f"{question}\n\n"
+            "Produis une analyse macroéconomique courte et sourcée (taux, inflation, "
+            "banques centrales, risques géopolitiques) utile pour investir, avec la "
+            "mention « Simulation — pas un conseil en investissement. »"
+        )
+        result = await run_agent(
+            prompt, self._llm, self._tools, event_sink=_streaming_sink(updater)
+        )
+        payload = {"macro": result.answer}
+        await updater.add_artifact(
+            parts=[Part(text=json.dumps(payload, ensure_ascii=False))],
+            name="macro",
+            last_chunk=True,
+        )
+        await updater.complete()
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = TaskUpdater(
+            event_queue=event_queue,
+            task_id=context.task_id or "",
+            context_id=context.context_id or "",
+        )
+        await updater.cancel()
+
+
+class NewsExecutor(AgentExecutor):
+    """24b : l'agent actualités — news des valeurs citées, agent racine (parallèle)."""
+
+    def __init__(self, llm: Any, tools: dict[str, Any]) -> None:
+        self._llm = llm
+        self._tools = tools
+
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = await _begin_task(context, event_queue)
+        await updater.start_work()
+        question = _user_text(context)
+        prompt = (
+            "Tu es l'agent actualités d'une chaîne d'agents (simulation). "
+            "Question :\n"
+            f"{question}\n\n"
+            "Extrait les valeurs/symboles concernés et produis une synthèse courte et "
+            "sourcée des actualités récentes (outil get_news), avec la mention "
+            "« Simulation — pas un conseil en investissement. »"
+        )
+        result = await run_agent(
+            prompt, self._llm, self._tools, event_sink=_streaming_sink(updater)
+        )
+        payload = {"news": result.answer}
+        await updater.add_artifact(
+            parts=[Part(text=json.dumps(payload, ensure_ascii=False))],
+            name="news",
+            last_chunk=True,
+        )
+        await updater.complete()
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = TaskUpdater(
+            event_queue=event_queue,
+            task_id=context.task_id or "",
+            context_id=context.context_id or "",
+        )
+        await updater.cancel()
+
+
 class RedacteurExecutor(AgentExecutor):
-    """Le rédacteur : réponse finale structurée à partir de l'analyse + du verdict."""
+    """Le rédacteur : réponse finale structurée à partir de l'analyse + du verdict.
+
+    24b : les sections Macro / Actualités ne sont ajoutées au prompt que si le
+    champ est présent dans le contexte (zéro diff de prompt sinon).
+    """
 
     def __init__(self, llm: Any, tools: dict[str, Any]) -> None:
         self._llm = llm
@@ -164,15 +246,23 @@ class RedacteurExecutor(AgentExecutor):
         updater = await _begin_task(context, event_queue)
         await updater.start_work()
         data = _parse_json_input(context)
-        prompt = (
+        sections = (
             "Tu es le rédacteur final d'une chaîne d'agents (simulation). "
             "Analyse de l'analyste :\n"
             f"{data.get('analysis', '')}\n\n"
+        )
+        # 24b : champs racine optionnels (macro, news) — absents = prompt inchangé
+        if data.get("macro"):
+            sections += f"Contexte macro :\n{data['macro']}\n\n"
+        if data.get("news"):
+            sections += f"Actualités :\n{data['news']}\n\n"
+        sections += (
             f"Verdict du risque : {data.get('verdict', '')}\n\n"
             "Rédige la réponse finale au format imposé (Thèse / Risques / Confiance / "
             "Sources) avec la mention « Simulation — pas un conseil en "
             "investissement. »"
         )
+        prompt = sections
         # 20c : stream des events internes en artifacts "step"
         result = await run_agent(
             prompt, self._llm, self._tools, event_sink=_streaming_sink(updater)

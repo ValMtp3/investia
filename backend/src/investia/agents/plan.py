@@ -24,11 +24,14 @@ class AgentSpec:
     produces: tuple[str, ...] = field(default_factory=tuple)
 
 
-# Les 3 agents existants (6.1) : chaîne analyste -> risque -> redacteur.
+# Les 3 agents historiques (6.1) : chaîne analyste -> risque -> redacteur.
+# 24b : macro et news sont des agents racine (parallèles à l'analyste).
 AGENT_SPECS: dict[str, AgentSpec] = {
     "analyste": AgentSpec("analyste", requires=(), produces=("analysis",)),
     "risque": AgentSpec("risque", requires=("analysis",), produces=("verdict",)),
     "redacteur": AgentSpec("redacteur", requires=("analysis", "verdict"), produces=()),
+    "macro": AgentSpec("macro", requires=(), produces=("macro",)),
+    "news": AgentSpec("news", requires=(), produces=("news",)),
 }
 
 # Fallback pour un agent non déclaré : racine, produit "analysis" (comme tout
@@ -38,6 +41,14 @@ _DEFAULT_SPEC_PRODUCES: tuple[str, ...] = ("analysis",)
 
 def _spec_of(name: str, specs: dict[str, AgentSpec]) -> AgentSpec:
     return specs.get(name) or AgentSpec(name, produces=_DEFAULT_SPEC_PRODUCES)
+
+
+def produced_fields(
+    name: str, specs: dict[str, AgentSpec] | None = None
+) -> tuple[str, ...]:
+    """Champs du contexte produits par l'agent `name` (fallback : "analysis")."""
+    specs = specs if specs is not None else AGENT_SPECS
+    return _spec_of(name, specs).produces
 
 
 def topological_levels(
