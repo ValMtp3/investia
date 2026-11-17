@@ -6,6 +6,7 @@ Le `caller` est injectable : en prod un `HttpA2ACaller` (client a2a-sdk vers les
 montés dans le backend), en test un fake qui appelle la logique directement.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -154,6 +155,7 @@ async def run_multi_agent(
     caller: AgentCaller | None = None,
     router: Any | None = None,
     forward_agent_events: bool = False,
+    parallel: bool = True,
 ) -> AgentResult:
     """Enchaîne les agents A2A. Le verdict du risque bloque la réponse si non ok.
 
@@ -163,7 +165,13 @@ async def run_multi_agent(
     20c : `forward_agent_events=True` réémet les events internes de chaque
     sous-agent en events SSE `a2a_event` {agent, event_kind, payload}.
     Défaut False = aucun a2a_event (zéro régression).
+    24a : `parallel=True` (défaut) exécute les agents par niveaux topologiques
+    (`agents/plan.py`) — les agents indépendants d'un même niveau tournent en
+    parallèle (asyncio.gather, event `a2a_parallel`), un échec attend la fin
+    du niveau puis bloque le run. Le pipeline canonique est une chaîne linéaire
+    : comportement strictement identique. `parallel=False` = boucle séquentielle.
     """
+    from investia.agents.plan import topological_levels
     from investia.agents.router import CANONICAL_PIPELINE, RISK_AGENT
 
     caller = caller or HttpA2ACaller()
@@ -173,8 +181,11 @@ async def run_multi_agent(
         if event_sink is not None:
             await event_sink(kind, payload)
 
-    async def delegate(agent: str, text: str) -> dict[str, Any]:
-        await emit("a2a_delegate", {"agent": agent, "status": "running"})
+    async def delegate(agent: str, text: str, level: int = 0) -> dict[str, Any]:
+        # 24a : `level` = niveau topologique de l'agent dans le plan d'exécution
+        await emit(
+            "a2a_delegate", {"agent": agent, "status": "running", "level": level}
+        )
         try:
             if forward_agent_events:
                 # 20c : forward des steps internes du sous-agent en SSE
@@ -195,9 +206,12 @@ async def run_multi_agent(
         # Un seul step tracé par délégation : le statut final.
         if trace_store is not None and run_id is not None:
             await trace_store.log_step(
-                run_id, 1, "a2a_delegate", {"agent": agent, "status": status}
+                run_id,
+                1,
+                "a2a_delegate",
+                {"agent": agent, "status": status, "level": level},
             )
-        await emit("a2a_delegate", {"agent": agent, "status": status})
+        await emit("a2a_delegate", {"agent": agent, "status": status, "level": level})
         if status == "error" or data is None:
             raise RuntimeError(f"agent {agent} indisponible")
         return data
@@ -229,45 +243,72 @@ async def run_multi_agent(
 
     context: dict[str, Any] = {"question": question}
     answer = ""
-    for i, agent in enumerate(agents):
-        payload = question if i == 0 else json.dumps(context, ensure_ascii=False)
-        data = await delegate(agent, payload)
-        used.append(agent)
-        if agent == RISK_AGENT:
-            if not data.get("ok", False):
-                failures = "; ".join(
-                    f"{name}: {detail}" for name, detail in data.get("failures", [])
-                )
-                answer = (
-                    "[réponse bloquée par le gestionnaire de risque : " + failures + "]"
-                )
-                await emit("answer", {"text": answer})
-                await emit("done", {"status": "blocked", "agents": list(used)})
-                if trace_store is not None and run_id is not None:
-                    await trace_store.finish_run(
-                        run_id,
-                        answer=answer,
-                        model="multi-agent",
-                        turns=len(used),
-                        cost_cents=0.0,
-                        status="blocked",
-                    )
-                await record_feedback(False)
-                return AgentResult(
-                    answer=answer,
-                    turns=len(used),
-                    model="multi-agent",
-                    status="blocked",
-                    agents_used=list(used),
-                )
-            context["verdict"] = data
+    # 24a : niveaux topologiques ; en séquentiel (parallel=False) chaque agent
+    # est son propre niveau, ce qui reproduit exactement l'ancienne boucle.
+    levels = topological_levels(agents) if parallel else [[a] for a in agents]
+    last_level_idx = len(levels) - 1
+    for level_idx, level in enumerate(levels):
+        if parallel and len(level) > 1:
+            parallel_payload = {"agents": list(level), "level": level_idx}
+            await emit("a2a_parallel", parallel_payload)
+            if trace_store is not None and run_id is not None:
+                await trace_store.log_step(run_id, 0, "a2a_parallel", parallel_payload)
+        # Niveau 0 = la question brute ; niveaux suivants = le contexte cumulé.
+        if level_idx == 0:
+            payload = question
         else:
-            text = str(
-                data.get("analysis") or data.get("answer") or data.get("text") or ""
+            payload = json.dumps(context, ensure_ascii=False)
+        if parallel and len(level) > 1:
+            # On attend tout le niveau avant de décider : un agent en échec
+            # bloque le run seulement après que ses voisins aient terminé.
+            outcomes = await asyncio.gather(
+                *(delegate(agent, payload, level_idx) for agent in level),
+                return_exceptions=True,
             )
-            context["analysis"] = text
-            if i == len(agents) - 1:
-                answer = text
+        else:
+            outcomes = [await delegate(agent, payload, level_idx) for agent in level]
+        for agent, outcome in zip(level, outcomes):
+            if isinstance(outcome, BaseException):
+                raise RuntimeError(f"agent {agent} indisponible") from outcome
+            data = outcome
+            used.append(agent)
+            if agent == RISK_AGENT:
+                if not data.get("ok", False):
+                    failures = "; ".join(
+                        f"{name}: {detail}" for name, detail in data.get("failures", [])
+                    )
+                    answer = (
+                        "[réponse bloquée par le gestionnaire de risque : "
+                        + failures
+                        + "]"
+                    )
+                    await emit("answer", {"text": answer})
+                    await emit("done", {"status": "blocked", "agents": list(used)})
+                    if trace_store is not None and run_id is not None:
+                        await trace_store.finish_run(
+                            run_id,
+                            answer=answer,
+                            model="multi-agent",
+                            turns=len(used),
+                            cost_cents=0.0,
+                            status="blocked",
+                        )
+                    await record_feedback(False)
+                    return AgentResult(
+                        answer=answer,
+                        turns=len(used),
+                        model="multi-agent",
+                        status="blocked",
+                        agents_used=list(used),
+                    )
+                context["verdict"] = data
+            else:
+                text = str(
+                    data.get("analysis") or data.get("answer") or data.get("text") or ""
+                )
+                context["analysis"] = text
+                if level_idx == last_level_idx and agent == level[-1]:
+                    answer = text
 
     await emit("answer", {"text": answer})
     await emit("done", {"status": "ok", "agents": list(used)})
