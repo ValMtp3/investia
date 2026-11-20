@@ -7,6 +7,8 @@ puis exécuté. Les erreurs internes ne fuient pas au client MCP (message géné
 détail loggué côté serveur).
 """
 
+import hashlib
+import hmac
 import logging
 from typing import Any, Literal
 
@@ -37,6 +39,16 @@ class OrderConfirmation(BaseModel):
 
 # Clé de la demande d'input dans le InputRequiredResult (SEP-2322).
 CONFIRM_KEY = "order_confirmation"
+
+
+def signed_request_state(payload_hash: str, secret: str) -> str:
+    """24 (scan sécurité) : request_state signé HMAC-SHA256.
+
+    Le hash 13d seul est calculable par le client (SHA-256 non salé) : un client
+    compromis pouvait forger request_state pour un autre ordre (CWE-345). Avec
+    un secret serveur, seul le serveur peut produire un request_state valide.
+    """
+    return hmac.new(secret.encode(), payload_hash.encode(), hashlib.sha256).hexdigest()
 
 
 def _form_elicitation(
@@ -74,9 +86,17 @@ async def _run_tool(tool: BaseTool, arguments: dict[str, Any]) -> dict[str, Any]
 
 
 def build_mcp_server(
-    market: MarketDataService, portfolio_service: PortfolioServiceLike
+    market: MarketDataService,
+    portfolio_service: PortfolioServiceLike,
+    *,
+    approval_secret: str | None = None,
 ) -> FastMCP:
-    """Construit le serveur MCP avec les 6 outils Investia."""
+    """Construit le serveur MCP avec les 6 outils Investia.
+
+    `approval_secret` (24) : si fourni, le `request_state` de l'elicitation
+    simulate_order est signé HMAC (anti forge par le client, CWE-345) ;
+    sinon comportement 15a (hash non signé, rétrocompatible).
+    """
     mcp = FastMCP("investia")
     tools = build_tools(market, portfolio_service=portfolio_service)
 
@@ -161,7 +181,13 @@ def build_mcp_server(
         # 15a : confirmation humaine par MRTR (SEP-2322, spec MCP 2026-07-28) —
         # deny-by-default : aucun ordre sans accept explicite. Le request_state
         # embarque le hash du payload (13d) pour lier la confirmation à l'ordre.
+        # 24 : signé HMAC si approval_secret est fourni (anti forge, CWE-345).
         payload_hash = payload_hash_for(symbol, side, quantity)
+        expected_state = (
+            signed_request_state(payload_hash, approval_secret)
+            if approval_secret is not None
+            else payload_hash
+        )
         responses = ctx.input_responses
         if responses is None:
             # Premier passage : on demande la confirmation (résultat input_required).
@@ -172,7 +198,7 @@ def build_mcp_server(
                         OrderConfirmation.model_json_schema(),
                     )
                 },
-                request_state=payload_hash,
+                request_state=expected_state,
             )
         elicit_result = responses.get(CONFIRM_KEY)
         content = getattr(elicit_result, "content", None)
@@ -180,7 +206,7 @@ def build_mcp_server(
         if (
             getattr(elicit_result, "action", None) != "accept"
             or not confirm
-            or ctx.request_state != payload_hash
+            or not hmac.compare_digest(str(ctx.request_state or ""), expected_state)
         ):
             raise ValueError("simulate_order: ordre non confirmé — aucun ordre exécuté")
         return await _run_tool(

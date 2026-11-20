@@ -41,13 +41,19 @@ class AgentCaller(Protocol):
 class HttpA2ACaller:
     """Client A2A réel : résout l'agent card puis envoie un message JSON-RPC."""
 
-    def __init__(self, base_url: str | None = None) -> None:
+    def __init__(
+        self, base_url: str | None = None, *, internal_token: str | None = None
+    ) -> None:
         self._base_url = (base_url or default_base_url()).rstrip("/")
+        # 24 (scan sécurité) : header X-Internal-Token exigé par le middleware
+        # quand INTERNAL_API_TOKEN est configuré (CWE-306).
+        self._internal_token = internal_token
 
     async def call(
         self, agent: str, text: str, on_event: Any | None = None
     ) -> dict[str, Any]:
         from a2a.client import create_client
+        from a2a.client.client import ClientCallContext
         from a2a.types import Message, Part, SendMessageRequest
 
         client = await create_client(f"{self._base_url}/api/agents/{agent}")
@@ -57,8 +63,19 @@ class HttpA2ACaller:
             message_id=uuid4().hex,
         )
         request = SendMessageRequest(message=message)
+        context = None
+        if self._internal_token:
+            context = ClientCallContext(
+                service_parameters={"X-Internal-Token": self._internal_token}
+            )
         artifact_text = ""
-        async for event in client.send_message(request):
+        # context=None : on ne passe pas le kwarg (rétrocompatible avec les fakes)
+        stream = (
+            client.send_message(request, context=context)
+            if context is not None
+            else client.send_message(request)
+        )
+        async for event in stream:
             # 20c : forward des steps intermédiaires (artifacts "step")
             if on_event is not None:
                 step = _extract_step_event(event)
@@ -154,6 +171,7 @@ async def run_multi_agent(
     caller: AgentCaller | None = None,
     router: Any | None = None,
     forward_agent_events: bool = False,
+    internal_token: str | None = None,
 ) -> AgentResult:
     """Enchaîne les agents A2A. Le verdict du risque bloque la réponse si non ok.
 
@@ -166,7 +184,7 @@ async def run_multi_agent(
     """
     from investia.agents.router import CANONICAL_PIPELINE, RISK_AGENT
 
-    caller = caller or HttpA2ACaller()
+    caller = caller or HttpA2ACaller(internal_token=internal_token)
     run_id = await trace_store.start_run(question) if trace_store is not None else None
 
     async def emit(kind: str, payload: dict[str, Any]) -> None:

@@ -23,6 +23,9 @@ import (
 const (
 	envSock     = "INVESTIA_SANDBOX_SOCK"
 	defaultSock = "/run/investia/sandbox.sock"
+	// 24 (scan sécurité, CWE-400) : borne dure du body JSON — un client du
+	// socket ne peut pas pousser un corps arbitrairement gros en mémoire.
+	maxBodyBytes = 64 * 1024
 )
 
 type runRequest struct {
@@ -62,6 +65,8 @@ func main() {
 }
 
 func handleRun(w http.ResponseWriter, r *http.Request) {
+	// 24 (CWE-400) : body borné avant le moindre parse JSON.
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var req runRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{"JSON invalide: " + err.Error()})
@@ -75,10 +80,8 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{"code trop long"})
 		return
 	}
-	timeout := time.Duration(req.TimeoutSeconds * float64(time.Second))
-	if timeout <= 0 {
-		timeout = sandboxrun.DefaultTimeout
-	}
+	// 24 (CWE-400) : le timeout demandé par le client est borné [1 s, 60 s].
+	timeout := sandboxrun.ClampTimeout(time.Duration(req.TimeoutSeconds * float64(time.Second)))
 	ctx, cancel := context.WithTimeout(r.Context(), timeout+5*time.Second)
 	defer cancel()
 

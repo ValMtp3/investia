@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Origin autorisé pour les appels cross-origin du dashboard en dev (CORS)
     frontend_origin: str = "http://localhost:5173"
 
+    # 24 (scan sécurité, CWE-306) : secret interne exigé en header
+    # X-Internal-Token sur /api/agents/* et /mcp/ (les sous-apps A2A/MCP tournent
+    # sinon sans auth in-app, protégées seulement par le réseau). None = off
+    # (dev local) ; en prod : renseigner (openssl rand -hex 32).
+    internal_api_token: SecretStr | None = None
+
     # 15b : signature JWS des Agent Cards A2A (vide = cards non signées)
     agent_card_signing_key: SecretStr | None = None
     agent_card_signing_kid: str = "investia-2026"

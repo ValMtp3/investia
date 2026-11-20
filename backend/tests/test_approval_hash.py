@@ -55,20 +55,23 @@ def test_payload_hash_stable_et_sensible_aux_args():
 
 async def test_decide_avec_mauvais_hash_est_refuse():
     registry = ApprovalRegistry()
-    registry.open(RUN_ID, payload_hash="a" * 64)
-    assert await registry.decide(RUN_ID, "approved", "b" * 64) is False
+    token = registry.open(RUN_ID, payload_hash="a" * 64)
+    assert await registry.decide(RUN_ID, "approved", "b" * 64, token=token) is False
     # la décision n'a pas été enregistrée : on peut encore décider avec le bon hash
-    assert await registry.decide(RUN_ID, "approved", "a" * 64) is True
+    assert await registry.decide(RUN_ID, "approved", "a" * 64, token=token) is True
     assert await registry.wait(RUN_ID, timeout=0.1) == "approved"
     assert registry.approved_hash(RUN_ID) == "a" * 64
 
 
 async def test_decide_sans_hash_reste_retrocompatible():
     registry = ApprovalRegistry()
-    registry.open("run-sans-hash")
-    assert await registry.decide("run-sans-hash", "approved") is True
-    registry.open("run-hash-mais-pas-fourni", payload_hash="c" * 64)
-    assert await registry.decide("run-hash-mais-pas-fourni", "refused") is True
+    token = registry.open("run-sans-hash")
+    assert await registry.decide("run-sans-hash", "approved", token=token) is True
+    token = registry.open("run-hash-mais-pas-fourni", payload_hash="c" * 64)
+    assert (
+        await registry.decide("run-hash-mais-pas-fourni", "refused", token=token)
+        is True
+    )
 
 
 # ------------------------------------------------------------- boucle
@@ -117,7 +120,12 @@ async def test_approval_request_contient_le_hash_et_ordre_exécute_si_hash_ok():
         k == "approval_request" and p.get("payload_hash") == req["payload_hash"]
         for _, _, k, p in store.steps
     )
-    assert await registry.decide(run_id, "approved", req["payload_hash"]) is True
+    assert (
+        await registry.decide(
+            run_id, "approved", req["payload_hash"], token=req["approval_token"]
+        )
+        is True
+    )
     await task
     assert portfolio.orders == [("AAPL", "buy", 3.0)]
 
@@ -165,7 +173,9 @@ async def test_hash_modifie_apres_approbation_annule_ordre():
             break
         await asyncio.sleep(0.01)
     req = next(p for k, p in events if k == "approval_request")
-    await registry.decide(run_id, "approved", req["payload_hash"])
+    await registry.decide(
+        run_id, "approved", req["payload_hash"], token=req["approval_token"]
+    )
     await task
     # aucun ordre exécuté : le hash approuvé ne correspond pas au payload exécuté
     assert portfolio.orders == []
@@ -196,18 +206,18 @@ def app_et_registry(monkeypatch):
 
 async def test_endpoint_409_si_payload_hash_incoherent(app_et_registry):
     app, registry = app_et_registry
-    registry.open(RUN_ID, payload_hash="a" * 64)
+    token = registry.open(RUN_ID, payload_hash="a" * 64)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             f"/agent/runs/{RUN_ID}/approval",
-            json={"decision": "approved", "payload_hash": "b" * 64},
+            json={"decision": "approved", "payload_hash": "b" * 64, "token": token},
         )
         assert resp.status_code == 409
         # la décision n'a pas été enregistrée : le bon hash passe encore
         resp2 = await client.post(
             f"/agent/runs/{RUN_ID}/approval",
-            json={"decision": "approved", "payload_hash": "a" * 64},
+            json={"decision": "approved", "payload_hash": "a" * 64, "token": token},
         )
         assert resp2.status_code == 200
 
@@ -215,11 +225,12 @@ async def test_endpoint_409_si_payload_hash_incoherent(app_et_registry):
 async def test_endpoint_payload_hash_optionnel_retrocompatible(app_et_registry):
     """Sans payload_hash dans le body : pas de 422, comportement 5.1 inchangé."""
     app, registry = app_et_registry
-    registry.open(RUN_ID, payload_hash="a" * 64)
+    token = registry.open(RUN_ID, payload_hash="a" * 64)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            f"/agent/runs/{RUN_ID}/approval", json={"decision": "approved"}
+            f"/agent/runs/{RUN_ID}/approval",
+            json={"decision": "approved", "token": token},
         )
         assert resp.status_code == 200
         assert await registry.wait(RUN_ID, timeout=0.1) == "approved"

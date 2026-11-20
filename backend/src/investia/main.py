@@ -1,5 +1,6 @@
 """Point d'entrée de l'API FastAPI."""
 
+import asyncio
 import logging
 import re
 import secrets
@@ -52,6 +53,9 @@ class ApprovalBody(BaseModel):
     # 13d : hash du payload affiché au moment de l'approbation (optionnel,
     # rétrocompatible) ; incohérent avec la demande en attente → 409.
     payload_hash: str | None = None
+    # 24 (scan sécurité) : bearer token émis dans l'event approval_request (SSE)
+    # — exigé, sinon 403 : le run_id seul ne suffit plus (CWE-862).
+    token: str | None = None
 
 
 MARKET_STREAM_INTERVAL = 5.0
@@ -59,6 +63,12 @@ MARKET_STREAM_INTERVAL = 5.0
 MARKET_STREAM_MIN_INTERVAL = 1.0
 # Chaque symbole peut coûter jusqu'à 4 appels fournisseurs (cascade).
 MARKET_STREAM_MAX_SYMBOLS = 20
+# 24 (scan sécurité, CWE-400) : durée max d'un flux de prix — sans ça, un flux
+# ouvert en permanence épuise les quotas des fournisseurs gratuits.
+MARKET_STREAM_DEFAULT_MAX_DURATION_S = 3600.0
+MARKET_STREAM_MAX_DURATION_S = 86400.0
+# 24 (scan sécurité, CWE-770) : nb max de runs agent simultanés (coût LLM).
+MAX_CONCURRENT_AGENT_RUNS = 3
 
 # Symbole accepté par /market/history : lettres, chiffres et . - ^ =
 # (ex. SAP.DE, BTC-USD).
@@ -359,6 +369,11 @@ def create_app(
 
         approval_registry = ApprovalRegistry()
 
+    # 24 (scan sécurité, CWE-770) : plafond de runs agent simultanés — chaque
+    # run peut coûter jusqu'à max_turns × plafond/appel ; sans plafond, quelques
+    # requêtes épuisent le budget LLM du mois.
+    run_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENT_RUNS)
+
     # 17e double dial : avertir au démarrage si le sandbox OS est requis mais
     # indisponible (run_python sera retiré pré-schéma par la tool policy).
     if settings.sandbox_mode == "os":
@@ -381,13 +396,38 @@ def create_app(
 
     from investia.mcp_server import build_mcp_server
 
-    mcp_server = build_mcp_server(market_service, portfolio_service)
+    # 24 (scan sécurité) : request_state de l'elicitation signé HMAC (CWE-345).
+    mcp_server = build_mcp_server(
+        market_service,
+        portfolio_service,
+        approval_secret=settings.app_secret_key.get_secret_value(),
+    )
     mcp_app = mcp_server.http_app(path="/")
 
     app = FastAPI(
         title="Investia", lifespan=combine_lifespans(lifespan, mcp_app.lifespan)
     )
     app.mount("/mcp", mcp_app)
+
+    # 24 (scan sécurité, CWE-306) : si INTERNAL_API_TOKEN est configuré, les
+    # sous-apps internes (/api/agents/*, /mcp/) exigent le header
+    # X-Internal-Token — un autre conteneur du réseau Docker ne peut plus
+    # appeler directement. None = off (dev local, comportement inchangé).
+    if settings.internal_api_token is not None:
+        _internal_token = settings.internal_api_token.get_secret_value()
+
+        @app.middleware("http")
+        async def _require_internal_token(request: Request, call_next: Any) -> Any:
+            if request.url.path.startswith(("/api/agents/", "/mcp/")):
+                provided = request.headers.get("x-internal-token", "")
+                if not secrets.compare_digest(
+                    provided.encode("utf-8"), _internal_token.encode("utf-8")
+                ):
+                    return JSONResponse(
+                        {"detail": "X-Internal-Token requis sur cette route"},
+                        status_code=403,
+                    )
+            return await call_next(request)
 
     # Agents A2A (étape 6.1, D60) : 3 sous-apps montées sous /api/agents/<nom>.
     # Les cards annoncent l'URL absolue (base A2A) pour que les clients A2A
@@ -410,10 +450,30 @@ def create_app(
         portfolio_service=portfolio_service,
         python_sandbox=_python_sandbox,
     )
+    # 24 (scan sécurité, CWE-862/693) : les executors A2A reçoivent les mêmes
+    # garde-fous que /agent/run (tool policy pré-schéma, HITL, traces, mémoire).
+    from investia.tools.policy import tool_policy_from_settings as _tpol
+
+    _a2a_kwargs: dict[str, Any] = {
+        "tool_policy": _tpol(settings),
+        "trace_store": trace_store,
+        "memory_store": memory_store,
+        "semantic_cache": semantic_cache,
+        "router": model_router,
+        "context_max_tokens": settings.context_max_tokens or None,
+        "keep_last_turns": settings.compaction_keep_last_turns,
+    }
     executors = {
-        "analyste": AnalysteExecutor(llm, _tools),
+        "analyste": AnalysteExecutor(
+            llm,
+            _tools,
+            approval_registry=(
+                approval_registry if settings.approval_mode == "order" else None
+            ),
+            **_a2a_kwargs,
+        ),
         "risque": RisqueExecutor(),
-        "redacteur": RedacteurExecutor(llm, _tools),
+        "redacteur": RedacteurExecutor(llm, _tools, **_a2a_kwargs),
     }
     # 15b : signature JWS des Agent Cards si une clé est configurée.
     card_signer = None
@@ -568,7 +628,13 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"aucune approbation en attente pour {run_id}"
             )
-        decided = await approval_registry.decide(key, body.decision, body.payload_hash)
+        if not approval_registry.check_token(key, body.token):
+            raise HTTPException(
+                status_code=403, detail="token d'approbation invalide ou absent"
+            )
+        decided = await approval_registry.decide(
+            key, body.decision, body.payload_hash, token=body.token
+        )
         if not decided:
             raise HTTPException(
                 status_code=409,
@@ -629,6 +695,14 @@ def create_app(
             return _sse_replay_response(
                 trace_store, _redis(), body.run_id, last_seq, status
             )
+
+        # 24 (CWE-770) : plafond de runs simultanés (coût LLM)
+        try:
+            await asyncio.wait_for(run_semaphore.acquire(), timeout=0.05)
+        except TimeoutError:
+            raise HTTPException(
+                status_code=429, detail="trop de runs en cours, réessayez plus tard"
+            ) from None
 
         queue: asyncio.Queue[tuple[str, dict[str, Any], int]] = asyncio.Queue()
         # 21a : état partagé — en mode agui, un StateSnapshotEvent après chaque event
@@ -718,6 +792,7 @@ def create_app(
                 if not task.done():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+                run_semaphore.release()  # 24 (CWE-770)
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -808,6 +883,14 @@ def create_app(
                 trace_store, _redis(), body.run_id, last_seq, status
             )
 
+        # 24 (CWE-770) : plafond de runs simultanés (coût LLM)
+        try:
+            await asyncio.wait_for(run_semaphore.acquire(), timeout=0.05)
+        except TimeoutError:
+            raise HTTPException(
+                status_code=429, detail="trop de runs en cours, réessayez plus tard"
+            ) from None
+
         queue: asyncio.Queue[tuple[str, dict[str, Any], int]] = asyncio.Queue()
         state_acc = RunStateAccumulator() if protocol == "agui" else None
         a2ui_state = A2UIState() if protocol == "a2ui" else None
@@ -859,6 +942,11 @@ def create_app(
                     event_sink=sink,
                     router=agent_router,  # 18a : None = pipeline fixe (6.1)
                     forward_agent_events=True,  # 20c : steps des sous-agents en SSE
+                    internal_token=(
+                        settings.internal_api_token.get_secret_value()
+                        if settings.internal_api_token is not None
+                        else None
+                    ),
                 )
             )
             try:
@@ -879,6 +967,7 @@ def create_app(
                 if not task.done():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+                run_semaphore.release()  # 24 (CWE-770)
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -887,13 +976,21 @@ def create_app(
         symbols: str,
         interval: float = Query(MARKET_STREAM_INTERVAL, ge=MARKET_STREAM_MIN_INTERVAL),
         max_events: int | None = None,
+        max_duration_s: float = Query(
+            MARKET_STREAM_DEFAULT_MAX_DURATION_S,
+            ge=1.0,
+            le=MARKET_STREAM_MAX_DURATION_S,
+        ),
     ) -> Any:
         """Stream SSE des prix (toutes les `interval` s, cache Redis 60 s).
 
         Symboles validés (le symbole finit dans l'URL des fournisseurs) et limités
         en nombre. `max_events` optionnel : arrête après N événements (test/CI).
+        24 (CWE-400) : `max_duration_s` borne la durée totale du flux (défaut 1 h)
+        pour ne pas épuiser les quotas fournisseurs avec un flux ouvert en continu.
         """
         import asyncio
+        import time
 
         from fastapi.responses import StreamingResponse
 
@@ -915,8 +1012,9 @@ def create_app(
 
         async def generate():
             sent = 0
+            deadline = time.monotonic() + max_duration_s
             try:
-                while True:
+                while time.monotonic() < deadline:
                     quotes = [
                         await stream_quote(market_service, s) for s in symbol_list
                     ]

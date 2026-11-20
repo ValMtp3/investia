@@ -39,7 +39,24 @@ const (
 	// MaxOutputChars par défaut, tronqué par le parent.
 	DefaultMaxOutputChars = 20_000
 	DefaultTimeout        = 10 * time.Second
+	// 24 (scan sécurité, CWE-400) : bornes du timeout demandé par le client.
+	MinTimeout = 1 * time.Second
+	MaxTimeout = 60 * time.Second
 )
+
+// ClampTimeout borne un timeout demandé : <= 0 -> défaut, puis [MinTimeout, MaxTimeout].
+func ClampTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return DefaultTimeout
+	}
+	if d < MinTimeout {
+		return MinTimeout
+	}
+	if d > MaxTimeout {
+		return MaxTimeout
+	}
+	return d
+}
 
 // Opts : limites d'un run.
 type Opts struct {
@@ -154,7 +171,9 @@ func runChild(ctx context.Context, code string, o Opts) (Result, error) {
 	case <-ctx.Done():
 		timedOut = true
 		if cmd.Process != nil {
-			// tue tout le groupe de process
+			// 24 (scan sécurité, CWE-400) : tue le process direct (setsid
+			// éventuel du child le mettrait hors du groupe) puis tout le groupe.
+			_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
 		<-waitC

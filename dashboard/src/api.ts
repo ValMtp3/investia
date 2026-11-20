@@ -268,6 +268,8 @@ export type AgentEvent =
         symbol: string;
         side: "buy" | "sell";
         quantity: number;
+        /** 24 : bearer token à usage unique, exigé par le POST d'approbation. */
+        approval_token?: string;
       };
     }
   | {
@@ -472,10 +474,12 @@ export function streamMultiAgentRun(
   });
 }
 
-/** Décision humaine sur un ordre proposé (étape 5.1) : POST /agent/runs/:id/approval. */
+/** Décision humaine sur un ordre proposé (étape 5.1) : POST /agent/runs/:id/approval.
+ *  24 : `token` = bearer token reçu dans l'event approval_request (SSE). */
 export async function respondApproval(
   runId: string,
   decision: "approved" | "refused",
+  token?: string,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
@@ -483,7 +487,7 @@ export async function respondApproval(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, token }),
       signal,
     },
   );
