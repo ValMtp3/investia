@@ -196,7 +196,12 @@ async def test_agent_run_stream_contains_approval_events(
                 break
             await asyncio.sleep(0.01)
         assert registry.has(run_id)
-        assert await registry.decide(run_id, "approved") is True
+        assert (
+            await registry.decide(
+                run_id, "approved", token=registry.approval_token(run_id)
+            )
+            is True
+        )
         response = await asyncio.wait_for(stream_task, timeout=15)
         assert response.status_code == 200
         events = await parse_sse_events(response)
@@ -221,11 +226,12 @@ async def test_agent_run_stream_contains_approval_events(
 
 async def test_approval_endpoint_200_when_pending(app, registry):
     run_id = "00000000-0000-0000-0000-000000000007"
-    registry.open(run_id)
+    token = registry.open(run_id)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            f"/agent/runs/{run_id}/approval", json={"decision": "approved"}
+            f"/agent/runs/{run_id}/approval",
+            json={"decision": "approved", "token": token},
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -273,12 +279,13 @@ async def test_approval_endpoint_422_invalid_body(app):
 
 async def test_approval_endpoint_409_when_already_decided(app, registry):
     run_id = "00000000-0000-0000-0000-000000000042"
-    registry.open(run_id)
-    assert await registry.decide(run_id, "approved") is True
+    token = registry.open(run_id)
+    assert await registry.decide(run_id, "approved", token=token) is True
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            f"/agent/runs/{run_id}/approval", json={"decision": "refused"}
+            f"/agent/runs/{run_id}/approval",
+            json={"decision": "refused", "token": token},
         )
         assert resp.status_code == 409
 

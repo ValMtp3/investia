@@ -30,8 +30,11 @@ deploy/authelia/users_database.yml
 !.env.example
 *.dump
 
-# Dataset de traces régénérable (spec 14b)
-backend/evals/generated/
+# Dataset de traces régénérable (spec 14b) — 24 : le vrai chemin de sortie est
+# <repo>/evals/generated/ (parents[4] depuis backend/src/investia/evals/), pas
+# backend/evals/generated/ ; sans ça, un export de traces (PII possibles) peut
+# être commité par accident.
+/evals/generated/
 
 # 23j : rapports garak générés localement
 redteam/garak_runs/

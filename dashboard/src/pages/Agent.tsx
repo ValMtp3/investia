@@ -36,6 +36,8 @@ interface PendingApproval {
   symbol: string;
   side: "buy" | "sell";
   quantity: number;
+  /** 24 : bearer token reçu dans l'event approval_request, renvoyé au POST. */
+  token?: string;
   decision?: string;
   error?: string;
 }
@@ -260,6 +262,7 @@ export default function Agent() {
                 symbol: evt.payload.symbol,
                 side: evt.payload.side,
                 quantity: evt.payload.quantity,
+                token: evt.payload.approval_token,
               },
             }));
           } else if (evt.kind === "approval") {
@@ -365,13 +368,17 @@ export default function Agent() {
   }
 
   /** Envoie la décision humaine au backend (D57) et met à jour le bloc. */
-  async function decideApproval(runId: string, decision: "approved" | "refused") {
+  async function decideApproval(
+    runId: string,
+    decision: "approved" | "refused",
+    token?: string,
+  ) {
     const patch = (msg: ChatMessage): ChatMessage =>
       msg.approval && msg.approval.runId === runId
         ? { ...msg, approval: { ...msg.approval, decision, error: undefined } }
         : msg;
     try {
-      await respondApproval(runId, decision);
+      await respondApproval(runId, decision, token);
       patchLastAssistant(patch);
     } catch (err) {
       // Le flux SSE continue quoi qu'il arrive : on signale juste l'échec du POST.
@@ -609,14 +616,18 @@ export default function Agent() {
                     <div className="mt-2 flex gap-2">
                       <button
                         type="button"
-                        onClick={() => decideApproval(msg.approval!.runId, "approved")}
+                        onClick={() =>
+                          decideApproval(msg.approval!.runId, "approved", msg.approval!.token)
+                        }
                         className="min-h-11 bg-signal px-3 py-1 font-medium text-on-signal hover:brightness-110"
                       >
                         Valider
                       </button>
                       <button
                         type="button"
-                        onClick={() => decideApproval(msg.approval!.runId, "refused")}
+                        onClick={() =>
+                          decideApproval(msg.approval!.runId, "refused", msg.approval!.token)
+                        }
                         className="min-h-11 border border-rule-strong px-3 py-1 font-medium text-ink hover:bg-wash"
                       >
                         Refuser

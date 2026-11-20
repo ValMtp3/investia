@@ -143,7 +143,7 @@ async def test_approved_order_is_executed_after_approval_request():
             if registry.has(run_id):
                 break
             await asyncio.sleep(0.01)
-        await registry.decide(run_id, decision)
+        await registry.decide(run_id, decision, token=registry.approval_token(run_id))
 
     llm = FakeLlm(
         [
@@ -228,7 +228,7 @@ async def test_refused_order_is_not_executed_and_model_is_told():
             if registry.has(run_id):
                 break
             await asyncio.sleep(0.01)
-        await registry.decide(run_id, "refused")
+        await registry.decide(run_id, "refused", token=registry.approval_token(run_id))
 
     task = asyncio.create_task(
         run_agent(
@@ -321,7 +321,7 @@ async def test_registry_decide_unknown_run_returns_false():
 
 async def test_registry_double_decision_returns_false():
     registry = ApprovalRegistry()
-    registry.open("run-1")
-    assert await registry.decide("run-1", "approved") is True
-    assert await registry.decide("run-1", "refused") is False
+    token = registry.open("run-1")
+    assert await registry.decide("run-1", "approved", token=token) is True
+    assert await registry.decide("run-1", "refused", token=token) is False
     assert await registry.wait("run-1", timeout=0.1) == "approved"

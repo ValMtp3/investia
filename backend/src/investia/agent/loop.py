@@ -955,6 +955,9 @@ async def _request_approval(
     symbol = args.symbol.strip().upper()
     # 13d : l'approbation est liée au hash exact du payload affiché.
     payload_hash = payload_hash_for(symbol, args.side, args.quantity)
+    # 24 (scan sécurité) : bearer token à usage unique, transmis au décideur via
+    # l'event approval_request (flux SSE du propriétaire) et exigé par decide().
+    approval_token = registry.open(run_id, payload_hash=payload_hash)
     request = {
         "run_id": run_id,
         "turn": turn,
@@ -962,13 +965,13 @@ async def _request_approval(
         "side": args.side,
         "quantity": args.quantity,
         "payload_hash": payload_hash,
+        "approval_token": approval_token,
     }
     await emit("approval_request", request)
     if store is not None:
         await store.log_step(
             run_id, turn, "approval_request", {**request, "status": "pending"}
         )
-    registry.open(run_id, payload_hash=payload_hash)
     try:
         decision = await registry.wait(run_id, timeout)
     finally:

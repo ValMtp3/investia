@@ -17,6 +17,7 @@ from a2a.types import Artifact, Part, Task, TaskState, TaskStatus
 
 from investia.agent import run_agent
 from investia.guardrails import run_all_checks
+from investia.guardrails.injection import wrap_untrusted
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,31 @@ def _streaming_sink(updater: TaskUpdater):
 class AnalysteExecutor(AgentExecutor):
     """L'analyste : boucle agent complète (outils + portefeuille) → analyse brute."""
 
-    def __init__(self, llm: Any, tools: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        llm: Any,
+        tools: dict[str, Any],
+        *,
+        tool_policy: Any | None = None,
+        approval_registry: Any | None = None,
+        trace_store: Any | None = None,
+        memory_store: Any | None = None,
+        semantic_cache: Any | None = None,
+        router: Any | None = None,
+        context_max_tokens: int | None = None,
+        keep_last_turns: int = 4,
+    ) -> None:
         self._llm = llm
         self._tools = tools
+        # 24 (scan sécurité) : mêmes garde-fous que /agent/run (CWE-306/862/693)
+        self._tool_policy = tool_policy
+        self._approval_registry = approval_registry
+        self._trace_store = trace_store
+        self._memory_store = memory_store
+        self._semantic_cache = semantic_cache
+        self._router = router
+        self._context_max_tokens = context_max_tokens
+        self._keep_last_turns = keep_last_turns
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         updater = await _begin_task(context, event_queue)
@@ -101,7 +124,18 @@ class AnalysteExecutor(AgentExecutor):
         question = _user_text(context)
         # 20c : stream des events internes (llm_call, tool_call…) en "step"
         result = await run_agent(
-            question, self._llm, self._tools, event_sink=_streaming_sink(updater)
+            question,
+            self._llm,
+            self._tools,
+            event_sink=_streaming_sink(updater),
+            tool_policy=self._tool_policy,
+            approval_registry=self._approval_registry,
+            trace_store=self._trace_store,
+            memory_store=self._memory_store,
+            semantic_cache=self._semantic_cache,
+            router=self._router,
+            context_max_tokens=self._context_max_tokens,
+            keep_last_turns=self._keep_last_turns,
         )
         payload = {
             "analysis": result.answer,
@@ -156,26 +190,60 @@ class RisqueExecutor(AgentExecutor):
 class RedacteurExecutor(AgentExecutor):
     """Le rédacteur : réponse finale structurée à partir de l'analyse + du verdict."""
 
-    def __init__(self, llm: Any, tools: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        llm: Any,
+        tools: dict[str, Any],
+        *,
+        tool_policy: Any | None = None,
+        trace_store: Any | None = None,
+        memory_store: Any | None = None,
+        semantic_cache: Any | None = None,
+        router: Any | None = None,
+        context_max_tokens: int | None = None,
+        keep_last_turns: int = 4,
+    ) -> None:
         self._llm = llm
         self._tools = tools
+        self._tool_policy = tool_policy
+        self._trace_store = trace_store
+        self._memory_store = memory_store
+        self._semantic_cache = semantic_cache
+        self._router = router
+        self._context_max_tokens = context_max_tokens
+        self._keep_last_turns = keep_last_turns
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         updater = await _begin_task(context, event_queue)
         await updater.start_work()
         data = _parse_json_input(context)
+        # 24 (scan sécurité, CWE-1427) : l'analyse et le verdict viennent d'un
+        # autre agent (contenu potentiellement injecté via les outils externes) —
+        # délimités comme non fiables avant d'entrer dans le prompt.
+        analysis = wrap_untrusted(str(data.get("analysis") or ""))
+        verdict = wrap_untrusted(str(data.get("verdict") or ""))
         prompt = (
             "Tu es le rédacteur final d'une chaîne d'agents (simulation). "
             "Analyse de l'analyste :\n"
-            f"{data.get('analysis', '')}\n\n"
-            f"Verdict du risque : {data.get('verdict', '')}\n\n"
+            f"{analysis}\n\n"
+            f"Verdict du risque : {verdict}\n\n"
             "Rédige la réponse finale au format imposé (Thèse / Risques / Confiance / "
             "Sources) avec la mention « Simulation — pas un conseil en "
             "investissement. »"
         )
         # 20c : stream des events internes en artifacts "step"
         result = await run_agent(
-            prompt, self._llm, self._tools, event_sink=_streaming_sink(updater)
+            prompt,
+            self._llm,
+            self._tools,
+            event_sink=_streaming_sink(updater),
+            tool_policy=self._tool_policy,
+            trace_store=self._trace_store,
+            memory_store=self._memory_store,
+            semantic_cache=self._semantic_cache,
+            router=self._router,
+            context_max_tokens=self._context_max_tokens,
+            keep_last_turns=self._keep_last_turns,
         )
         payload = {"answer": result.answer}
         await updater.add_artifact(

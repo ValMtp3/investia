@@ -73,7 +73,7 @@ async def test_compact_messages_keeps_head_and_last_turns_and_marks_summary_untr
     # head conservé, puis le résumé marqué NON FIABLE, puis le dernier tour intact
     assert new_messages[0] == {"role": "system", "content": "SYS"}
     assert new_messages[1] == {"role": "user", "content": "Q"}
-    assert new_messages[2]["role"] == "system"
+    assert new_messages[2]["role"] == "user"  # 24 : plus en system (CWE-1427)
     assert "NON FIABLE" in new_messages[2]["content"]
     assert "RÉSUMÉ DU MILIEU" in new_messages[2]["content"]
     assert new_messages[3] == {"role": "assistant", "content": "tour3"}
@@ -139,8 +139,8 @@ async def test_run_agent_compacts_when_over_threshold_and_flushes_memory():
     assert any("profil prudent" in c for c in saved)
     # le 4e appel LLM (tour 3 réel, après la compaction) reçoit le résumé untrusted
     turn3_messages = llm.calls[3]["messages"]
-    system_msgs = [m for m in turn3_messages if m["role"] == "system"]
-    assert any("NON FIABLE" in m["content"] for m in system_msgs)
+    user_msgs = [m for m in turn3_messages if m["role"] == "user"]
+    assert any("NON FIABLE" in m["content"] for m in user_msgs)  # 24 : rôle user
     assert turn3_messages[0]["content"] == SYSTEM_PROMPT
     assert turn3_messages[1] == {"role": "user", "content": QUESTION}
 

@@ -105,10 +105,16 @@ class NutrientPdfReader:
         except SsrfBlockedError as error:
             raise ToolError("read_pdf", f"SSRF bloqué : {error}") from error
         current = url
+        response = None
         for _ in range(MAX_REDIRECTS + 1):
             try:
-                response = await self._client.get(
-                    current, timeout=DOWNLOAD_TIMEOUT, follow_redirects=False
+                # 24 (scan sécurité, CWE-400) : stream=True — on lit par blocs et
+                # on s'arrête à la borne, on ne bufferise jamais tout le corps.
+                response = await self._client.send(
+                    self._client.build_request(
+                        "GET", current, timeout=DOWNLOAD_TIMEOUT
+                    ),
+                    stream=True,
                 )
             except httpx.HTTPError as error:
                 raise ToolError(
@@ -116,6 +122,8 @@ class NutrientPdfReader:
                 ) from error
             if response.is_redirect:
                 location = response.headers.get("location")
+                await response.aclose()
+                response = None
                 if not location:
                     raise ToolError("read_pdf", "redirect sans en-tête location")
                 current = urljoin(current, location)
@@ -129,23 +137,34 @@ class NutrientPdfReader:
             break
         else:
             raise ToolError("read_pdf", f"trop de redirects (> {MAX_REDIRECTS})")
-        if response.status_code != 200:
-            raise ToolError(
-                "read_pdf", f"téléchargement du PDF : HTTP {response.status_code}"
-            )
-        content_type = response.headers.get("content-type", "")
-        if not _is_pdf(str(response.url), content_type):
-            raise ToolError("read_pdf", "l'URL ne pointe pas vers un PDF")
-        content_length = response.headers.get("content-length")
-        if content_length is not None and int(content_length) > MAX_PDF_BYTES:
-            raise ToolError(
-                "read_pdf", f"PDF trop volumineux ({content_length} o > 20 Mo)"
-            )
-        content = response.content
-        if len(content) > MAX_PDF_BYTES:
-            raise ToolError(
-                "read_pdf", f"PDF trop volumineux ({len(content)} o > 20 Mo)"
-            )
+        assert response is not None
+        try:
+            if response.status_code != 200:
+                raise ToolError(
+                    "read_pdf", f"téléchargement du PDF : HTTP {response.status_code}"
+                )
+            content_type = response.headers.get("content-type", "")
+            if not _is_pdf(str(response.url), content_type):
+                raise ToolError("read_pdf", "l'URL ne pointe pas vers un PDF")
+            # Content-Length n'est qu'un indice (absent ou menteur) : early-reject
+            # s'il est présent et trop grand, sinon la vraie borne est ci-dessous.
+            content_length = response.headers.get("content-length")
+            if content_length is not None and int(content_length) > MAX_PDF_BYTES:
+                raise ToolError(
+                    "read_pdf", f"PDF trop volumineux ({content_length} o > 20 Mo)"
+                )
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes(65536):
+                total += len(chunk)
+                if total > MAX_PDF_BYTES:
+                    raise ToolError(
+                        "read_pdf", f"PDF trop volumineux (> {MAX_PDF_BYTES} o)"
+                    )
+                chunks.append(chunk)
+            content = b"".join(chunks)
+        finally:
+            await response.aclose()
         if not content:
             raise ToolError("read_pdf", "PDF vide")
         return content

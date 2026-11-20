@@ -96,3 +96,21 @@ func TestCodeTropLongRefuse(t *testing.T) {
 		t.Fatal("code trop long doit être refusé avant exécution")
 	}
 }
+
+// 24 (scan sécurité, CWE-400) : le timeout demandé par le client est clampé.
+func TestClampTimeout(t *testing.T) {
+	cases := []struct {
+		in, want time.Duration
+	}{
+		{0, DefaultTimeout},
+		{-5 * time.Second, DefaultTimeout},
+		{500 * time.Millisecond, MinTimeout},
+		{10 * time.Second, 10 * time.Second},
+		{time.Hour, MaxTimeout},
+	}
+	for _, c := range cases {
+		if got := ClampTimeout(c.in); got != c.want {
+			t.Errorf("ClampTimeout(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
